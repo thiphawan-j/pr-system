@@ -1,0 +1,71 @@
+name: Deploy to Vercel
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    branches:
+      - main
+    types:
+      - completed
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  VERCEL_CLI_VERSION: 54.18.6
+  VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+  VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+
+jobs:
+  deploy-production:
+    name: Deploy Production
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    steps:
+      - name: Check deployment secrets
+        run: |
+          missing=0
+          if [ -z "${{ secrets.VERCEL_TOKEN }}" ]; then echo "Missing GitHub secret: VERCEL_TOKEN"; missing=1; fi
+          if [ -z "${{ secrets.VERCEL_ORG_ID }}" ]; then echo "Missing GitHub secret: VERCEL_ORG_ID"; missing=1; fi
+          if [ -z "${{ secrets.VERCEL_PROJECT_ID }}" ]; then echo "Missing GitHub secret: VERCEL_PROJECT_ID"; missing=1; fi
+          if [ -z "${{ secrets.DATABASE_URL }}" ]; then echo "Missing GitHub secret: DATABASE_URL"; missing=1; fi
+          exit "$missing"
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Vercel CLI
+        run: npm install --global vercel@${{ env.VERCEL_CLI_VERSION }}
+
+      - name: Pull Vercel production environment
+        run: vercel pull --yes --environment=production --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Run production migrations
+        run: npm run db:deploy
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Build Vercel artifact
+        run: vercel build --prod --token=${{ secrets.VERCEL_TOKEN }}
+
+      - name: Deploy prebuilt artifact
+        run: vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}

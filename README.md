@@ -69,8 +69,42 @@ npm run lint
 npm run typecheck
 npm run build
 npm run db:generate
+npm run db:deploy
 npm run db:studio
 ```
+
+## CI/CD และ Deployment
+
+โปรเจ็กต์นี้เตรียม GitHub Actions ไว้ 2 workflow:
+
+- `CI`: รันเมื่อเปิด PR, push เข้า `main` หรือกด manual โดยจะติดตั้ง dependencies, เปิด PostgreSQL service, รัน `typecheck`, `lint`, `build` และ E2E tests
+- `Deploy to Vercel`: รัน production deploy อัตโนมัติหลัง `CI` บน `main` ผ่าน หรือกด manual ได้จาก GitHub Actions
+
+ต้องตั้งค่า GitHub repository secrets เหล่านี้ก่อน deploy:
+
+```bash
+VERCEL_TOKEN=...
+VERCEL_ORG_ID=...
+VERCEL_PROJECT_ID=...
+DATABASE_URL=...
+```
+
+และต้องตั้งค่า Environment Variables ใน Vercel สำหรับ runtime:
+
+```bash
+DATABASE_URL=...
+JWT_SECRET=...
+APP_URL=https://your-production-domain
+```
+
+ขั้นตอน deploy production ใน workflow คือ:
+
+1. `vercel pull --environment=production`
+2. `npm run db:deploy` เพื่อ apply Prisma migrations กับ production database
+3. `vercel build --prod`
+4. `vercel deploy --prebuilt --prod`
+
+หมายเหตุ: ไฟล์แนบปัจจุบันบันทึกลง filesystem local ในโฟลเดอร์ `storage/` ถ้าจะใช้งาน production บน serverless platform ควรเปลี่ยนเป็น persistent object storage ก่อนใช้งานไฟล์แนบจริงจัง
 
 ## บัญชีตัวอย่าง
 
