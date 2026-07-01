@@ -1,0 +1,164 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  EMPLOYEE
+  APPROVER
+  PURCHASING
+  ADMIN
+}
+
+enum Priority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum PurchaseRequestStatus {
+  DRAFT
+  SUBMITTED
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  ORDERED
+  COMPLETED
+}
+
+enum ApprovalAction {
+  DRAFT_SAVED
+  SUBMITTED
+  APPROVED
+  REJECTED
+  RETURNED
+  ORDERED
+  COMPLETED
+  COMMENTED
+}
+
+enum NotificationType {
+  INFO
+  SUCCESS
+  WARNING
+  ERROR
+}
+
+model User {
+  id               String            @id @default(cuid())
+  employeeCode     String            @unique
+  name             String
+  username         String?           @unique
+  phone            String?           @unique
+  email            String            @unique
+  passwordHash     String
+  department       String
+  role             Role
+  title            String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  purchaseRequests PurchaseRequest[] @relation("RequesterPurchaseRequests")
+  approvals        Approval[]
+  notifications    Notification[]
+  assignedRequests PurchaseRequest[] @relation("CurrentApproverPurchaseRequests")
+  uploadedAttachments PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
+}
+
+model PurchaseRequest {
+  id                String                @id @default(cuid())
+  prNumber          String                @unique
+  requestDate       DateTime              @default(now())
+  requesterId       String
+  requester         User                  @relation("RequesterPurchaseRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  currentApproverId String?
+  currentApprover   User?                 @relation("CurrentApproverPurchaseRequests", fields: [currentApproverId], references: [id], onDelete: SetNull)
+  department        String
+  reason            String
+  urgency           Priority              @default(NORMAL)
+  status            PurchaseRequestStatus @default(DRAFT)
+  totalAmount       Decimal               @db.Decimal(12, 2)
+  submittedAt       DateTime?
+  approvedAt        DateTime?
+  orderedAt         DateTime?
+  completedAt       DateTime?
+  createdAt         DateTime              @default(now())
+  updatedAt         DateTime              @updatedAt
+  items             PurchaseRequestItem[]
+  approvals         Approval[]
+  attachments       PurchaseRequestAttachment[]
+
+  @@index([requesterId, status])
+  @@index([department, status])
+  @@index([requestDate])
+}
+
+model PurchaseRequestAttachment {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  uploadedById      String
+  uploadedBy        User            @relation("UploadedPurchaseRequestAttachments", fields: [uploadedById], references: [id], onDelete: Cascade)
+  originalName      String
+  storedName        String
+  mimeType          String
+  size              Int
+  storagePath       String
+  createdAt         DateTime        @default(now())
+
+  @@index([purchaseRequestId, createdAt])
+  @@index([uploadedById])
+}
+
+model PurchaseRequestItem {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  itemName          String
+  description       String?
+  supplierName      String?
+  quantity          Int
+  unit              String?
+  unitPrice         Decimal?        @db.Decimal(12, 2)
+  amount            Decimal         @db.Decimal(12, 2)
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@index([purchaseRequestId])
+}
+
+model Approval {
+  id                String          @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  approverId        String
+  approver          User            @relation(fields: [approverId], references: [id], onDelete: Cascade)
+  action            ApprovalAction
+  stepLabel         String?
+  comment           String?
+  createdAt         DateTime        @default(now())
+
+  @@index([purchaseRequestId, createdAt])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  link      String?
+  type      NotificationType @default(INFO)
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, createdAt])
+}

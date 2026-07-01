@@ -1,0 +1,26 @@
+import "server-only";
+
+import type { Role, SessionUser } from "@/lib/types";
+import { AppError } from "@/server/shared/errors";
+
+export function assertRole(user: SessionUser, allowedRoles: Role[]) {
+  if (!allowedRoles.includes(user.role)) {
+    throw new AppError("คุณไม่มีสิทธิ์เข้าถึงข้อมูลส่วนนี้", 403);
+  }
+}
+
+export function isAdmin(user: SessionUser) {
+  return user.role === "ADMIN";
+}
+
+export function isApprover(user: SessionUser) {
+  return user.role === "APPROVER" || user.role === "ADMIN";
+}
+
+export function isPurchasing(user: SessionUser) {
+  return user.role === "PURCHASING" || user.role === "ADMIN";
+}
+
+export function canManageRequestAsOwner(user: SessionUser, requesterId: string) {
+  return isAdmin(user) || user.id === requesterId;
+}

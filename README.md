@@ -1,36 +1,103 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# PR Flow
 
-## Getting Started
+ระบบ Purchase Request Management สำหรับองค์กร พร้อม workflow อนุมัติ, dashboard, notifications และรายงานส่งออก
 
-First, run the development server:
+## Tech Stack
+
+- Next.js 15 App Router
+- TypeScript
+- Tailwind CSS
+- shadcn/ui
+- Prisma ORM
+- PostgreSQL
+- Zod
+
+## ฟีเจอร์หลัก
+
+- Login / Logout ด้วย JWT cookie รองรับ `email`, `username` และ `phone`
+- Role Based Access Control: `Employee`, `Approver`, `Purchasing`, `Admin`
+- Dashboard สรุป PR รออนุมัติ, อนุมัติแล้ว, ถูกปฏิเสธ และมูลค่ารวม
+- สร้าง/แก้ไข Purchase Request พร้อมคำนวณยอดรวมอัตโนมัติ
+- Approval Workflow: Draft, Pending Approval, Approved, Rejected, Ordered, Completed
+- Notification Bell สำหรับเหตุการณ์สำคัญ
+- Reports แยกตามเดือน, แผนก และผู้ขอซื้อ
+- Export Excel และ PDF
+- รองรับภาษาไทย, Dark Mode และ responsive ทุกหน้าจอ
+
+## เริ่มต้นใช้งาน
+
+1. ติดตั้ง dependencies
+
+```bash
+npm install
+```
+
+2. เตรียม environment
+
+```bash
+cp .env.example .env
+```
+
+3. เปิด PostgreSQL ด้วย Docker
+
+```bash
+docker compose up -d postgres
+```
+
+หมายเหตุ: โปรเจ็กนี้ map database ออกที่ `localhost:5433` เพื่อหลบพอร์ต `5432` ที่มักถูกใช้งานอยู่แล้ว
+
+4. apply migration และ seed data
+
+```bash
+npm run db:migrate
+npm run db:seed
+```
+
+5. เปิด dev server
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+จากนั้นเปิด `http://localhost:3000`
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## คำสั่งที่ใช้บ่อย
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```bash
+npm run dev
+npm run lint
+npm run typecheck
+npm run build
+npm run db:generate
+npm run db:studio
+```
 
-## Learn More
+## บัญชีตัวอย่าง
 
-To learn more about Next.js, take a look at the following resources:
+- `employee@demo.local` | `somchai` | `0811111111` / `Passw0rd!`
+- `approver@demo.local` | `wipa` | `0811111112` / `Passw0rd!`
+- `purchasing@demo.local` | `kitti` | `0811111113` / `Passw0rd!`
+- `admin@demo.local` | `admin` | `0811111114` / `Passw0rd!`
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## โครงสร้างสำคัญ
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- `src/app` หน้า UI และ Route Handlers
+- `src/components` UI components และ layout shell
+- `src/server` auth, services, DAL และ business rules
+- `prisma/schema.prisma` schema หลัก
+- `prisma/seed.ts` demo data
+- `docker-compose.yml` local PostgreSQL
 
-## Deploy on Vercel
+## การตรวจสอบที่รันแล้ว
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- `npm run typecheck`
+- `npm run lint`
+- `npm run build`
+- `npm run db:migrate`
+- `npm run db:seed`
+- `npx prisma migrate status`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## หมายเหตุ
+
+- สำหรับ Prisma 7 โปรเจ็กนี้ใช้ `@prisma/adapter-pg` ร่วมกับ `pg` เพื่อเชื่อม PostgreSQL ใน runtime
+- PDF export ฝังฟอนต์ไทยจาก local package เพื่อให้ build และ export ทำงานได้โดยไม่ต้องดึง Google Fonts ระหว่าง build
