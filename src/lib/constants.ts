@@ -79,6 +79,5 @@ export const navigationItems = [
   { href: "/purchase-requests", labelKey: "purchaseRequests" },
   { href: "/purchase-requests/new", labelKey: "createPurchaseRequest" },
   { href: "/reports", labelKey: "reports" },
-  { href: "/profile", labelKey: "profile" },
   { href: "/admin/users", labelKey: "adminUsers", roles: ["ADMIN"] },
 ] as const;

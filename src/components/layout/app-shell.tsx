@@ -69,6 +69,8 @@ export function AppShell({
             <LanguageToggle />
             <Link
               href="/profile"
+              aria-label={dictionary.navigation.profile}
+              title={dictionary.navigation.profile}
               className="hidden items-center gap-3 rounded-full border border-border/70 bg-card px-3 py-1.5 transition-colors hover:bg-muted/40 md:flex"
             >
               <Avatar size="sm">

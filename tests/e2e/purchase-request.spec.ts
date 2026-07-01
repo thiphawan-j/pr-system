@@ -110,7 +110,8 @@ test("user can change their own password from the profile page", async ({ page }
   const updatedPassword = "NewPassw0rd!";
 
   await signIn(page, profileCredentials);
-  await page.goto("/profile");
+  await expect(page.locator('header nav a[href="/profile"]')).toHaveCount(0);
+  await page.getByRole("link", { name: /โปรไฟล์|profile/i }).click();
 
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     /โปรไฟล์ผู้ใช้งาน|user profile/i,
