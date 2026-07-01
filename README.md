@@ -35,7 +35,24 @@ npm install
 2. เตรียม environment
 
 ```bash
-cp .env.example .env
+cp .env.dev.example .env.dev
+```
+
+ไฟล์ env จริงถูก ignore จาก Git ทั้งหมด ให้เก็บ secret ในไฟล์เหล่านี้เท่านั้น:
+
+```bash
+.env.dev
+.env.uat
+.env.prod
+```
+
+ไฟล์ template ที่ commit ได้คือ:
+
+```bash
+.env.dev.example
+.env.uat.example
+.env.prod.example
+.env.example
 ```
 
 3. เปิด PostgreSQL ด้วย Docker
@@ -49,8 +66,8 @@ docker compose up -d postgres
 4. apply migration และ seed data
 
 ```bash
-npm run db:migrate
-npm run db:seed
+npm run db:migrate:dev
+npm run db:seed:dev
 ```
 
 5. เปิด dev server
@@ -65,12 +82,36 @@ npm run dev
 
 ```bash
 npm run dev
+npm run dev:uat
 npm run lint
 npm run typecheck
 npm run build
+npm run build:dev
+npm run build:uat
+npm run build:prod
 npm run db:generate
 npm run db:deploy
+npm run db:deploy:uat
+npm run db:deploy:prod
 npm run db:studio
+```
+
+## Environment Files
+
+โปรเจ็กต์นี้แยก env เป็น 3 ชุด:
+
+- `dev`: ใช้ `.env.dev` และ optional override `.env.dev.local`
+- `uat`: ใช้ `.env.uat` และ optional override `.env.uat.local`
+- `prod`: ใช้ `.env.prod` และ optional override `.env.prod.local`
+
+ลำดับการโหลดของ helper script คือ `.env` -> `.env.<env>` -> `.env.<env>.local` โดยค่า environment ที่มาจาก shell, GitHub Actions หรือ Vercel จะชนะไฟล์ local เสมอ
+
+ตัวอย่างการใช้งาน:
+
+```bash
+npm run dev
+npm run build:uat
+npm run db:deploy:prod
 ```
 
 ## CI/CD และ Deployment
