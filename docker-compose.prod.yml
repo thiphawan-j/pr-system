@@ -28,7 +28,7 @@ services:
     volumes:
       - pr-system-postgres-data:/var/lib/postgresql/data
 
-  web:
+  pr-system-web:
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -55,7 +55,6 @@ services:
       pr-system-private:
       caddy-external:
         aliases:
-          - web
           - pr-system-web
     volumes:
       - pr-system-storage-data:/app/storage
@@ -96,5 +95,5 @@ volumes:
     name: pr-system-postgres-data
 
   pr-system-storage-data:
-    external: true 
-    name: pr-system-storage-data
+    external: true
+    name: pr-system_pr-system-storage

@@ -90,7 +90,11 @@ model PurchaseRequest {
   submittedAt       DateTime?
   approvedAt        DateTime?
   orderedAt         DateTime?
+  receivedAt        DateTime?
   completedAt       DateTime?
+  receiptNumber     String?
+  taxInvoiceNumber  String?
+  receiptReferenceNote String?
   createdAt         DateTime              @default(now())
   updatedAt         DateTime              @updatedAt
   items             PurchaseRequestItem[]

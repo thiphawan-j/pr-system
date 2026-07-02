@@ -49,24 +49,23 @@ jobs:
           APP_DIR="/opt/pr-system/pr-system"
           cd "$APP_DIR"
 
-          # First deployment cleanup: remove local untracked production files that were created manually
-          # before these files were committed into GitHub. This prevents git pull/reset conflicts.
-          for file in Dockerfile docker-compose.prod.yml .dockerignore; do
-            if [ -f "$file" ] && ! git ls-files --error-unmatch "$file" >/dev/null 2>&1; then
-              cp "$file" "$file.server-backup-$(date +%Y%m%d%H%M%S)"
-              rm "$file"
-            fi
-          done
-
           test -f .env.prod || { echo ".env.prod is missing on the Droplet"; exit 1; }
+
+          docker volume inspect pr-system-postgres-data >/dev/null 2>&1 || {
+            echo "Missing volume: pr-system-postgres-data"
+            echo "Stop deploy to avoid creating an empty production database."
+            exit 1
+          }
+
+          docker volume inspect pr-system-storage-data >/dev/null 2>&1 || docker volume create pr-system-storage-data
 
           git fetch origin main
           git reset --hard origin/main
 
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --build postgres
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build web migrate
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build pr-system-web migrate
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm migrate
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d web
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d pr-system-web
 
           docker ps --filter name=pr-system
           REMOTE

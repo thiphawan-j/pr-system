@@ -234,7 +234,11 @@ function toDetail(
     submittedAt: request.submittedAt?.toISOString() ?? null,
     approvedAt: request.approvedAt?.toISOString() ?? null,
     orderedAt: request.orderedAt?.toISOString() ?? null,
+    receivedAt: request.receivedAt?.toISOString() ?? null,
     completedAt: request.completedAt?.toISOString() ?? null,
+    receiptNumber: request.receiptNumber ?? null,
+    taxInvoiceNumber: request.taxInvoiceNumber ?? null,
+    receiptReferenceNote: request.receiptReferenceNote ?? null,
     createdAt: request.createdAt.toISOString(),
     updatedAt: request.updatedAt.toISOString(),
     items: request.items.map((item) => ({
@@ -763,8 +767,100 @@ export async function progressPurchaseRequest(
   id: string,
   session: SessionUser,
   input: {
-    action: "ORDERED" | "COMPLETED";
+    action: "ORDERED" | "RECEIVED";
     comment?: string;
+    receivedDate?: string;
+  },
+) {
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+  });
+
+  if (!request) {
+    throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  }
+
+  if (input.action === "ORDERED") {
+    invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
+    invariant(
+      request.status === PurchaseRequestStatus.APPROVED,
+      "PR ต้องได้รับการอนุมัติก่อนจึงจะสั่งซื้อได้",
+      400,
+    );
+  }
+
+  if (input.action === "RECEIVED") {
+    assertCanView(
+      session,
+      request.requesterId,
+      request.department,
+      request.currentApproverId,
+    );
+    invariant(input.receivedDate, "กรุณาระบุวันที่รับของ", 400);
+    invariant(
+      request.status === PurchaseRequestStatus.ORDERED,
+      "PR ต้องถูกสั่งซื้อแล้วก่อนจึงจะยืนยันรับของได้",
+      400,
+    );
+  }
+
+  await db.purchaseRequest.update({
+    where: { id },
+    data: {
+      status: PurchaseRequestStatus.ORDERED,
+      orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
+      receivedAt:
+        input.action === "RECEIVED" && input.receivedDate
+          ? new Date(`${input.receivedDate}T00:00:00.000Z`)
+          : request.receivedAt,
+      approvals: {
+        create: {
+          approverId: session.id,
+          action:
+            input.action === "ORDERED"
+              ? ApprovalAction.ORDERED
+              : ApprovalAction.COMMENTED,
+          stepLabel: input.action === "ORDERED" ? "ฝ่ายจัดซื้อ" : "ยืนยันรับของ",
+          comment: input.comment,
+        },
+      },
+    },
+  });
+
+  if (input.action === "ORDERED") {
+    await notifyProgressUpdate({
+      requestId: id,
+      prNumber: request.prNumber,
+      requesterId: request.requesterId,
+      action: input.action,
+    });
+  }
+}
+
+function buildReceiptReferenceComment(input: {
+  receiptNumber?: string;
+  taxInvoiceNumber?: string;
+  note?: string;
+}) {
+  const parts = [
+    input.receiptNumber ? `เลขรับของ: ${input.receiptNumber}` : null,
+    input.taxInvoiceNumber
+      ? `เลขที่ใบกำกับภาษี: ${input.taxInvoiceNumber}`
+      : null,
+    input.note ? `หมายเหตุ: ${input.note}` : null,
+  ].filter(Boolean);
+
+  return parts.join(" | ");
+}
+
+export async function updateReceiptReferences(
+  id: string,
+  session: SessionUser,
+  input: {
+    receiptNumber?: string;
+    taxInvoiceNumber?: string;
+    note?: string;
   },
 ) {
   const db = getDb();
@@ -777,52 +873,74 @@ export async function progressPurchaseRequest(
   }
 
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
+  invariant(
+    request.status === PurchaseRequestStatus.ORDERED ||
+      request.status === PurchaseRequestStatus.COMPLETED,
+    "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้",
+    400,
+  );
+  invariant(
+    request.receivedAt,
+    "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้",
+    400,
+  );
+  invariant(
+    input.receiptNumber || input.taxInvoiceNumber,
+    "กรุณาระบุหมายเลขรับของหรือเลขที่ใบกำกับภาษี",
+    400,
+  );
 
-  if (input.action === "ORDERED") {
-    invariant(
-      request.status === PurchaseRequestStatus.APPROVED,
-      "PR ต้องได้รับการอนุมัติก่อนจึงจะสั่งซื้อได้",
-      400,
-    );
-  }
+  const nextReceiptNumber = input.receiptNumber ?? null;
+  const nextTaxInvoiceNumber = input.taxInvoiceNumber ?? null;
+  const nextReceiptReferenceNote = input.note ?? null;
+  const hasChanges =
+    request.receiptNumber !== nextReceiptNumber ||
+    request.taxInvoiceNumber !== nextTaxInvoiceNumber ||
+    request.receiptReferenceNote !== nextReceiptReferenceNote;
 
-  if (input.action === "COMPLETED") {
-    invariant(
-      request.status === PurchaseRequestStatus.ORDERED,
-      "PR ต้องถูกสั่งซื้อแล้วก่อนจึงจะปิดงานได้",
-      400,
-    );
+  if (!hasChanges) {
+    return;
   }
 
   await db.purchaseRequest.update({
     where: { id },
     data: {
       status:
-        input.action === "ORDERED"
-          ? PurchaseRequestStatus.ORDERED
-          : PurchaseRequestStatus.COMPLETED,
-      orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
-      completedAt: input.action === "COMPLETED" ? new Date() : request.completedAt,
+        request.status === PurchaseRequestStatus.ORDERED
+          ? PurchaseRequestStatus.COMPLETED
+          : request.status,
+      completedAt:
+        request.status === PurchaseRequestStatus.ORDERED
+          ? new Date()
+          : request.completedAt,
+      receiptNumber: nextReceiptNumber,
+      taxInvoiceNumber: nextTaxInvoiceNumber,
+      receiptReferenceNote: nextReceiptReferenceNote,
       approvals: {
         create: {
           approverId: session.id,
           action:
-            input.action === "ORDERED"
-              ? ApprovalAction.ORDERED
-              : ApprovalAction.COMPLETED,
-          stepLabel: "ฝ่ายจัดซื้อ",
-          comment: input.comment,
+            request.status === PurchaseRequestStatus.ORDERED
+              ? ApprovalAction.COMPLETED
+              : ApprovalAction.COMMENTED,
+          stepLabel:
+            request.status === PurchaseRequestStatus.ORDERED
+              ? "ฝ่ายจัดซื้อ"
+              : "อัปเดตเลขเอกสาร",
+          comment: buildReceiptReferenceComment(input),
         },
       },
     },
   });
 
-  await notifyProgressUpdate({
-    requestId: id,
-    prNumber: request.prNumber,
-    requesterId: request.requesterId,
-    action: input.action,
-  });
+  if (request.status === PurchaseRequestStatus.ORDERED) {
+    await notifyProgressUpdate({
+      requestId: id,
+      prNumber: request.prNumber,
+      requesterId: request.requesterId,
+      action: "COMPLETED",
+    });
+  }
 }
 
 export async function getDashboardSummary(session: SessionUser) {

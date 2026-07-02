@@ -1,37 +1,31 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { translateMessage } from "@/lib/i18n";
-import type { PurchaseRequestStatus } from "@/lib/types";
 
-type PurchasingProgressPanelProps = {
+type ReceiptConfirmationPanelProps = {
   requestId: string;
-  status: PurchaseRequestStatus;
 };
 
-export function PurchasingProgressPanel({
+export function ReceiptConfirmationPanel({
   requestId,
-  status,
-}: PurchasingProgressPanelProps) {
+}: ReceiptConfirmationPanelProps) {
   const router = useRouter();
+  const [receivedDate, setReceivedDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
   const [comment, setComment] = useState("");
   const [isPending, setIsPending] = useState(false);
   const { dictionary, locale } = useI18n();
-
-  const nextAction = "ORDERED";
-  const nextLabel = dictionary.approval.confirmOrdered;
-
-  useEffect(() => {
-    setComment("");
-  }, [status]);
 
   function handleSubmit() {
     setIsPending(true);
@@ -42,7 +36,8 @@ export function PurchasingProgressPanel({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: nextAction,
+          action: "RECEIVED",
+          receivedDate,
           comment,
         }),
       });
@@ -65,17 +60,26 @@ export function PurchasingProgressPanel({
   return (
     <Card className="border-border/70">
       <CardHeader>
-        <CardTitle>{dictionary.approval.purchasingTitle}</CardTitle>
+        <CardTitle>{dictionary.approval.receivedTitle}</CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="purchasing-comment">{dictionary.common.comment}</Label>
+          <Label htmlFor="received-date">{dictionary.common.receivedDate}</Label>
+          <Input
+            id="received-date"
+            type="date"
+            value={receivedDate}
+            onChange={(event) => setReceivedDate(event.target.value)}
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="receipt-comment">{dictionary.common.comment}</Label>
           <Textarea
-            id="purchasing-comment"
+            id="receipt-comment"
             rows={4}
             value={comment}
             onChange={(event) => setComment(event.target.value)}
-            placeholder={dictionary.approval.purchasingCommentPlaceholder}
+            placeholder={dictionary.approval.receivedCommentPlaceholder}
           />
         </div>
         <Button
@@ -84,7 +88,7 @@ export function PurchasingProgressPanel({
           disabled={isPending}
           onClick={handleSubmit}
         >
-          {isPending ? dictionary.common.saving : nextLabel}
+          {isPending ? dictionary.common.saving : dictionary.approval.confirmReceived}
         </Button>
       </CardContent>
     </Card>

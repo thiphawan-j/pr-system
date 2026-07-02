@@ -101,7 +101,11 @@ export type PurchaseRequestDetail = {
   submittedAt?: string | null;
   approvedAt?: string | null;
   orderedAt?: string | null;
+  receivedAt?: string | null;
   completedAt?: string | null;
+  receiptNumber?: string | null;
+  taxInvoiceNumber?: string | null;
+  receiptReferenceNote?: string | null;
   createdAt: string;
   updatedAt: string;
   items: Array<

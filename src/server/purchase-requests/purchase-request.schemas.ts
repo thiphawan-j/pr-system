@@ -94,7 +94,34 @@ export const approvalDecisionSchema = z
     }
   });
 
-export const purchasingProgressSchema = z.object({
-  action: z.enum(["ORDERED", "COMPLETED"]),
-  comment: optionalTrimmedString,
-});
+export const purchasingProgressSchema = z
+  .object({
+    action: z.enum(["ORDERED", "RECEIVED"]),
+    comment: optionalTrimmedString,
+    receivedDate: z.iso.date("กรุณาระบุวันที่รับของ").optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "RECEIVED" && !value.receivedDate) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["receivedDate"],
+        message: "กรุณาระบุวันที่รับของ",
+      });
+    }
+  });
+
+export const receiptReferenceSchema = z
+  .object({
+    receiptNumber: optionalTrimmedString,
+    taxInvoiceNumber: optionalTrimmedString,
+    note: optionalTrimmedString,
+  })
+  .superRefine((value, ctx) => {
+    if (!value.receiptNumber && !value.taxInvoiceNumber) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["receiptNumber"],
+        message: "กรุณาระบุหมายเลขรับของหรือเลขที่ใบกำกับภาษี",
+      });
+    }
+  });

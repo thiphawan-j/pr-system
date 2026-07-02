@@ -11,6 +11,8 @@ import {
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
 import { PurchasingProgressPanel } from "@/components/purchase-requests/purchasing-progress-panel";
+import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt-confirmation-panel";
+import { ReceiptReferencePanel } from "@/components/purchase-requests/receipt-reference-panel";
 import { StatusBadge } from "@/components/purchase-requests/status-badge";
 import { SubmitPurchaseRequestButton } from "@/components/purchase-requests/submit-purchase-request-button";
 import { Button } from "@/components/ui/button";
@@ -52,8 +54,16 @@ export default async function PurchaseRequestDetailPage({
     request.status === "PENDING_APPROVAL" &&
     (session.role === "APPROVER" || session.role === "ADMIN");
   const canProgress =
-    (request.status === "APPROVED" || request.status === "ORDERED") &&
+    request.status === "APPROVED" &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
+  const canConfirmReceipt =
+    request.status === "ORDERED" && !request.receivedAt;
+  const canEditReceiptReferences =
+    ((request.status === "ORDERED" && request.receivedAt) ||
+      request.status === "COMPLETED") &&
+    (session.role === "PURCHASING" || session.role === "ADMIN");
+  const receiptReferenceStatus =
+    request.status === "COMPLETED" ? "COMPLETED" : "ORDERED";
 
   return (
     <div className="space-y-6">
@@ -121,6 +131,64 @@ export default async function PurchaseRequestDetailPage({
                   {request.currentApprover?.name ?? dictionary.common.none}
                 </p>
               </div>
+              {request.orderedAt ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.orderedDate}
+                  </p>
+                  <p className="font-medium">{formatDate(request.orderedAt, locale)}</p>
+                </div>
+              ) : null}
+              {request.receivedAt ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.receivedDate}
+                  </p>
+                  <p className="font-medium">
+                    {formatDate(request.receivedAt, locale)}
+                  </p>
+                </div>
+              ) : null}
+              {request.completedAt ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.completedDate}
+                  </p>
+                  <p className="font-medium">
+                    {formatDate(request.completedAt, locale)}
+                  </p>
+                </div>
+              ) : null}
+              {request.status === "COMPLETED" || request.receiptNumber ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.receiptNumber}
+                  </p>
+                  <p className="font-medium">
+                    {request.receiptNumber ?? dictionary.common.none}
+                  </p>
+                </div>
+              ) : null}
+              {request.status === "COMPLETED" || request.taxInvoiceNumber ? (
+                <div>
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.taxInvoiceNumber}
+                  </p>
+                  <p className="font-medium">
+                    {request.taxInvoiceNumber ?? dictionary.common.none}
+                  </p>
+                </div>
+              ) : null}
+              {request.status === "COMPLETED" || request.receiptReferenceNote ? (
+                <div className="sm:col-span-2">
+                  <p className="text-sm text-muted-foreground">
+                    {dictionary.common.comment}
+                  </p>
+                  <p className="font-medium">
+                    {request.receiptReferenceNote ?? dictionary.common.none}
+                  </p>
+                </div>
+              ) : null}
               <div className="sm:col-span-2">
                 <p className="text-sm text-muted-foreground">
                   {dictionary.purchaseRequests.reason}
@@ -202,14 +270,27 @@ export default async function PurchaseRequestDetailPage({
                       ) : null}
                     </div>
                     <div className="flex-1 pb-4">
+                      {(() => {
+                        const actionLabel =
+                          approval.action === "COMMENTED" && approval.stepLabel
+                            ? translateWorkflowText(approval.stepLabel, locale)
+                            : formatApprovalAction(approval.action, locale);
+                        const stepLabel =
+                          approval.action === "COMMENTED"
+                            ? null
+                            : translateWorkflowText(approval.stepLabel, locale);
+
+                        return (
                       <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">
-                          {formatApprovalAction(approval.action, locale)}
-                        </p>
-                        <span className="text-sm text-muted-foreground">
-                          {translateWorkflowText(approval.stepLabel, locale)}
-                        </span>
+                        <p className="font-medium">{actionLabel}</p>
+                        {stepLabel ? (
+                          <span className="text-sm text-muted-foreground">
+                            {stepLabel}
+                          </span>
+                        ) : null}
                       </div>
+                        );
+                      })()}
                       <p className="text-sm text-muted-foreground">
                         {approval.approver.name} ·{" "}
                         {formatDateTime(approval.createdAt, locale)}
@@ -298,6 +379,18 @@ export default async function PurchaseRequestDetailPage({
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
           {canProgress ? (
             <PurchasingProgressPanel requestId={request.id} status={request.status} />
+          ) : null}
+          {canConfirmReceipt ? (
+            <ReceiptConfirmationPanel requestId={request.id} />
+          ) : null}
+          {canEditReceiptReferences ? (
+            <ReceiptReferencePanel
+              requestId={request.id}
+              status={receiptReferenceStatus}
+              receiptNumber={request.receiptNumber}
+              taxInvoiceNumber={request.taxInvoiceNumber}
+              receiptReferenceNote={request.receiptReferenceNote}
+            />
           ) : null}
         </div>
       </section>
