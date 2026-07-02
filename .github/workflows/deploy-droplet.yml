@@ -63,9 +63,10 @@ jobs:
           git fetch origin main
           git reset --hard origin/main
 
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build web
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system exec -T web npm run db:deploy
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --build postgres
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build web migrate
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm migrate
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d web
 
           docker ps --filter name=pr-system
           REMOTE
