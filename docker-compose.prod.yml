@@ -1,7 +1,7 @@
 name: pr-system
 
 services:
-  pr-system-db:
+  postgres:
     image: postgres:16-alpine
     container_name: pr-system-db
     restart: unless-stopped
@@ -23,11 +23,12 @@ services:
       pr-system-private:
         aliases:
           - postgres
+          - pr-system-db
           - pr-system-postgres
     volumes:
       - pr-system-postgres-data:/var/lib/postgresql/data
 
-  pr-system-web:
+  web:
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -46,7 +47,7 @@ services:
       NODE_ENV: production
       PORT: 3000
     depends_on:
-      pr-system-db:
+      postgres:
         condition: service_healthy
     expose:
       - "3000"
@@ -54,11 +55,12 @@ services:
       pr-system-private:
       caddy-external:
         aliases:
+          - web
           - pr-system-web
     volumes:
       - pr-system-storage-data:/app/storage
 
-  pr-system-migrate:
+  migrate:
     build:
       context: .
       dockerfile: Dockerfile.backend
@@ -73,7 +75,7 @@ services:
       APP_ENV: ${APP_ENV:-prod}
       DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.prod}
     depends_on:
-      pr-system-db:
+      postgres:
         condition: service_healthy
     networks:
       - pr-system-private
