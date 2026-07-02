@@ -92,7 +92,9 @@ networks:
 
 volumes:
   pr-system-postgres-data:
+    external: true
     name: pr-system-postgres-data
 
   pr-system-storage-data:
+    external: true 
     name: pr-system-storage-data
