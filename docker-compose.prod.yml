@@ -13,7 +13,6 @@ services:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
-<<<<<<< HEAD
       retries: 10
     restart: unless-stopped
 
@@ -27,13 +26,6 @@ networks:
   caddy-network:
     external: true
     name: ttt-rider_default
-=======
-      retries: 5
-      start_period: 15s
-    networks:
-      - pr-system-private
-    volumes:
-      - pr-system-postgres-data:/var/lib/postgresql/data
 
   pr-system-web:
     build:
