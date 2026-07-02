@@ -1,42 +1,19 @@
-services:
-  web:
-    container_name: pr-system-web
-    build:
-      context: .
-      dockerfile: Dockerfile
-    env_file:
-      - .env.prod
-    expose:
-      - "3000"
-    volumes:
-      - pr-system-storage:/app/storage
-    networks:
-      - pr-system-network
-      - caddy-network
-    depends_on:
-      postgres:
-        condition: service_healthy
-    restart: unless-stopped
+name: pr-system
 
-  postgres:
-    container_name: pr-system-postgres
+services:
+  pr-system-db:
     image: postgres:16-alpine
-    env_file:
-      - .env.prod
-    ports:
-      - "127.0.0.1:5433:5432"
+    container_name: pr-system-db
+    restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-    volumes:
-      - pr-system-postgres-data:/var/lib/postgresql/data
-    networks:
-      - pr-system-network
+      POSTGRES_DB: ${POSTGRES_DB:?Set POSTGRES_DB in .env.prod}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env.prod}
+      POSTGRES_USER: ${POSTGRES_USER:?Set POSTGRES_USER in .env.prod}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
+<<<<<<< HEAD
       retries: 10
     restart: unless-stopped
 
@@ -50,3 +27,73 @@ networks:
   caddy-network:
     external: true
     name: ttt-rider_default
+=======
+      retries: 5
+      start_period: 15s
+    networks:
+      - pr-system-private
+    volumes:
+      - pr-system-postgres-data:/var/lib/postgresql/data
+
+  pr-system-web:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: runner
+    image: pr-system-web:prod
+    container_name: pr-system-web
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      APP_URL: ${APP_URL:?Set APP_URL in .env.prod}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.prod}
+      HOSTNAME: 0.0.0.0
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env.prod}
+      NODE_ENV: production
+      PORT: 3000
+    depends_on:
+      pr-system-db:
+        condition: service_healthy
+    expose:
+      - "3000"
+    networks:
+      pr-system-private:
+      caddy-external:
+        aliases:
+          - pr-system-web
+    volumes:
+      - pr-system-storage-data:/app/storage
+
+  pr-system-migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+      target: migrator
+    image: pr-system-migrate:prod
+    container_name: pr-system-migrate
+    profiles:
+      - tools
+    environment:
+      APP_ENV: ${APP_ENV:-prod}
+      DATABASE_URL: ${DATABASE_URL:?Set DATABASE_URL in .env.prod}
+    depends_on:
+      pr-system-db:
+        condition: service_healthy
+    networks:
+      - pr-system-private
+
+networks:
+  pr-system-private:
+    name: pr-system-private
+    driver: bridge
+    internal: true
+  caddy-external:
+    external: true
+    name: ttt-rider_default
+
+volumes:
+  pr-system-postgres-data:
+    name: pr-system-postgres-data
+  pr-system-storage-data:
+    name: pr-system-storage-data
+>>>>>>> 93da14f (Add Caddy-based production deployment setup)
