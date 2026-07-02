@@ -27,7 +27,7 @@ export function normalizePhone(value: string) {
   return hasLeadingPlus ? `+${digitsOnly}` : digitsOnly;
 }
 
-export const createUserSchema = z.object({
+const userFieldsSchema = z.object({
   employeeCode: z
     .string()
     .trim()
@@ -58,10 +58,34 @@ export const createUserSchema = z.object({
   email: z.email("กรุณาระบุอีเมลให้ถูกต้อง").transform((value) =>
     value.toLowerCase().trim(),
   ),
-  password: z.string().min(8, "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"),
   department: z.enum(departments, { error: "กรุณาเลือกแผนก" }),
   role: z.enum(roles, { error: "กรุณาเลือกบทบาทผู้ใช้งาน" }),
   title: optionalTrimmedString,
+});
+
+export const createUserSchema = userFieldsSchema.extend({
+  password: z.string().min(8, "รหัสผ่านต้องมีอย่างน้อย 8 ตัวอักษร"),
+});
+
+export const updateUserSchema = userFieldsSchema;
+
+export const adminResetPasswordSchema = z
+  .object({
+    newPassword: z.string().min(8, "รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร"),
+    confirmPassword: z.string().min(1, "กรุณายืนยันรหัสผ่านใหม่"),
+  })
+  .superRefine((value, ctx) => {
+    if (value.newPassword !== value.confirmPassword) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["confirmPassword"],
+        message: "รหัสผ่านใหม่และยืนยันรหัสผ่านไม่ตรงกัน",
+      });
+    }
+  });
+
+export const setUserActiveSchema = z.object({
+  isActive: z.boolean(),
 });
 
 export const changePasswordSchema = z
@@ -81,4 +105,7 @@ export const changePasswordSchema = z
   });
 
 export type CreateUserInput = z.output<typeof createUserSchema>;
+export type UpdateUserInput = z.output<typeof updateUserSchema>;
 export type ChangePasswordInput = z.output<typeof changePasswordSchema>;
+export type AdminResetPasswordInput = z.output<typeof adminResetPasswordSchema>;
+export type SetUserActiveInput = z.output<typeof setUserActiveSchema>;

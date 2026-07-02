@@ -2,17 +2,8 @@ import { redirect } from "next/navigation";
 import { ShieldCheck, Users } from "lucide-react";
 
 import { UserCreateForm } from "@/components/admin/user-create-form";
-import { Badge } from "@/components/ui/badge";
+import { UserManagementList } from "@/components/admin/user-management-list";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { getInitials } from "@/lib/format";
 import { interpolate } from "@/lib/i18n";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary } from "@/server/i18n";
@@ -79,84 +70,7 @@ export default async function AdminUsersPage() {
         </CardHeader>
         <CardContent>
           {users.length ? (
-            <>
-              <div className="grid gap-3 md:hidden">
-                {users.map((user) => (
-                  <div
-                    key={user.id}
-                    className="rounded-2xl border border-border/70 p-4"
-                  >
-                    <div className="flex items-start gap-3">
-                      <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-muted text-sm font-semibold">
-                        {getInitials(user.name)}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="font-medium">{user.name}</p>
-                          <Badge variant="outline">
-                            {dictionary.roles[user.role]}
-                          </Badge>
-                        </div>
-                        <p className="truncate text-sm text-muted-foreground">
-                          {user.email}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {user.employeeCode} · {user.department}
-                        </p>
-                        <p className="text-sm text-muted-foreground">
-                          {user.username ?? "-"} · {user.phone ?? "-"}
-                        </p>
-                        {user.title ? (
-                          <p className="text-sm text-muted-foreground">
-                            {user.title}
-                          </p>
-                        ) : null}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div className="hidden md:block">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>{dictionary.admin.employeeCode}</TableHead>
-                      <TableHead>{dictionary.admin.name}</TableHead>
-                      <TableHead>{dictionary.admin.username}</TableHead>
-                      <TableHead>{dictionary.admin.phone}</TableHead>
-                      <TableHead>{dictionary.auth.email}</TableHead>
-                      <TableHead>{dictionary.common.department}</TableHead>
-                      <TableHead>{dictionary.admin.role}</TableHead>
-                      <TableHead>{dictionary.admin.title}</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {users.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell className="font-mono text-xs">
-                          {user.employeeCode}
-                        </TableCell>
-                        <TableCell className="font-medium">{user.name}</TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {user.username ?? "-"}
-                        </TableCell>
-                        <TableCell className="font-mono text-xs">
-                          {user.phone ?? "-"}
-                        </TableCell>
-                        <TableCell>{user.email}</TableCell>
-                        <TableCell>{user.department}</TableCell>
-                        <TableCell>
-                          <Badge variant="outline">
-                            {dictionary.roles[user.role]}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>{user.title ?? "-"}</TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </>
+            <UserManagementList currentUserId={session.id} users={users} />
           ) : (
             <div className="rounded-2xl border border-dashed border-border/70 p-8 text-center text-muted-foreground">
               {dictionary.admin.emptyUsers}

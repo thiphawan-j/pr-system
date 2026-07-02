@@ -3,7 +3,19 @@ import "server-only";
 import { NotificationType } from "@prisma/client";
 import type { NotificationItem } from "@/lib/types";
 import { getDb } from "@/server/db";
+import {
+  isEmailDeliveryEnabled,
+  sendNotificationEmail,
+} from "@/server/email/email.service";
 import { AppError } from "@/server/shared/errors";
+
+type NotificationDraft = {
+  userId: string;
+  title: string;
+  message: string;
+  link?: string;
+  type?: NotificationType;
+};
 
 function toNotificationDto(notification: {
   id: string;
@@ -23,6 +35,61 @@ function toNotificationDto(notification: {
     readAt: notification.readAt?.toISOString() ?? null,
     createdAt: notification.createdAt.toISOString(),
   } satisfies NotificationItem;
+}
+
+async function deliverNotificationEmails(notifications: NotificationDraft[]) {
+  if (!notifications.length || !isEmailDeliveryEnabled()) {
+    return;
+  }
+
+  const db = getDb();
+  const recipientIds = Array.from(
+    new Set(notifications.map((notification) => notification.userId)),
+  );
+  const recipients = await db.user.findMany({
+    where: {
+      id: {
+        in: recipientIds,
+      },
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+    },
+  });
+  const recipientsById = new Map(recipients.map((recipient) => [recipient.id, recipient]));
+
+  const results = await Promise.allSettled(
+    notifications.map(async (notification) => {
+      const recipient = recipientsById.get(notification.userId);
+
+      if (!recipient?.email) {
+        return;
+      }
+
+      await sendNotificationEmail({
+        email: recipient.email,
+        name: recipient.name,
+        title: notification.title,
+        message: notification.message,
+        link: notification.link,
+      });
+    }),
+  );
+
+  const failures = results.filter((result) => result.status === "rejected");
+
+  if (failures.length) {
+    console.error(
+      `Failed to send ${failures.length} notification email(s)`,
+      failures.map((failure) =>
+        failure.status === "rejected"
+          ? failure.reason
+          : null,
+      ),
+    );
+  }
 }
 
 export async function listNotificationsForUser(userId: string, limit = 8) {
@@ -56,7 +123,7 @@ export async function createNotification(input: {
 }) {
   const db = getDb();
 
-  return db.notification.create({
+  const notification = await db.notification.create({
     data: {
       userId: input.userId,
       title: input.title,
@@ -65,17 +132,13 @@ export async function createNotification(input: {
       type: input.type ?? NotificationType.INFO,
     },
   });
+
+  await deliverNotificationEmails([input]);
+
+  return notification;
 }
 
-export async function createNotifications(
-  notifications: Array<{
-    userId: string;
-    title: string;
-    message: string;
-    link?: string;
-    type?: NotificationType;
-  }>,
-) {
+export async function createNotifications(notifications: NotificationDraft[]) {
   if (!notifications.length) {
     return;
   }
@@ -91,6 +154,8 @@ export async function createNotifications(
       type: notification.type ?? NotificationType.INFO,
     })),
   });
+
+  await deliverNotificationEmails(notifications);
 }
 
 export async function markNotificationAsRead(id: string, userId: string) {

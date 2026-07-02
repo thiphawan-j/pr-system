@@ -9,6 +9,7 @@ import { NavigationLinks } from "@/components/layout/navigation-links";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/format";
+import { getDepartmentLabelFromDictionary } from "@/lib/i18n";
 import type { SessionUser } from "@/lib/types";
 import {
   Sheet,
@@ -60,7 +61,8 @@ export function MobileNav({ session }: MobileNavProps) {
             <div className="min-w-0">
               <p className="truncate text-sm font-medium">{session.name}</p>
               <p className="truncate text-xs text-muted-foreground">
-                {session.department} · {dictionary.roles[session.role]}
+                {getDepartmentLabelFromDictionary(session.department, dictionary)} ·{" "}
+                {dictionary.roles[session.role]}
               </p>
             </div>
           </Link>

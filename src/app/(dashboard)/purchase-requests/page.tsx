@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { departments } from "@/lib/constants";
+import { getDepartmentLabel } from "@/lib/i18n";
 import { purchaseRequestStatuses } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
@@ -97,7 +98,7 @@ export default async function PurchaseRequestsPage({
                 <option value="ALL">{dictionary.common.all}</option>
                 {departments.map((department) => (
                   <option key={department} value={department}>
-                    {department}
+                    {getDepartmentLabel(department, locale)}
                   </option>
                 ))}
               </select>

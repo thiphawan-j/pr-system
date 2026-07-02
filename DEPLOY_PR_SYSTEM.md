@@ -64,6 +64,10 @@ nano .env.prod
 APP_ENV="prod"
 APP_URL="https://pr-system.tangthong.com"
 JWT_SECRET="replace-with-a-long-random-production-secret"
+RESEND_API_KEY="re_xxxxxxxxx"
+EMAIL_FROM="PR Flow <no-reply@pr-system.tangthong.com>"
+EMAIL_REPLY_TO="procurement@pr-system.tangthong.com"
+EMAIL_SUBJECT_PREFIX="PR Flow"
 
 POSTGRES_DB="pr_system"
 POSTGRES_USER="pr_system"
@@ -74,6 +78,8 @@ DATABASE_URL="postgresql://pr_system:replace-with-a-strong-database-password@pr-
 หมายเหตุ:
 
 - ถ้า database password มีอักขระพิเศษ เช่น `@`, `/`, `:`, `#` ให้ URL encode ค่า password ใน `DATABASE_URL`
+- ถ้าต้องการให้ notification ส่งอีเมลด้วย ต้องตั้งอย่างน้อย `RESEND_API_KEY` และ `EMAIL_FROM`
+- `EMAIL_FROM` ต้องเป็น sender ที่ verify แล้วใน Resend
 - compose production นี้ไม่ต้องตั้งค่า frontend bind port เพราะไม่ได้ publish port ออก host
 - compose production นี้จะ join external network `ttt-rider_default` โดยตรง
 

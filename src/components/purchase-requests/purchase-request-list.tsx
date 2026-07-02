@@ -14,7 +14,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { formatCurrency, formatDate } from "@/lib/format";
-import { getDictionary, type Locale } from "@/lib/i18n";
+import { getDepartmentLabel, getDictionary, type Locale } from "@/lib/i18n";
 import type { PurchaseRequestListItem, SessionUser } from "@/lib/types";
 
 type PurchaseRequestListProps = {
@@ -50,7 +50,8 @@ export function PurchaseRequestList({
                 <div>
                   <CardTitle className="text-base">{request.prNumber}</CardTitle>
                   <p className="text-sm text-muted-foreground">
-                    {request.requesterName} · {request.requesterDepartment}
+                    {request.requesterName} ·{" "}
+                    {getDepartmentLabel(request.requesterDepartment, locale)}
                   </p>
                 </div>
                 <StatusBadge status={request.status} locale={locale} />
@@ -127,7 +128,7 @@ export function PurchaseRequestList({
                       <div>
                         <p>{request.requesterName}</p>
                         <p className="text-xs text-muted-foreground">
-                          {request.requesterDepartment}
+                          {getDepartmentLabel(request.requesterDepartment, locale)}
                         </p>
                       </div>
                     </TableCell>

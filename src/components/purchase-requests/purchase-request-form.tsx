@@ -23,7 +23,11 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { departments, units } from "@/lib/constants";
 import { formatCurrency, formatFileSize } from "@/lib/format";
-import { interpolate, translateMessage } from "@/lib/i18n";
+import {
+  getDepartmentLabel,
+  interpolate,
+  translateMessage,
+} from "@/lib/i18n";
 import { priorities } from "@/lib/types";
 import { purchaseRequestPayloadSchema } from "@/server/purchase-requests/purchase-request.schemas";
 import type { PurchaseRequestDetail, SessionUser } from "@/lib/types";
@@ -217,12 +221,14 @@ export function PurchaseRequestForm({
               <SelectTrigger className="w-full">
                 <SelectValue
                   placeholder={dictionary.purchaseRequests.departmentPlaceholder}
-                />
+                >
+                  {getDepartmentLabel(watchedDepartment, locale)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {departments.map((department) => (
                   <SelectItem key={department} value={department}>
-                    {department}
+                    {getDepartmentLabel(department, locale)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -409,7 +415,7 @@ export function PurchaseRequestForm({
               </p>
               <p>
                 {interpolate(dictionary.purchaseRequests.departmentLine, {
-                  department: session.department,
+                  department: getDepartmentLabel(watchedDepartment, locale),
                 })}
               </p>
             </div>

@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { departments } from "@/lib/constants";
 import { roles } from "@/lib/types";
-import { translateMessage } from "@/lib/i18n";
+import { getDepartmentLabel, translateMessage } from "@/lib/i18n";
 import { createUserSchema } from "@/server/users/user.schemas";
 
 type CreateUserFormValues = z.input<typeof createUserSchema>;
@@ -217,12 +217,14 @@ export function UserCreateForm() {
               }
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={dictionary.purchaseRequests.departmentPlaceholder} />
+                <SelectValue placeholder={dictionary.purchaseRequests.departmentPlaceholder}>
+                  {getDepartmentLabel(selectedDepartment, locale)}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {departments.map((department) => (
                   <SelectItem key={department} value={department}>
-                    {department}
+                    {getDepartmentLabel(department, locale)}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -245,7 +247,9 @@ export function UserCreateForm() {
               }
             >
               <SelectTrigger className="w-full">
-                <SelectValue placeholder={dictionary.admin.rolePlaceholder} />
+                <SelectValue placeholder={dictionary.admin.rolePlaceholder}>
+                  {dictionary.roles[selectedRole]}
+                </SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {roles.map((role) => (

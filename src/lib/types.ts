@@ -43,6 +43,10 @@ export type SessionUser = {
   title?: string | null;
 };
 
+export type AdminUserItem = SessionUser & {
+  isActive: boolean;
+};
+
 export type PurchaseRequestItemInput = {
   itemName: string;
   description?: string;

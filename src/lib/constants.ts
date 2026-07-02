@@ -14,6 +14,7 @@ export const departments = [
   "IT",
   "Admin",
   "Purchasing",
+  "ซ่อมบำรุง",
 ] as const;
 
 export const units = ["ชิ้น", "ชุด", "เครื่อง", "กล่อง", "ใบ", "เมตร"] as const;

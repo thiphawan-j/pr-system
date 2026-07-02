@@ -4,6 +4,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { departments } from "@/lib/constants";
 import { formatCurrency, formatNumber } from "@/lib/format";
+import { getDepartmentLabel } from "@/lib/i18n";
 import { purchaseRequestStatuses } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
@@ -72,7 +73,7 @@ export default async function ReportsPage({
                 <option value="ALL">{dictionary.common.all}</option>
                 {departments.map((department) => (
                   <option key={department} value={department}>
-                    {department}
+                    {getDepartmentLabel(department, locale)}
                   </option>
                 ))}
               </select>
@@ -170,7 +171,9 @@ export default async function ReportsPage({
             {summary.byDepartment.map((item) => (
               <div key={item.department} className="flex items-center justify-between rounded-2xl border border-border/70 px-4 py-3">
                 <div>
-                  <p className="font-medium">{item.department}</p>
+                  <p className="font-medium">
+                    {getDepartmentLabel(item.department, locale)}
+                  </p>
                   <p className="text-sm text-muted-foreground">
                     {formatNumber(item.count, locale)} {dictionary.common.itemCount}
                   </p>

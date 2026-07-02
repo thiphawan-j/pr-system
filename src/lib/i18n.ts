@@ -45,6 +45,7 @@ export const dictionaries = {
       saving: "กำลังบันทึก...",
       sending: "กำลังส่ง...",
       retry: "ลองใหม่",
+      cancel: "ยกเลิก",
       none: "ไม่มี",
       itemCount: "รายการ",
       requester: "ผู้ขอซื้อ",
@@ -261,6 +262,35 @@ export const dictionaries = {
       userListDescription: "บัญชีที่สามารถเข้าสู่ระบบ PR Flow ได้",
       userCount: "ทั้งหมด {count} บัญชี",
       emptyUsers: "ยังไม่มีผู้ใช้งานในระบบ",
+      accountStatus: "สถานะบัญชี",
+      active: "ใช้งานอยู่",
+      inactive: "ปิดการใช้งาน",
+      editUser: "แก้ไขข้อมูล",
+      editUserTitle: "แก้ไขข้อมูลผู้ใช้งาน",
+      editUserDescription:
+        "ปรับข้อมูลพื้นฐาน แผนก บทบาท และตำแหน่งของบัญชีนี้",
+      updateUser: "บันทึกการแก้ไข",
+      updatingUser: "กำลังบันทึกข้อมูล...",
+      updateSuccess: "อัปเดตข้อมูลผู้ใช้งานเรียบร้อย",
+      updateError: "อัปเดตข้อมูลผู้ใช้งานไม่สำเร็จ",
+      resetPassword: "รีเซ็ตรหัสผ่าน",
+      resetPasswordTitle: "รีเซ็ตรหัสผ่านผู้ใช้งาน",
+      resetPasswordDescription:
+        "กำหนดรหัสผ่านใหม่ให้บัญชีนี้ โดยผู้ใช้งานจะต้องใช้รหัสผ่านใหม่ในการเข้าสู่ระบบครั้งถัดไป",
+      resettingPassword: "กำลังรีเซ็ตรหัสผ่าน...",
+      resetPasswordSuccess: "รีเซ็ตรหัสผ่านเรียบร้อย",
+      resetPasswordError: "รีเซ็ตรหัสผ่านไม่สำเร็จ",
+      activateUser: "เปิดการใช้งาน",
+      deactivateUser: "ปิดการใช้งาน",
+      activateUserTitle: "เปิดการใช้งานบัญชีนี้",
+      deactivateUserTitle: "ปิดการใช้งานบัญชีนี้",
+      activateUserDescription:
+        "เมื่อเปิดใช้งานแล้ว ผู้ใช้งานจะสามารถเข้าสู่ระบบได้อีกครั้ง",
+      deactivateUserDescription:
+        "เมื่อปิดการใช้งานแล้ว ผู้ใช้งานจะไม่สามารถเข้าสู่ระบบได้",
+      activateSuccess: "เปิดการใช้งานผู้ใช้งานเรียบร้อย",
+      deactivateSuccess: "ปิดการใช้งานผู้ใช้งานเรียบร้อย",
+      toggleStatusError: "เปลี่ยนสถานะผู้ใช้งานไม่สำเร็จ",
     },
     profile: {
       title: "โปรไฟล์ผู้ใช้งาน",
@@ -309,6 +339,15 @@ export const dictionaries = {
       PURCHASING: "ฝ่ายจัดซื้อ",
       ADMIN: "ผู้ดูแลระบบ",
     } satisfies Record<Role, string>,
+    departments: {
+      Operations: "ปฏิบัติการ",
+      Projects: "โครงการ",
+      Finance: "การเงิน",
+      IT: "ไอที",
+      Admin: "ธุรการ",
+      Purchasing: "จัดซื้อ",
+      "ซ่อมบำรุง": "ซ่อมบำรุง",
+    },
     priorities: {
       LOW: "ต่ำ",
       NORMAL: "ปกติ",
@@ -362,6 +401,7 @@ export const dictionaries = {
       saving: "Saving...",
       sending: "Sending...",
       retry: "Try again",
+      cancel: "Cancel",
       none: "None",
       itemCount: "items",
       requester: "Requester",
@@ -578,6 +618,35 @@ export const dictionaries = {
       userListDescription: "Accounts that can sign in to PR Flow",
       userCount: "{count} accounts total",
       emptyUsers: "No users found",
+      accountStatus: "Account status",
+      active: "Active",
+      inactive: "Inactive",
+      editUser: "Edit user",
+      editUserTitle: "Edit user",
+      editUserDescription:
+        "Update the basic information, department, role, and title for this account.",
+      updateUser: "Save changes",
+      updatingUser: "Saving changes...",
+      updateSuccess: "User details updated successfully",
+      updateError: "Unable to update user details",
+      resetPassword: "Reset password",
+      resetPasswordTitle: "Reset user password",
+      resetPasswordDescription:
+        "Set a new password for this account. The user must use the new password the next time they sign in.",
+      resettingPassword: "Resetting password...",
+      resetPasswordSuccess: "Password reset successfully",
+      resetPasswordError: "Unable to reset password",
+      activateUser: "Enable user",
+      deactivateUser: "Disable user",
+      activateUserTitle: "Enable this account",
+      deactivateUserTitle: "Disable this account",
+      activateUserDescription:
+        "Once enabled, this user will be able to sign in again.",
+      deactivateUserDescription:
+        "Once disabled, this user will no longer be able to sign in.",
+      activateSuccess: "User enabled successfully",
+      deactivateSuccess: "User disabled successfully",
+      toggleStatusError: "Unable to change user status",
     },
     profile: {
       title: "User Profile",
@@ -626,6 +695,15 @@ export const dictionaries = {
       PURCHASING: "Purchasing",
       ADMIN: "Admin",
     } satisfies Record<Role, string>,
+    departments: {
+      Operations: "Operations",
+      Projects: "Projects",
+      Finance: "Finance",
+      IT: "IT",
+      Admin: "Admin",
+      Purchasing: "Purchasing",
+      "ซ่อมบำรุง": "Maintenance",
+    },
     priorities: {
       LOW: "Low",
       NORMAL: "Normal",
@@ -672,6 +750,21 @@ export function getUnitLabel(unit: string, locale: Locale) {
   const unitLabels = dictionaries[locale].units as Record<string, string>;
 
   return unitLabels[unit] ?? unit;
+}
+
+export function getDepartmentLabel(department: string, locale: Locale) {
+  const departmentLabels = dictionaries[locale].departments as Record<string, string>;
+
+  return departmentLabels[department] ?? department;
+}
+
+export function getDepartmentLabelFromDictionary(
+  department: string,
+  dictionary: Dictionary,
+) {
+  const departmentLabels = dictionary.departments as Record<string, string>;
+
+  return departmentLabels[department] ?? department;
 }
 
 export function interpolate(
@@ -736,6 +829,8 @@ const translatedMessages: Record<string, string> = {
   "รหัสผ่านปัจจุบันไม่ถูกต้อง": "Current password is incorrect",
   "รหัสผ่านใหม่ต้องไม่ซ้ำกับรหัสผ่านปัจจุบัน":
     "The new password must be different from the current password",
+  "บัญชีผู้ใช้งานนี้ถูกปิดการใช้งาน":
+    "This user account has been disabled",
   "ไม่พบการแจ้งเตือนที่ต้องการ": "Notification not found",
   "คุณไม่มีสิทธิ์เข้าถึงข้อมูลส่วนนี้":
     "You do not have permission to access this area",
@@ -744,6 +839,10 @@ const translatedMessages: Record<string, string> = {
   "ไม่พบเอกสาร PR ที่ต้องการ": "PR document not found",
   "ไม่พบผู้อนุมัติสำหรับแผนกนี้":
     "No approver was found for this department",
+  "ไม่สามารถปิดการใช้งานบัญชีของตัวเองได้":
+    "You cannot disable your own account",
+  "ต้องมีผู้ดูแลระบบที่เปิดใช้งานอย่างน้อย 1 บัญชี":
+    "At least one active administrator account is required",
   "เฉพาะผู้อนุมัติเท่านั้นที่ดำเนินการได้":
     "Only approvers can perform this action",
   "เอกสารนี้ไม่ได้อยู่ในขั้นตอนรออนุมัติ":

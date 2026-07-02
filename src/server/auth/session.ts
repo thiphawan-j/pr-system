@@ -7,6 +7,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { SESSION_COOKIE_NAME } from "@/lib/auth";
 import type { SessionUser } from "@/lib/types";
 import { AppError } from "@/server/shared/errors";
+import { findActiveUserById } from "@/server/users/user.service";
 
 const sessionDurationInSeconds = 60 * 60 * 12;
 
@@ -56,7 +57,13 @@ export const getCurrentSession = cache(async () => {
     return null;
   }
 
-  return verifySession(token);
+  const session = await verifySession(token);
+
+  if (!session) {
+    return null;
+  }
+
+  return findActiveUserById(session.id);
 });
 
 export async function requireSession() {

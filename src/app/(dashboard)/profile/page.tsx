@@ -9,6 +9,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { getDepartmentLabelFromDictionary } from "@/lib/i18n";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary } from "@/server/i18n";
 import { findUserById } from "@/server/users/user.service";
@@ -74,7 +75,9 @@ export default async function ProfilePage() {
           </div>
           <div>
             <p className="text-sm text-muted-foreground">{dictionary.common.department}</p>
-            <p className="font-medium">{user.department}</p>
+            <p className="font-medium">
+              {getDepartmentLabelFromDictionary(user.department, dictionary)}
+            </p>
           </div>
           <div className="sm:col-span-2 xl:col-span-3">
             <p className="text-sm text-muted-foreground">{dictionary.admin.title}</p>

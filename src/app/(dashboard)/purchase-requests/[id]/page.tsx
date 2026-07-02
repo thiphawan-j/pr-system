@@ -23,7 +23,11 @@ import {
   formatFileSize,
   formatNumber,
 } from "@/lib/format";
-import { getUnitLabel, translateWorkflowText } from "@/lib/i18n";
+import {
+  getDepartmentLabel,
+  getUnitLabel,
+  translateWorkflowText,
+} from "@/lib/i18n";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { getPurchaseRequestById } from "@/server/purchase-requests/purchase-request.service";
@@ -99,7 +103,9 @@ export default async function PurchaseRequestDetailPage({
                 <p className="text-sm text-muted-foreground">
                   {dictionary.common.department}
                 </p>
-                <p className="font-medium">{request.department}</p>
+                <p className="font-medium">
+                  {getDepartmentLabel(request.department, locale)}
+                </p>
               </div>
               <div>
                 <p className="text-sm text-muted-foreground">

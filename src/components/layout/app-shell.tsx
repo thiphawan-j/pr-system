@@ -10,7 +10,7 @@ import { ThemeToggle } from "@/components/layout/theme-toggle";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { getInitials } from "@/lib/format";
-import type { Dictionary } from "@/lib/i18n";
+import { getDepartmentLabelFromDictionary, type Dictionary } from "@/lib/i18n";
 import type { NotificationItem, SessionUser } from "@/lib/types";
 
 type AppShellProps = {
@@ -79,7 +79,8 @@ export function AppShell({
               <div className="min-w-0">
                 <p className="max-w-44 truncate text-sm font-medium">{session.name}</p>
                 <p className="text-xs text-muted-foreground">
-                  {session.department} · {dictionary.roles[session.role]}
+                  {getDepartmentLabelFromDictionary(session.department, dictionary)} ·{" "}
+                  {dictionary.roles[session.role]}
                 </p>
               </div>
             </Link>
