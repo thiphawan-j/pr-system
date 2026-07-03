@@ -50,32 +50,88 @@ jobs:
           APP_DIR="/opt/pr-system/pr-system"
           cd "$APP_DIR"
 
+          echo "Check production env file..."
           test -f .env.prod || { echo ".env.prod is missing on the Droplet"; exit 1; }
 
+          echo "Check production database volume..."
           docker volume inspect pr-system-postgres-data >/dev/null 2>&1 || {
             echo "Missing volume: pr-system-postgres-data"
             echo "Stop deploy to avoid creating an empty production database."
             exit 1
           }
 
+          echo "Check storage volume..."
           docker volume inspect pr-system_pr-system-storage >/dev/null 2>&1 || docker volume create pr-system_pr-system-storage
 
+          echo "Pull latest code..."
           git fetch origin main
           git reset --hard origin/main
 
+          echo "Compose services:"
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system config --services
 
+          echo "Start postgres..."
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d postgres
 
+          echo "Prepare storage permissions..."
           docker run --rm \
             -v pr-system_pr-system-storage:/storage \
             postgres:16-alpine \
             sh -c 'mkdir -p /storage/pr-attachments && chown -R 1001:1001 /storage && chmod -R u+rwX /storage'
 
+          echo "Build new web image..."
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build --no-cache pr-system-web
+
+          echo "Backup production database before schema update..."
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system exec -T postgres \
+            sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
+            > "backup_pr_$(date +%F_%H%M).sql"
+
+          echo "Apply database schema to existing production DB..."
+          test -f prisma/schema.prisma || { echo "Missing prisma/schema.prisma"; exit 1; }
+
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm \
+            -w /tmp \
+            -v "$PWD/prisma:/tmp/prisma:ro" \
+            pr-system-web sh -lc 'npx --yes prisma@7.8.0 db push --schema /tmp/prisma/schema.prisma --url "$DATABASE_URL"'
+
+          echo "Start new web container..."
           docker rm -f pr-system-web 2>/dev/null || true
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --no-deps pr-system-web
+
+          echo "Restart Caddy proxy..."
           docker restart ttt-rider-caddy || true
 
+          echo "Check container status..."
+          docker ps --filter name=pr-system
+
+          echo "Health check web..."
+          sleep 5
+
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system exec -T pr-system-web node -e '
+          fetch("http://127.0.0.1:3000/login")
+            .then((res) => {
+              console.log("Login page status:", res.status);
+              if (res.status >= 500) process.exit(1);
+            })
+            .catch((error) => {
+              console.error(error);
+              process.exit(1);
+            });
+          '
+
+          echo "Check recent runtime errors..."
+          docker logs --since=2m pr-system-web | tee /tmp/pr-system-web-recent.log
+
+          if grep -Ei "PrismaClientKnownRequestError|P2022|column .* does not exist|Internal Server Error|Unhandled|ReferenceError|TypeError" /tmp/pr-system-web-recent.log; then
+            echo "Runtime error found in web logs"
+            exit 1
+          fi
+
+          echo "Recent web logs..."
+          docker logs --tail=120 pr-system-web
+
+          echo "Deploy finished successfully."
           docker ps --filter name=pr-system
           REMOTE
+          
