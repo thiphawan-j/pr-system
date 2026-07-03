@@ -15,6 +15,26 @@ export const purchaseRequestStatuses = [
 ] as const;
 export type PurchaseRequestStatus = (typeof purchaseRequestStatuses)[number];
 
+export const filterablePurchaseRequestStatuses = [
+  "DRAFT",
+  "PENDING_APPROVAL",
+  "APPROVED",
+  "REJECTED",
+  "ORDERED",
+  "COMPLETED",
+] as const;
+export type FilterablePurchaseRequestStatus =
+  (typeof filterablePurchaseRequestStatuses)[number];
+
+export const purchaseRequestQuickFilters = [
+  "pending",
+  "approved",
+  "rejected",
+  "awaiting_receipt",
+] as const;
+export type PurchaseRequestQuickFilter =
+  (typeof purchaseRequestQuickFilters)[number];
+
 export const approvalActions = [
   "DRAFT_SAVED",
   "SUBMITTED",
@@ -47,6 +67,15 @@ export type AdminUserItem = SessionUser & {
   isActive: boolean;
 };
 
+export type AdminUserListPage = {
+  items: AdminUserItem[];
+  page: number;
+  limit: number;
+  totalCount: number;
+  hasMore: boolean;
+  nextPage: number | null;
+};
+
 export type PurchaseRequestItemInput = {
   itemName: string;
   description?: string;
@@ -75,7 +104,7 @@ export type PurchaseRequestListItem = {
   id: string;
   prNumber: string;
   requestDate: string;
-  receivedAt?: string | null;
+  updatedAt: string;
   requesterId: string;
   requesterName: string;
   requesterDepartment: string;
@@ -129,12 +158,22 @@ export type DashboardSummary = {
   pendingCount: number;
   approvedCount: number;
   rejectedCount: number;
-  totalAmount: number;
-  monthlyChart: Array<{
-    month: string;
-    amount: number;
-    count: number;
-  }>;
+  awaitingReceiptCount: number;
+  requestVolumeChart: {
+    day: Array<{
+      startDate: string;
+      count: number;
+    }>;
+    week: Array<{
+      startDate: string;
+      endDate: string;
+      count: number;
+    }>;
+    month: Array<{
+      startDate: string;
+      count: number;
+    }>;
+  };
 };
 
 export type NotificationItem = {
@@ -149,11 +188,20 @@ export type NotificationItem = {
 
 export type PurchaseRequestFilters = {
   query?: string;
-  status?: PurchaseRequestStatus | "ALL";
+  status?: FilterablePurchaseRequestStatus | "ALL";
+  preset?: PurchaseRequestQuickFilter;
   department?: string | "ALL";
   from?: string;
   to?: string;
-  sort?: "newest" | "oldest" | "amount_desc" | "amount_asc";
+  sort?: "pr_desc" | "pr_asc" | "updated_desc" | "status_asc";
+};
+
+export type PurchaseRequestListPage = {
+  items: PurchaseRequestListItem[];
+  page: number;
+  limit: number;
+  hasMore: boolean;
+  nextPage: number | null;
 };
 
 export type ReportsSummary = {

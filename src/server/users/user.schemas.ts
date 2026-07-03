@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { departments } from "@/lib/constants";
+import { adminUserListPageSize, departments } from "@/lib/constants";
 import { roles } from "@/lib/types";
 
 const optionalTrimmedString = z
@@ -8,6 +8,30 @@ const optionalTrimmedString = z
   .trim()
   .optional()
   .transform((value) => value || undefined);
+
+const positiveInteger = z.coerce.number().int().positive();
+
+const optionalPositiveInteger = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return undefined;
+    }
+
+    return value;
+  },
+  positiveInteger.optional(),
+);
+
+const optionalPageSizeInteger = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return undefined;
+    }
+
+    return value;
+  },
+  positiveInteger.max(100).optional(),
+);
 
 const usernamePattern = /^[a-z0-9._-]+$/;
 
@@ -86,6 +110,11 @@ export const adminResetPasswordSchema = z
 
 export const setUserActiveSchema = z.object({
   isActive: z.boolean(),
+});
+
+export const adminUsersPaginationSchema = z.object({
+  page: optionalPositiveInteger.default(1),
+  limit: optionalPageSizeInteger.default(adminUserListPageSize),
 });
 
 export const changePasswordSchema = z

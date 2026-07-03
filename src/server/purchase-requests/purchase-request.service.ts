@@ -18,6 +18,7 @@ import type {
   PurchaseRequestAttachmentInput,
   PurchaseRequestDetail,
   PurchaseRequestFilters,
+  PurchaseRequestListPage,
   PurchaseRequestItemInput,
   PurchaseRequestListItem,
   ReportsSummary,
@@ -25,9 +26,9 @@ import type {
 } from "@/lib/types";
 import { toAttachmentCreateManyInput } from "@/server/attachments/attachment.service";
 import {
+  canApprovePurchaseRequest,
   canManageRequestAsOwner,
   hasGlobalPurchaseRequestVisibility,
-  isAdmin,
   isApprover,
   isPurchasing,
 } from "@/server/auth/authorization";
@@ -79,6 +80,43 @@ const purchaseRequestInclude = {
   },
 } satisfies Prisma.PurchaseRequestInclude;
 
+const purchaseRequestListSelect = {
+  id: true,
+  prNumber: true,
+  requestDate: true,
+  updatedAt: true,
+  requesterId: true,
+  department: true,
+  reason: true,
+  urgency: true,
+  status: true,
+  totalAmount: true,
+  requester: {
+    select: {
+      name: true,
+    },
+  },
+  currentApprover: {
+    select: {
+      name: true,
+    },
+  },
+  approvals: {
+    select: {
+      comment: true,
+    },
+    orderBy: {
+      createdAt: "desc",
+    },
+    take: 1,
+  },
+  _count: {
+    select: {
+      items: true,
+    },
+  },
+} satisfies Prisma.PurchaseRequestSelect;
+
 function decimalToNumber(value: Prisma.Decimal | number) {
   return Number(value);
 }
@@ -102,6 +140,38 @@ function calculateTotal(items: PersistedItem[]) {
   return Number(
     items.reduce((sum, item) => sum + item.amount, 0).toFixed(2),
   );
+}
+
+function parseDateValueAsUtc(value: string) {
+  return new Date(`${value}T00:00:00.000Z`);
+}
+
+function formatUtcDateValue(value: Date) {
+  return value.toISOString().slice(0, 10);
+}
+
+function addDaysToDateValue(value: string, days: number) {
+  const next = parseDateValueAsUtc(value);
+  next.setUTCDate(next.getUTCDate() + days);
+
+  return formatUtcDateValue(next);
+}
+
+function getWeekStartDateValue(value: string) {
+  const date = parseDateValueAsUtc(value);
+  const day = date.getUTCDay();
+  const diff = day === 0 ? -6 : 1 - day;
+  date.setUTCDate(date.getUTCDate() + diff);
+
+  return formatUtcDateValue(date);
+}
+
+function addMonthsToDateValue(value: string, months: number) {
+  const date = parseDateValueAsUtc(value);
+  date.setUTCDate(1);
+  date.setUTCMonth(date.getUTCMonth() + months);
+
+  return formatUtcDateValue(date);
 }
 
 function buildVisibleWhere(session: SessionUser): Prisma.PurchaseRequestWhereInput {
@@ -149,6 +219,38 @@ function buildFilterWhere(
     });
   }
 
+  if (filters.preset) {
+    switch (filters.preset) {
+      case "pending":
+        andConditions.push({
+          status: PurchaseRequestStatus.PENDING_APPROVAL,
+        });
+        break;
+      case "approved":
+        andConditions.push({
+          status: {
+            in: [
+              PurchaseRequestStatus.APPROVED,
+              PurchaseRequestStatus.ORDERED,
+              PurchaseRequestStatus.COMPLETED,
+            ],
+          },
+        });
+        break;
+      case "rejected":
+        andConditions.push({
+          status: PurchaseRequestStatus.REJECTED,
+        });
+        break;
+      case "awaiting_receipt":
+        andConditions.push({
+          status: PurchaseRequestStatus.ORDERED,
+          receivedAt: null,
+        });
+        break;
+    }
+  }
+
   if (filters.department && filters.department !== "ALL") {
     andConditions.push({
       department: filters.department,
@@ -171,37 +273,30 @@ function buildFilterWhere(
 
 function buildSortOrder(sort: PurchaseRequestFilters["sort"]) {
   switch (sort) {
-    case "oldest":
-      return [{ requestDate: "asc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
-    case "amount_desc":
-      return [{ totalAmount: "desc" }, { requestDate: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
-    case "amount_asc":
-      return [{ totalAmount: "asc" }, { requestDate: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
-    case "newest":
+    case "pr_asc":
+      return [{ prNumber: "asc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
+    case "updated_desc":
+      return [{ updatedAt: "desc" }, { prNumber: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
+    case "status_asc":
+      return [{ status: "asc" }, { prNumber: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
+    case "pr_desc":
     default:
-      return [{ requestDate: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
+      return [{ prNumber: "desc" }] satisfies Prisma.PurchaseRequestOrderByWithRelationInput[];
   }
 }
 
 function toListItem(
   request: Prisma.PurchaseRequestGetPayload<{
-    include: {
-      requester: true;
-      currentApprover: true;
-      items: true;
-      approvals: {
-        include: { approver: true };
-      };
-    };
+    select: typeof purchaseRequestListSelect;
   }>,
 ) {
-  const latestApproval = request.approvals[request.approvals.length - 1];
+  const latestApproval = request.approvals[0];
 
   return {
     id: request.id,
     prNumber: request.prNumber,
     requestDate: toBangkokDateValue(request.requestDate),
-    receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
+    updatedAt: toBangkokIsoString(request.updatedAt),
     requesterId: request.requesterId,
     requesterName: request.requester.name,
     requesterDepartment: request.department,
@@ -209,7 +304,7 @@ function toListItem(
     urgency: request.urgency,
     status: request.status,
     totalAmount: decimalToNumber(request.totalAmount),
-    itemCount: request.items.length,
+    itemCount: request._count.items,
     currentApproverName: request.currentApprover?.name ?? null,
     latestComment: latestApproval?.comment ?? null,
   } satisfies PurchaseRequestListItem;
@@ -501,23 +596,45 @@ export async function listPurchaseRequests(
 
   const requests = await db.purchaseRequest.findMany({
     where,
-    include: {
-      requester: true,
-      currentApprover: true,
-      items: true,
-      approvals: {
-        include: {
-          approver: true,
-        },
-        orderBy: {
-          createdAt: "asc",
-        },
-      },
-    },
+    select: purchaseRequestListSelect,
     orderBy,
   });
 
   return requests.map(toListItem);
+}
+
+export async function listPurchaseRequestsPage(
+  session: SessionUser,
+  filters: PurchaseRequestFilters,
+  pagination: {
+    page: number;
+    limit: number;
+  },
+) {
+  const db = getDb();
+  const where = buildFilterWhere(session, filters);
+  const orderBy = buildSortOrder(filters.sort);
+  const page = pagination.page;
+  const limit = pagination.limit;
+
+  const requests = await db.purchaseRequest.findMany({
+    where,
+    select: purchaseRequestListSelect,
+    orderBy,
+    skip: (page - 1) * limit,
+    take: limit + 1,
+  });
+
+  const hasMore = requests.length > limit;
+  const items = requests.slice(0, limit).map(toListItem);
+
+  return {
+    items,
+    page,
+    limit,
+    hasMore,
+    nextPage: hasMore ? page + 1 : null,
+  } satisfies PurchaseRequestListPage;
 }
 
 export async function getPurchaseRequestById(id: string, session: SessionUser) {
@@ -753,7 +870,7 @@ export async function reviewPurchaseRequest(
     400,
   );
   invariant(
-    isAdmin(session) || request.currentApproverId === session.id,
+    canApprovePurchaseRequest(session, request.currentApproverId),
     "คุณไม่ใช่ผู้อนุมัติที่รับผิดชอบเอกสารนี้",
     403,
   );
@@ -995,8 +1112,14 @@ export async function updateReceiptReferences(
 export async function getDashboardSummary(session: SessionUser) {
   const db = getDb();
   const visibleWhere = buildVisibleWhere(session);
+  const today = toBangkokDateValue(new Date());
+  const dailyStartDate = addDaysToDateValue(today, -13);
+  const currentWeekStartDate = getWeekStartDateValue(today);
+  const weeklyStartDate = addDaysToDateValue(currentWeekStartDate, -49);
+  const currentMonthStartDate = `${toBangkokMonthValue(new Date())}-01`;
+  const monthlyStartDate = addMonthsToDateValue(currentMonthStartDate, -5);
 
-  const [pendingCount, approvedCount, rejectedCount, amountAggregate, recent] =
+  const [pendingCount, approvedCount, rejectedCount, awaitingReceiptCount, recent] =
     await Promise.all([
       db.purchaseRequest.count({
         where: {
@@ -1022,26 +1145,22 @@ export async function getDashboardSummary(session: SessionUser) {
           status: PurchaseRequestStatus.REJECTED,
         },
       }),
-      db.purchaseRequest.aggregate({
-        where: visibleWhere,
-        _sum: {
-          totalAmount: true,
+      db.purchaseRequest.count({
+        where: {
+          ...visibleWhere,
+          status: PurchaseRequestStatus.ORDERED,
+          receivedAt: null,
         },
       }),
       db.purchaseRequest.findMany({
         where: {
           ...visibleWhere,
           requestDate: {
-            gte: toUtcStartOfDayFromDateValue(
-              toBangkokDateValue(
-                new Date(new Date().setMonth(new Date().getMonth() - 5)),
-              ),
-            ),
+            gte: toUtcStartOfDayFromDateValue(monthlyStartDate),
           },
         },
         select: {
           requestDate: true,
-          totalAmount: true,
         },
         orderBy: {
           requestDate: "asc",
@@ -1049,28 +1168,73 @@ export async function getDashboardSummary(session: SessionUser) {
       }),
     ]);
 
-  const monthlyMap = new Map<string, { amount: number; count: number }>();
+  const dailyMap = new Map<string, number>();
+  const weeklyMap = new Map<string, number>();
+  const monthlyMap = new Map<string, number>();
 
   recent.forEach((request) => {
-    const key = toBangkokMonthValue(request.requestDate);
-    const current = monthlyMap.get(key) ?? { amount: 0, count: 0 };
-    current.amount += decimalToNumber(request.totalAmount);
-    current.count += 1;
-    monthlyMap.set(key, current);
+    const requestDate = toBangkokDateValue(request.requestDate);
+    const weekStartDate = getWeekStartDateValue(requestDate);
+    const monthStartDate = `${toBangkokMonthValue(request.requestDate)}-01`;
+
+    if (requestDate >= dailyStartDate) {
+      dailyMap.set(requestDate, (dailyMap.get(requestDate) ?? 0) + 1);
+    }
+
+    if (weekStartDate >= weeklyStartDate) {
+      weeklyMap.set(weekStartDate, (weeklyMap.get(weekStartDate) ?? 0) + 1);
+    }
+
+    monthlyMap.set(monthStartDate, (monthlyMap.get(monthStartDate) ?? 0) + 1);
   });
 
-  const monthlyChart = Array.from(monthlyMap.entries()).map(([month, value]) => ({
-    month,
-    amount: Number(value.amount.toFixed(2)),
-    count: value.count,
-  }));
+  const day = [];
+  for (
+    let cursor = dailyStartDate;
+    cursor <= today;
+    cursor = addDaysToDateValue(cursor, 1)
+  ) {
+    day.push({
+      startDate: cursor,
+      count: dailyMap.get(cursor) ?? 0,
+    });
+  }
+
+  const week = [];
+  for (
+    let cursor = weeklyStartDate;
+    cursor <= currentWeekStartDate;
+    cursor = addDaysToDateValue(cursor, 7)
+  ) {
+    week.push({
+      startDate: cursor,
+      endDate: addDaysToDateValue(cursor, 6),
+      count: weeklyMap.get(cursor) ?? 0,
+    });
+  }
+
+  const month = [];
+  for (
+    let cursor = monthlyStartDate;
+    cursor <= currentMonthStartDate;
+    cursor = addMonthsToDateValue(cursor, 1)
+  ) {
+    month.push({
+      startDate: cursor,
+      count: monthlyMap.get(cursor) ?? 0,
+    });
+  }
 
   return {
     pendingCount,
     approvedCount,
     rejectedCount,
-    totalAmount: decimalToNumber(amountAggregate._sum.totalAmount ?? 0),
-    monthlyChart,
+    awaitingReceiptCount,
+    requestVolumeChart: {
+      day,
+      week,
+      month,
+    },
   } satisfies DashboardSummary;
 }
 

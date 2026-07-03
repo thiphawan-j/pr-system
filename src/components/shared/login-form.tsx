@@ -24,13 +24,22 @@ const defaultValues: LoginFormValues = {
   password: "Passw0rd!",
 };
 
-export function LoginForm() {
+type LoginFormProps = {
+  showDemoAccounts?: boolean;
+};
+
+export function LoginForm({ showDemoAccounts = true }: LoginFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const { dictionary, locale } = useI18n();
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
-    defaultValues,
+    defaultValues: showDemoAccounts
+      ? defaultValues
+      : {
+          identifier: "",
+          password: "",
+        },
   });
 
   function onSubmit(values: LoginFormValues) {
@@ -65,7 +74,9 @@ export function LoginForm() {
       <CardHeader className="space-y-2">
         <CardTitle className="text-2xl">{dictionary.auth.loginTitle}</CardTitle>
         <CardDescription>
-          {dictionary.auth.loginDescription}
+          {showDemoAccounts
+            ? dictionary.auth.loginDescription
+            : dictionary.auth.loginDescriptionProduction}
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -113,13 +124,15 @@ export function LoginForm() {
           </Button>
         </form>
 
-        <div className="mt-6 rounded-2xl border border-dashed border-border/80 bg-muted/40 p-4 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">{dictionary.auth.demoAccounts}</p>
-          <p>`employee@demo.local` | `somchai` | `0811111111` / `Passw0rd!`</p>
-          <p>`approver@demo.local` | `wipa` | `0811111112` / `Passw0rd!`</p>
-          <p>`purchasing@demo.local` | `kitti` | `0811111113` / `Passw0rd!`</p>
-          <p>`admin@demo.local` | `admin` | `0811111114` / `Passw0rd!`</p>
-        </div>
+        {showDemoAccounts ? (
+          <div className="mt-6 rounded-2xl border border-dashed border-border/80 bg-muted/40 p-4 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">{dictionary.auth.demoAccounts}</p>
+            <p>`employee@demo.local` | `somchai` | `0811111111` / `Passw0rd!`</p>
+            <p>`approver@demo.local` | `wipa` | `0811111112` / `Passw0rd!`</p>
+            <p>`purchasing@demo.local` | `kitti` | `0811111113` / `Passw0rd!`</p>
+            <p>`admin@demo.local` | `admin` | `0811111114` / `Passw0rd!`</p>
+          </div>
+        ) : null}
       </CardContent>
     </Card>
   );

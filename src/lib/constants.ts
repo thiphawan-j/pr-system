@@ -6,6 +6,8 @@ import type {
 } from "@/lib/types";
 
 export const appName = "PR Flow";
+export const purchaseRequestListPageSize = 20;
+export const adminUserListPageSize = 10;
 
 export const managementDepartment = "บริหาร/จัดการ" as const;
 
@@ -37,8 +39,8 @@ export const priorityLabels: Record<Priority, string> = {
 };
 
 export const statusLabels: Record<PurchaseRequestStatus, string> = {
-  DRAFT: "Draft",
-  SUBMITTED: "Submitted",
+  DRAFT: "ร่าง",
+  SUBMITTED: "ส่งคำขอแล้ว",
   PENDING_APPROVAL: "รออนุมัติ",
   APPROVED: "อนุมัติแล้ว",
   REJECTED: "ถูกปฏิเสธ",
@@ -58,7 +60,7 @@ export const approvalActionLabels: Record<ApprovalAction, string> = {
 };
 
 export const statusToneClassNames: Record<PurchaseRequestStatus, string> = {
-  DRAFT: "bg-slate-500/15 text-slate-200 ring-slate-400/30 dark:text-slate-100",
+  DRAFT: "bg-slate-500/15 text-slate-700 ring-slate-400/30 dark:text-slate-100",
   SUBMITTED: "bg-sky-500/15 text-sky-700 ring-sky-500/20 dark:text-sky-300",
   PENDING_APPROVAL:
     "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",

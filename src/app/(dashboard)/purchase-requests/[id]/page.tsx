@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
+import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
 import { PurchasingProgressPanel } from "@/components/purchase-requests/purchasing-progress-panel";
 import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt-confirmation-panel";
@@ -37,6 +38,7 @@ import {
   getUnitLabel,
   translateWorkflowText,
 } from "@/lib/i18n";
+import { canApprovePurchaseRequest } from "@/server/auth/authorization";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { getPurchaseRequestById } from "@/server/purchase-requests/purchase-request.service";
@@ -59,7 +61,7 @@ export default async function PurchaseRequestDetailPage({
     (request.requester.id === session.id || session.role === "ADMIN");
   const canApprove =
     request.status === "PENDING_APPROVAL" &&
-    (session.role === "APPROVER" || session.role === "ADMIN");
+    canApprovePurchaseRequest(session, request.currentApprover?.id ?? null);
   const canProgress =
     request.status === "APPROVED" &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
@@ -392,10 +394,9 @@ export default async function PurchaseRequestDetailPage({
             <CardContent className="space-y-3">
               {request.attachments.length ? (
                 request.attachments.map((attachment) => (
-                  <a
+                  <div
                     key={attachment.id}
-                    href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3 transition-colors hover:bg-muted/40"
+                    className="flex items-start justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium">
@@ -407,8 +408,19 @@ export default async function PurchaseRequestDetailPage({
                         {attachment.uploadedBy.name}
                       </p>
                     </div>
-                    <Download className="mt-0.5 size-4 shrink-0 text-primary" />
-                  </a>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <AttachmentPreviewButton
+                        requestId={request.id}
+                        attachment={attachment}
+                      />
+                      <Button asChild variant="outline" size="sm" className="rounded-xl">
+                        <a href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}>
+                          <Download />
+                          {dictionary.purchaseRequests.downloadAttachment}
+                        </a>
+                      </Button>
+                    </div>
+                  </div>
                 ))
               ) : (
                 <div className="rounded-2xl border border-dashed border-border/70 p-4 text-sm text-muted-foreground">

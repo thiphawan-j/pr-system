@@ -53,6 +53,14 @@ enum NotificationType {
   ERROR
 }
 
+enum NotificationEmailStatus {
+  DISABLED
+  PENDING
+  SENT
+  FAILED
+  SKIPPED
+}
+
 model User {
   id               String            @id @default(cuid())
   employeeCode     String            @unique
@@ -155,15 +163,19 @@ model Approval {
 }
 
 model Notification {
-  id        String           @id @default(cuid())
-  userId    String
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  message   String
-  link      String?
-  type      NotificationType @default(INFO)
-  readAt    DateTime?
-  createdAt DateTime         @default(now())
+  id             String                  @id @default(cuid())
+  userId         String
+  user           User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title          String
+  message        String
+  link           String?
+  type           NotificationType        @default(INFO)
+  emailStatus    NotificationEmailStatus @default(PENDING)
+  emailSentAt    DateTime?
+  emailError     String?
+  emailMessageId String?
+  readAt         DateTime?
+  createdAt      DateTime                @default(now())
 
   @@index([userId, createdAt])
 }

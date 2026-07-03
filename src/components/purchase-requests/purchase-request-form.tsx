@@ -1,14 +1,15 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { FileText, Paperclip, Plus, Trash2, X } from "lucide-react";
+import { Download, FileText, Paperclip, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useMemo, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -65,6 +66,10 @@ export function PurchaseRequestForm({
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [existingAttachments, setExistingAttachments] = useState(
+    initialData?.attachments ?? [],
+  );
+  const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const { dictionary, locale } = useI18n();
   const form = useForm<
     PurchaseRequestFormValues,
@@ -128,6 +133,10 @@ export function PurchaseRequestForm({
     [watchedItems],
   );
 
+  useEffect(() => {
+    setExistingAttachments(initialData?.attachments ?? []);
+  }, [initialData?.attachments]);
+
   function addAttachmentFiles(fileList: FileList | null) {
     if (!fileList?.length) {
       return;
@@ -143,6 +152,38 @@ export function PurchaseRequestForm({
     setAttachmentFiles((currentFiles) =>
       currentFiles.filter((_, fileIndex) => fileIndex !== index),
     );
+  }
+
+  function removeExistingAttachment(attachmentId: string) {
+    if (!initialData) {
+      return;
+    }
+
+    setDeletingAttachmentId(attachmentId);
+    startTransition(async () => {
+      const response = await fetch(
+        `/api/purchase-requests/${initialData.id}/attachments/${attachmentId}`,
+        {
+          method: "DELETE",
+        },
+      );
+      const responsePayload = await response.json().catch(() => null);
+      setDeletingAttachmentId(null);
+
+      if (!response.ok) {
+        toast.error(
+          translateMessage(responsePayload?.error, locale) ??
+            dictionary.purchaseRequests.deleteAttachmentError,
+        );
+        return;
+      }
+
+      setExistingAttachments((currentAttachments) =>
+        currentAttachments.filter((attachment) => attachment.id !== attachmentId),
+      );
+      toast.success(dictionary.purchaseRequests.deleteAttachmentSuccess);
+      router.refresh();
+    });
   }
 
   function submit(submit: boolean) {
@@ -493,17 +534,16 @@ export function PurchaseRequestForm({
             </div>
           ) : null}
 
-          {initialData?.attachments.length ? (
+          {initialData && existingAttachments.length ? (
             <div className="space-y-2">
               <p className="text-sm font-medium">
                 {dictionary.purchaseRequests.existingAttachments}
               </p>
               <div className="grid gap-2">
-                {initialData.attachments.map((attachment) => (
-                  <a
+                {existingAttachments.map((attachment) => (
+                  <div
                     key={attachment.id}
-                    href={`/api/purchase-requests/${initialData.id}/attachments/${attachment.id}`}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3 text-sm transition-colors hover:bg-muted/40"
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3 text-sm"
                   >
                     <span className="min-w-0">
                       <span className="block truncate font-medium">
@@ -513,10 +553,32 @@ export function PurchaseRequestForm({
                         {formatFileSize(attachment.size, locale)}
                       </span>
                     </span>
-                    <span className="text-xs text-primary">
-                      {dictionary.purchaseRequests.downloadAttachment}
-                    </span>
-                  </a>
+                    <div className="flex shrink-0 flex-wrap items-center gap-2">
+                      <AttachmentPreviewButton
+                        requestId={initialData.id}
+                        attachment={attachment}
+                      />
+                      <Button asChild variant="outline" size="sm" className="rounded-xl">
+                        <a
+                          href={`/api/purchase-requests/${initialData.id}/attachments/${attachment.id}`}
+                        >
+                          <Download />
+                          {dictionary.purchaseRequests.downloadAttachment}
+                        </a>
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon-sm"
+                        className="rounded-full"
+                        aria-label={dictionary.purchaseRequests.removeAttachment}
+                        disabled={isPending || Boolean(deletingAttachmentId)}
+                        onClick={() => removeExistingAttachment(attachment.id)}
+                      >
+                        <Trash2 />
+                      </Button>
+                    </div>
+                  </div>
                 ))}
               </div>
             </div>
@@ -529,7 +591,7 @@ export function PurchaseRequestForm({
           type="button"
           variant="outline"
           className="rounded-xl"
-          disabled={isPending}
+          disabled={isPending || Boolean(deletingAttachmentId)}
           onClick={() => submit(false)}
         >
           {isPending ? dictionary.common.saving : dictionary.purchaseRequests.saveDraft}
@@ -537,7 +599,7 @@ export function PurchaseRequestForm({
         <Button
           type="button"
           className="rounded-xl"
-          disabled={isPending}
+          disabled={isPending || Boolean(deletingAttachmentId)}
           onClick={() => submit(true)}
         >
           {isPending

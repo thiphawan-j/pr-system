@@ -72,11 +72,9 @@ jobs:
             postgres:16-alpine \
             sh -c 'mkdir -p /storage/pr-attachments && chown -R 1001:1001 /storage && chmod -R u+rwX /storage'
 
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm --build migrate
-
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build --no-cache pr-system-web
           docker rm -f pr-system-web 2>/dev/null || true
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --build pr-system-web
-
+          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --no-deps pr-system-web
           docker restart ttt-rider-caddy || true
 
           docker ps --filter name=pr-system

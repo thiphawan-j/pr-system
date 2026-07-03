@@ -10,7 +10,10 @@ import type {
   PurchaseRequestAttachmentInput,
   SessionUser,
 } from "@/lib/types";
-import { hasGlobalPurchaseRequestVisibility } from "@/server/auth/authorization";
+import {
+  canManageRequestAsOwner,
+  hasGlobalPurchaseRequestVisibility,
+} from "@/server/auth/authorization";
 import { getDb } from "@/server/db";
 import { AppError } from "@/server/shared/errors";
 
@@ -207,6 +210,46 @@ export async function getAttachmentForDownload(
     attachment,
     bytes,
   };
+}
+
+export async function deleteAttachmentFromPurchaseRequest(
+  purchaseRequestId: string,
+  attachmentId: string,
+  session: SessionUser,
+) {
+  const db = getDb();
+  const attachment = await db.purchaseRequestAttachment.findUnique({
+    where: { id: attachmentId },
+    include: {
+      purchaseRequest: {
+        select: {
+          id: true,
+          requesterId: true,
+          status: true,
+        },
+      },
+    },
+  });
+
+  if (!attachment || attachment.purchaseRequestId !== purchaseRequestId) {
+    throw new AppError("ไม่พบไฟล์แนบที่ต้องการ", 404);
+  }
+
+  if (
+    !canManageRequestAsOwner(session, attachment.purchaseRequest.requesterId)
+  ) {
+    throw new AppError("คุณไม่มีสิทธิ์แก้ไขเอกสารนี้", 403);
+  }
+
+  if (attachment.purchaseRequest.status !== "DRAFT") {
+    throw new AppError("เอกสารที่ส่งอนุมัติแล้วไม่สามารถแก้ไขได้", 400);
+  }
+
+  await db.purchaseRequestAttachment.delete({
+    where: { id: attachment.id },
+  });
+
+  await deleteSavedAttachmentFiles([{ storagePath: attachment.storagePath }]);
 }
 
 export type PurchaseRequestAttachmentCreateInput =

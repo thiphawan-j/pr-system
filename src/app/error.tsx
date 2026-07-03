@@ -19,18 +19,19 @@ export default function GlobalError({
   }, [error]);
 
   return (
-    <html lang={locale}>
-      <body className="flex min-h-screen items-center justify-center bg-background px-4">
-        <div className="max-w-md space-y-4 text-center">
-          <h1 className="text-3xl font-semibold">
-            {dictionary.error.unexpectedTitle}
-          </h1>
-          <p className="text-muted-foreground">
-            {dictionary.error.unexpectedDescription}
-          </p>
-          <Button onClick={reset}>{dictionary.common.retry}</Button>
-        </div>
-      </body>
-    </html>
+    <div
+      lang={locale}
+      className="flex min-h-screen items-center justify-center bg-background px-4"
+    >
+      <div className="max-w-md space-y-4 text-center">
+        <h1 className="text-3xl font-semibold">
+          {dictionary.error.unexpectedTitle}
+        </h1>
+        <p className="text-muted-foreground">
+          {dictionary.error.unexpectedDescription}
+        </p>
+        <Button onClick={reset}>{dictionary.common.retry}</Button>
+      </div>
+    </div>
   );
 }

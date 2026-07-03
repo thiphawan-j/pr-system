@@ -22,11 +22,26 @@ export function isPurchasing(user: SessionUser) {
   return user.role === "PURCHASING" || user.role === "ADMIN";
 }
 
+export function isManagementApprover(user: SessionUser) {
+  return user.role === "APPROVER" && user.department === managementDepartment;
+}
+
 export function hasGlobalPurchaseRequestVisibility(user: SessionUser) {
   return (
     isAdmin(user) ||
     isPurchasing(user) ||
-    (user.role === "APPROVER" && user.department === managementDepartment)
+    isManagementApprover(user)
+  );
+}
+
+export function canApprovePurchaseRequest(
+  user: SessionUser,
+  currentApproverId?: string | null,
+) {
+  return (
+    isAdmin(user) ||
+    isManagementApprover(user) ||
+    (user.role === "APPROVER" && currentApproverId === user.id)
   );
 }
 

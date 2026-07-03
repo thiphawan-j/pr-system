@@ -4,13 +4,14 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import {
   FilePenLine,
   KeyRound,
+  Loader2,
   ShieldCheck,
   ShieldOff,
   UserCheck,
   UserX,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -44,13 +45,18 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { departments } from "@/lib/constants";
+import { adminUserListPageSize, departments } from "@/lib/constants";
 import { getInitials } from "@/lib/format";
+import { ApiClientError, apiFetch } from "@/lib/http";
 import {
   getDepartmentLabel,
   translateMessage,
 } from "@/lib/i18n";
-import { roles, type AdminUserItem } from "@/lib/types";
+import {
+  roles,
+  type AdminUserItem,
+  type AdminUserListPage,
+} from "@/lib/types";
 import {
   adminResetPasswordSchema,
   updateUserSchema,
@@ -58,7 +64,9 @@ import {
 
 type UserManagementListProps = {
   currentUserId: string;
-  users: AdminUserItem[];
+  initialItems: AdminUserItem[];
+  initialHasMore: boolean;
+  initialNextPage: number | null;
 };
 
 type UpdateUserFormValues = z.input<typeof updateUserSchema>;
@@ -557,12 +565,119 @@ function ToggleUserStatusDialog({
 
 export function UserManagementList({
   currentUserId,
-  users,
+  initialItems,
+  initialHasMore,
+  initialNextPage,
 }: UserManagementListProps) {
   const { dictionary, locale } = useI18n();
+  const [users, setUsers] = useState(initialItems);
+  const [hasMore, setHasMore] = useState(initialHasMore);
+  const [nextPage, setNextPage] = useState(initialNextPage);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [editingUser, setEditingUser] = useState<AdminUserItem | null>(null);
   const [resettingUser, setResettingUser] = useState<AdminUserItem | null>(null);
   const [togglingUser, setTogglingUser] = useState<AdminUserItem | null>(null);
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const fetchMoreUsersRef = useRef<() => Promise<void>>(async () => {});
+
+  useEffect(() => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    setUsers(initialItems);
+    setHasMore(initialHasMore);
+    setNextPage(initialNextPage);
+    setIsLoadingMore(false);
+    setLoadError(null);
+
+    return () => {
+      abortControllerRef.current?.abort();
+      abortControllerRef.current = null;
+    };
+  }, [initialHasMore, initialItems, initialNextPage]);
+
+  async function fetchMoreUsers() {
+    if (isLoadingMore || !hasMore || nextPage === null) {
+      return;
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+    setIsLoadingMore(true);
+    setLoadError(null);
+
+    try {
+      const params = new URLSearchParams({
+        page: String(nextPage),
+        limit: String(adminUserListPageSize),
+      });
+      const payload = await apiFetch<AdminUserListPage>(
+        `/api/admin/users?${params.toString()}`,
+        {
+          method: "GET",
+          cache: "no-store",
+          signal: controller.signal,
+        },
+      );
+
+      startTransition(() => {
+        setUsers((current) => {
+          const seenIds = new Set(current.map((item) => item.id));
+          const appendedItems = payload.items.filter((item) => !seenIds.has(item.id));
+
+          return [...current, ...appendedItems];
+        });
+        setHasMore(payload.hasMore);
+        setNextPage(payload.nextPage);
+      });
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+
+      const message =
+        error instanceof ApiClientError
+          ? translateMessage(error.message, locale) ??
+            dictionary.admin.loadMoreUsersError
+          : dictionary.admin.loadMoreUsersError;
+
+      setLoadError(message);
+      toast.error(message);
+    } finally {
+      if (abortControllerRef.current === controller) {
+        abortControllerRef.current = null;
+      }
+
+      setIsLoadingMore(false);
+    }
+  }
+  fetchMoreUsersRef.current = fetchMoreUsers;
+
+  useEffect(() => {
+    const sentinel = sentinelRef.current;
+
+    if (!sentinel || !hasMore || nextPage === null || isLoadingMore || loadError) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          void fetchMoreUsersRef.current();
+        }
+      },
+      {
+        rootMargin: "160px 0px",
+      },
+    );
+
+    observer.observe(sentinel);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [hasMore, isLoadingMore, loadError, nextPage, users.length]);
 
   function renderActionButtons(user: AdminUserItem, compact = false) {
     return (
@@ -628,9 +743,6 @@ export function UserManagementList({
                 <p className="text-sm text-muted-foreground">
                   {user.username ?? "-"} · {user.phone ?? "-"}
                 </p>
-                {user.title ? (
-                  <p className="text-sm text-muted-foreground">{user.title}</p>
-                ) : null}
                 {renderActionButtons(user, true)}
               </div>
             </div>
@@ -650,7 +762,6 @@ export function UserManagementList({
               <TableHead>{dictionary.common.department}</TableHead>
               <TableHead>{dictionary.admin.role}</TableHead>
               <TableHead>{dictionary.admin.accountStatus}</TableHead>
-              <TableHead>{dictionary.admin.title}</TableHead>
               <TableHead className="text-right">{dictionary.common.actions}</TableHead>
             </TableRow>
           </TableHeader>
@@ -675,7 +786,6 @@ export function UserManagementList({
                 <TableCell>
                   <StatusBadge isActive={user.isActive} />
                 </TableCell>
-                <TableCell>{user.title ?? "-"}</TableCell>
                 <TableCell className="text-right">
                   {renderActionButtons(user)}
                 </TableCell>
@@ -684,6 +794,24 @@ export function UserManagementList({
           </TableBody>
         </Table>
       </div>
+
+      <div ref={sentinelRef} className="h-1 w-full" aria-hidden="true" />
+
+      {isLoadingMore ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border/70 py-4 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" />
+          <span>{dictionary.admin.loadingMoreUsers}</span>
+        </div>
+      ) : null}
+
+      {loadError ? (
+        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-destructive/40 bg-destructive/5 px-4 py-5 text-center">
+          <p className="text-sm text-destructive">{loadError}</p>
+          <Button type="button" variant="outline" onClick={() => void fetchMoreUsers()}>
+            {dictionary.common.retry}
+          </Button>
+        </div>
+      ) : null}
 
       <EditUserDialog
         user={editingUser}

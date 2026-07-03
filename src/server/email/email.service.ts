@@ -10,6 +10,10 @@ type NotificationEmailInput = {
   link?: string | null;
 };
 
+type NotificationEmailDeliveryResult = {
+  messageId: string | null;
+};
+
 type EmailSettings = {
   apiKey: string;
   from: string;
@@ -114,11 +118,13 @@ function buildHtmlBody(input: NotificationEmailInput, actionUrl: string | null) 
   `;
 }
 
-export async function sendNotificationEmail(input: NotificationEmailInput) {
+export async function sendNotificationEmail(
+  input: NotificationEmailInput,
+): Promise<NotificationEmailDeliveryResult> {
   const settings = getEmailSettings();
 
   if (!settings) {
-    return;
+    return { messageId: null };
   }
 
   const actionUrl = toAbsoluteUrl(input.link, settings.appUrl);
@@ -137,11 +143,28 @@ export async function sendNotificationEmail(input: NotificationEmailInput) {
       html: buildHtmlBody(input, actionUrl),
     }),
   });
+  const rawPayload = await response.text();
+  let payload: { id?: unknown; message?: unknown } | null = null;
+
+  if (rawPayload) {
+    try {
+      payload = JSON.parse(rawPayload) as { id?: unknown; message?: unknown };
+    } catch {
+      payload = null;
+    }
+  }
 
   if (!response.ok) {
-    const detail = await response.text();
+    const detail =
+      payload && typeof payload === "object"
+        ? JSON.stringify(payload)
+        : rawPayload;
     throw new Error(
       `Failed to send notification email to ${input.email}: ${response.status} ${detail}`,
     );
   }
+
+  return {
+    messageId: typeof payload?.id === "string" ? payload.id : null,
+  };
 }

@@ -2,6 +2,7 @@ import "server-only";
 
 import type { Prisma } from "@prisma/client";
 import { Role } from "@prisma/client";
+import { managementDepartment } from "@/lib/constants";
 import type { AdminUserItem, SessionUser } from "@/lib/types";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
 import { getDb } from "@/server/db";
@@ -235,6 +236,14 @@ export async function findApproverForDepartment(department: string) {
     })) ??
     (await db.user.findFirst({
       where: {
+        role: Role.APPROVER,
+        isActive: true,
+        department: managementDepartment,
+      },
+      orderBy: { createdAt: "asc" },
+    })) ??
+    (await db.user.findFirst({
+      where: {
         role: Role.ADMIN,
         isActive: true,
       },
@@ -266,13 +275,36 @@ export async function findPrimaryPurchasingUser() {
   return user ? toSessionUser(user) : null;
 }
 
-export async function listAllUsers() {
-  const db = getDb();
-  const users = await db.user.findMany({
-    orderBy: [{ isActive: "desc" }, { role: "asc" }, { name: "asc" }],
-  });
+const adminUserListOrderBy = [
+  { isActive: "desc" },
+  { role: "asc" },
+  { name: "asc" },
+  { employeeCode: "asc" },
+] as const satisfies Prisma.UserOrderByWithRelationInput[];
 
-  return users.map(toAdminUserItem);
+export async function listUsersPage(input: { page: number; limit: number }) {
+  const db = getDb();
+  const skip = (input.page - 1) * input.limit;
+  const [totalCount, users] = await Promise.all([
+    db.user.count(),
+    db.user.findMany({
+      orderBy: adminUserListOrderBy,
+      skip,
+      take: input.limit,
+    }),
+  ]);
+
+  const items = users.map(toAdminUserItem);
+  const hasMore = skip + items.length < totalCount;
+
+  return {
+    items,
+    page: input.page,
+    limit: input.limit,
+    totalCount,
+    hasMore,
+    nextPage: hasMore ? input.page + 1 : null,
+  };
 }
 
 export async function createUser(input: CreateUserInput) {

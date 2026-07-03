@@ -4,10 +4,11 @@ import { ShieldCheck, Users } from "lucide-react";
 import { UserCreateForm } from "@/components/admin/user-create-form";
 import { UserManagementList } from "@/components/admin/user-management-list";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { adminUserListPageSize } from "@/lib/constants";
 import { interpolate } from "@/lib/i18n";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary } from "@/server/i18n";
-import { listAllUsers } from "@/server/users/user.service";
+import { listUsersPage } from "@/server/users/user.service";
 
 export default async function AdminUsersPage() {
   const [session, dictionary] = await Promise.all([
@@ -19,7 +20,10 @@ export default async function AdminUsersPage() {
     redirect("/dashboard");
   }
 
-  const users = await listAllUsers();
+  const initialPage = await listUsersPage({
+    page: 1,
+    limit: adminUserListPageSize,
+  });
 
   return (
     <div className="space-y-6">
@@ -45,7 +49,7 @@ export default async function AdminUsersPage() {
             </p>
             <p className="text-2xl font-semibold">
               {interpolate(dictionary.admin.userCount, {
-                count: users.length,
+                count: initialPage.totalCount,
               })}
             </p>
           </div>
@@ -69,8 +73,13 @@ export default async function AdminUsersPage() {
           </div>
         </CardHeader>
         <CardContent>
-          {users.length ? (
-            <UserManagementList currentUserId={session.id} users={users} />
+          {initialPage.totalCount ? (
+            <UserManagementList
+              currentUserId={session.id}
+              initialItems={initialPage.items}
+              initialHasMore={initialPage.hasMore}
+              initialNextPage={initialPage.nextPage}
+            />
           ) : (
             <div className="rounded-2xl border border-dashed border-border/70 p-8 text-center text-muted-foreground">
               {dictionary.admin.emptyUsers}

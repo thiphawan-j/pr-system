@@ -14,6 +14,10 @@ type NavigationLinksProps = {
   onNavigate?: () => void;
 };
 
+function matchesPath(pathname: string, href: string) {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function NavigationLinks({
   sessionRole,
   vertical = false,
@@ -21,6 +25,16 @@ export function NavigationLinks({
 }: NavigationLinksProps) {
   const pathname = usePathname();
   const { dictionary } = useI18n();
+  const visibleItems = navigationItems.filter((item) => {
+    const allowedRoles =
+      "roles" in item ? (item.roles as readonly Role[]) : null;
+
+    return !allowedRoles || allowedRoles.includes(sessionRole);
+  });
+  const activeHref =
+    visibleItems
+      .filter((item) => matchesPath(pathname, item.href))
+      .sort((left, right) => right.href.length - left.href.length)[0]?.href ?? null;
 
   return (
     <nav
@@ -29,16 +43,8 @@ export function NavigationLinks({
         vertical ? "flex-col items-stretch" : "flex-wrap items-center",
       )}
     >
-      {navigationItems.map((item) => {
-        const allowedRoles =
-          "roles" in item ? (item.roles as readonly Role[]) : null;
-
-        if (allowedRoles && !allowedRoles.includes(sessionRole)) {
-          return null;
-        }
-
-        const isActive =
-          pathname === item.href || pathname.startsWith(`${item.href}/`);
+      {visibleItems.map((item) => {
+        const isActive = activeHref === item.href;
 
         return (
           <Link

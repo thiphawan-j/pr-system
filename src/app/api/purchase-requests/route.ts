@@ -5,9 +5,15 @@ import {
   deleteSavedAttachmentFiles,
   saveAttachmentFiles,
 } from "@/server/attachments/attachment.service";
-import { purchaseRequestFiltersSchema } from "@/server/purchase-requests/purchase-request.schemas";
+import {
+  purchaseRequestFiltersSchema,
+  purchaseRequestPaginationSchema,
+} from "@/server/purchase-requests/purchase-request.schemas";
 import { parsePurchaseRequestRequest } from "@/server/purchase-requests/purchase-request.request";
-import { createPurchaseRequest, listPurchaseRequests } from "@/server/purchase-requests/purchase-request.service";
+import {
+  createPurchaseRequest,
+  listPurchaseRequestsPage,
+} from "@/server/purchase-requests/purchase-request.service";
 import { toErrorResponse } from "@/server/shared/errors";
 
 export async function GET(request: NextRequest) {
@@ -16,15 +22,20 @@ export async function GET(request: NextRequest) {
     const filters = purchaseRequestFiltersSchema.parse({
       query: request.nextUrl.searchParams.get("query") ?? undefined,
       status: request.nextUrl.searchParams.get("status") ?? undefined,
+      preset: request.nextUrl.searchParams.get("preset") ?? undefined,
       department: request.nextUrl.searchParams.get("department") ?? undefined,
       from: request.nextUrl.searchParams.get("from") ?? undefined,
       to: request.nextUrl.searchParams.get("to") ?? undefined,
       sort: request.nextUrl.searchParams.get("sort") ?? undefined,
     });
+    const pagination = purchaseRequestPaginationSchema.parse({
+      page: request.nextUrl.searchParams.get("page") ?? undefined,
+      limit: request.nextUrl.searchParams.get("limit") ?? undefined,
+    });
 
-    const items = await listPurchaseRequests(session, filters);
+    const result = await listPurchaseRequestsPage(session, filters, pagination);
 
-    return Response.json({ items });
+    return Response.json(result);
   } catch (error) {
     return toErrorResponse(error);
   }

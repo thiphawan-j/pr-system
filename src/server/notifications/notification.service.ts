@@ -1,6 +1,6 @@
 import "server-only";
 
-import { NotificationType } from "@prisma/client";
+import { NotificationEmailStatus, NotificationType } from "@prisma/client";
 import { toBangkokIsoString } from "@/lib/format";
 import type { NotificationItem } from "@/lib/types";
 import { getDb } from "@/server/db";
@@ -14,8 +14,12 @@ type NotificationDraft = {
   userId: string;
   title: string;
   message: string;
-  link?: string;
+  link?: string | null;
   type?: NotificationType;
+};
+
+type PersistedNotificationDraft = NotificationDraft & {
+  id: string;
 };
 
 function toNotificationDto(notification: {
@@ -38,7 +42,45 @@ function toNotificationDto(notification: {
   } satisfies NotificationItem;
 }
 
-async function deliverNotificationEmails(notifications: NotificationDraft[]) {
+function toEmailStatusError(error: unknown) {
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return String(error);
+}
+
+async function createNotificationRecords(notifications: NotificationDraft[]) {
+  if (!notifications.length) {
+    return [];
+  }
+
+  const db = getDb();
+  const initialEmailStatus = isEmailDeliveryEnabled()
+    ? NotificationEmailStatus.PENDING
+    : NotificationEmailStatus.DISABLED;
+  const initialEmailError = isEmailDeliveryEnabled()
+    ? null
+    : "Email delivery is disabled";
+
+  return db.$transaction(
+    notifications.map((notification) =>
+      db.notification.create({
+        data: {
+          userId: notification.userId,
+          title: notification.title,
+          message: notification.message,
+          link: notification.link,
+          type: notification.type ?? NotificationType.INFO,
+          emailStatus: initialEmailStatus,
+          emailError: initialEmailError,
+        },
+      }),
+    ),
+  );
+}
+
+async function deliverNotificationEmails(notifications: PersistedNotificationDraft[]) {
   if (!notifications.length || !isEmailDeliveryEnabled()) {
     return;
   }
@@ -66,29 +108,69 @@ async function deliverNotificationEmails(notifications: NotificationDraft[]) {
       const recipient = recipientsById.get(notification.userId);
 
       if (!recipient?.email) {
+        await db.notification.update({
+          where: { id: notification.id },
+          data: {
+            emailStatus: NotificationEmailStatus.SKIPPED,
+            emailError: "Recipient has no email address",
+            emailSentAt: null,
+            emailMessageId: null,
+          },
+        });
         return;
       }
 
-      await sendNotificationEmail({
+      const result = await sendNotificationEmail({
         email: recipient.email,
         name: recipient.name,
         title: notification.title,
         message: notification.message,
         link: notification.link,
       });
+
+      await db.notification.update({
+        where: { id: notification.id },
+        data: {
+          emailStatus: NotificationEmailStatus.SENT,
+          emailSentAt: new Date(),
+          emailError: null,
+          emailMessageId: result.messageId,
+        },
+      });
     }),
   );
 
-  const failures = results.filter((result) => result.status === "rejected");
+  const failures = results.flatMap((result, index) => {
+    if (result.status !== "rejected") {
+      return [];
+    }
+
+    return [
+      {
+        notification: notifications[index],
+        reason: result.reason,
+      },
+    ];
+  });
+
+  await Promise.all(
+    failures.map(({ notification, reason }) =>
+      db.notification.update({
+        where: { id: notification.id },
+        data: {
+          emailStatus: NotificationEmailStatus.FAILED,
+          emailError: toEmailStatusError(reason),
+          emailSentAt: null,
+          emailMessageId: null,
+        },
+      }),
+    ),
+  );
 
   if (failures.length) {
     console.error(
       `Failed to send ${failures.length} notification email(s)`,
-      failures.map((failure) =>
-        failure.status === "rejected"
-          ? failure.reason
-          : null,
-      ),
+      failures.map((failure) => failure.reason),
     );
   }
 }
@@ -119,22 +201,12 @@ export async function createNotification(input: {
   userId: string;
   title: string;
   message: string;
-  link?: string;
+  link?: string | null;
   type?: NotificationType;
 }) {
-  const db = getDb();
+  const [notification] = await createNotificationRecords([input]);
 
-  const notification = await db.notification.create({
-    data: {
-      userId: input.userId,
-      title: input.title,
-      message: input.message,
-      link: input.link,
-      type: input.type ?? NotificationType.INFO,
-    },
-  });
-
-  await deliverNotificationEmails([input]);
+  await deliverNotificationEmails([notification]);
 
   return notification;
 }
@@ -144,19 +216,9 @@ export async function createNotifications(notifications: NotificationDraft[]) {
     return;
   }
 
-  const db = getDb();
+  const createdNotifications = await createNotificationRecords(notifications);
 
-  await db.notification.createMany({
-    data: notifications.map((notification) => ({
-      userId: notification.userId,
-      title: notification.title,
-      message: notification.message,
-      link: notification.link,
-      type: notification.type ?? NotificationType.INFO,
-    })),
-  });
-
-  await deliverNotificationEmails(notifications);
+  await deliverNotificationEmails(createdNotifications);
 }
 
 export async function markNotificationAsRead(id: string, userId: string) {

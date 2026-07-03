@@ -6,6 +6,10 @@ import { getCurrentDictionary } from "@/server/i18n";
 
 export default async function LoginPage() {
   const dictionary = await getCurrentDictionary();
+  const appEnv =
+    process.env.APP_ENV ??
+    (process.env.NODE_ENV === "production" ? "prod" : "dev");
+  const showDemoAccounts = appEnv !== "prod";
 
   return (
     <main className="relative min-h-screen overflow-hidden">
@@ -55,7 +59,7 @@ export default async function LoginPage() {
         </section>
 
         <section className="mx-auto w-full max-w-md">
-          <LoginForm />
+          <LoginForm showDemoAccounts={showDemoAccounts} />
         </section>
       </div>
     </main>

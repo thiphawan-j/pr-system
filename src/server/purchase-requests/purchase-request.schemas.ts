@@ -1,13 +1,41 @@
 import { z } from "zod";
 
 import { departments } from "@/lib/constants";
-import { priorities, purchaseRequestStatuses } from "@/lib/types";
+import {
+  filterablePurchaseRequestStatuses,
+  priorities,
+  purchaseRequestQuickFilters,
+} from "@/lib/types";
 
 const optionalTrimmedString = z
   .string()
   .trim()
   .optional()
   .transform((value) => value || undefined);
+
+const positiveInteger = z.coerce.number().int().positive();
+
+const optionalPositiveInteger = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return undefined;
+    }
+
+    return value;
+  },
+  positiveInteger.optional(),
+);
+
+const optionalPageSizeInteger = z.preprocess(
+  (value) => {
+    if (value === "" || value === null || value === undefined) {
+      return undefined;
+    }
+
+    return value;
+  },
+  positiveInteger.max(100).optional(),
+);
 
 const optionalPositiveNumber = z.preprocess(
   (value) => {
@@ -60,20 +88,46 @@ export const purchaseRequestPayloadSchema = z.object({
 
 export const purchaseRequestFiltersSchema = z.object({
   query: optionalTrimmedString,
-  status: z
-    .enum(["ALL", ...purchaseRequestStatuses] as const)
-    .optional()
-    .default("ALL"),
+  status: z.preprocess(
+    (value) => (value === "SUBMITTED" ? "ALL" : value),
+    z
+      .enum(["ALL", ...filterablePurchaseRequestStatuses] as const)
+      .optional()
+      .default("ALL"),
+  ),
+  preset: z.enum(purchaseRequestQuickFilters).optional(),
   department: z
     .enum(["ALL", ...departments] as const)
     .optional()
     .default("ALL"),
   from: optionalTrimmedString,
   to: optionalTrimmedString,
-  sort: z
-    .enum(["newest", "oldest", "amount_desc", "amount_asc"])
-    .optional()
-    .default("newest"),
+  sort: z.preprocess(
+    (value) => {
+      if (value === "newest") {
+        return "pr_desc";
+      }
+
+      if (value === "oldest") {
+        return "pr_asc";
+      }
+
+      if (value === "amount_desc" || value === "amount_asc") {
+        return "pr_desc";
+      }
+
+      return value;
+    },
+    z
+      .enum(["pr_desc", "pr_asc", "updated_desc", "status_asc"])
+      .optional()
+      .default("pr_desc"),
+  ),
+});
+
+export const purchaseRequestPaginationSchema = z.object({
+  page: optionalPositiveInteger.default(1),
+  limit: optionalPageSizeInteger.default(20),
 });
 
 export const approvalDecisionSchema = z

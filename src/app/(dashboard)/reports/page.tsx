@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { departments } from "@/lib/constants";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { getDepartmentLabel } from "@/lib/i18n";
-import { purchaseRequestStatuses } from "@/lib/types";
+import { filterablePurchaseRequestStatuses } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { purchaseRequestFiltersSchema } from "@/server/purchase-requests/purchase-request.schemas";
@@ -87,7 +87,7 @@ export default async function ReportsPage({
                 className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
               >
                 <option value="ALL">{dictionary.common.all}</option>
-                {purchaseRequestStatuses.map((status) => (
+                {filterablePurchaseRequestStatuses.map((status) => (
                   <option key={status} value={status}>
                     {dictionary.statuses[status]}
                   </option>
@@ -95,11 +95,11 @@ export default async function ReportsPage({
               </select>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="from">{dictionary.common.fromDate}</Label>
+              <Label htmlFor="from">{dictionary.common.documentDateFrom}</Label>
               <Input id="from" name="from" type="date" defaultValue={filters.from} />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="to">{dictionary.common.toDate}</Label>
+              <Label htmlFor="to">{dictionary.common.documentDateTo}</Label>
               <Input id="to" name="to" type="date" defaultValue={filters.to} />
             </div>
             <div className="flex items-end">

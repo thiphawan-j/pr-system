@@ -5,7 +5,7 @@ import { MonthlySpendChart } from "@/components/dashboard/monthly-spend-chart";
 import { SummaryCard } from "@/components/dashboard/summary-card";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatNumber } from "@/lib/format";
 import { interpolate } from "@/lib/i18n";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
@@ -20,11 +20,15 @@ export default async function DashboardPage() {
     getDashboardSummary(session),
     listPurchaseRequests(session, {
       status: "PENDING_APPROVAL",
-      sort: "newest",
+      sort: "pr_desc",
     }),
     getCurrentLocale(),
     getCurrentDictionary(),
   ]);
+  const pendingHref = "/purchase-requests?preset=pending";
+  const approvedHref = "/purchase-requests?preset=approved";
+  const rejectedHref = "/purchase-requests?preset=rejected";
+  const awaitingReceiptHref = "/purchase-requests?preset=awaiting_receipt";
 
   return (
     <div className="space-y-6">
@@ -58,29 +62,33 @@ export default async function DashboardPage() {
           value={formatNumber(summary.pendingCount, locale)}
           subtitle={dictionary.dashboard.pendingSubtitle}
           accentClassName="from-amber-500/25 via-amber-300/10 to-transparent"
+          href={pendingHref}
         />
         <SummaryCard
           title={dictionary.dashboard.approvedTitle}
           value={formatNumber(summary.approvedCount, locale)}
           subtitle={dictionary.dashboard.approvedSubtitle}
           accentClassName="from-emerald-500/25 via-emerald-300/10 to-transparent"
+          href={approvedHref}
         />
         <SummaryCard
           title={dictionary.dashboard.rejectedTitle}
           value={formatNumber(summary.rejectedCount, locale)}
           subtitle={dictionary.dashboard.rejectedSubtitle}
           accentClassName="from-rose-500/25 via-rose-300/10 to-transparent"
+          href={rejectedHref}
         />
         <SummaryCard
-          title={dictionary.dashboard.totalTitle}
-          value={formatCurrency(summary.totalAmount, locale)}
-          subtitle={dictionary.dashboard.totalSubtitle}
+          title={dictionary.dashboard.awaitingReceiptTitle}
+          value={formatNumber(summary.awaitingReceiptCount, locale)}
+          subtitle={dictionary.dashboard.awaitingReceiptSubtitle}
           accentClassName="from-cyan-500/25 via-cyan-300/10 to-transparent"
+          href={awaitingReceiptHref}
         />
       </section>
 
       <section className="grid gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-        <MonthlySpendChart data={summary.monthlyChart} />
+        <MonthlySpendChart data={summary.requestVolumeChart} />
 
         <Card className="border-border/70">
           <CardHeader className="flex flex-row items-center justify-between">
