@@ -29,6 +29,8 @@ export function PurchaseRequestList({
   locale,
 }: PurchaseRequestListProps) {
   const dictionary = getDictionary(locale);
+  const pendingReceiptStatusClassName =
+    "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300";
 
   if (!requests.length) {
     return (
@@ -44,57 +46,76 @@ export function PurchaseRequestList({
     <div className="space-y-4">
       <div className="grid gap-4 lg:hidden">
         {requests.map((request) => (
-          <Card key={request.id} className="border-border/70">
-            <CardHeader className="space-y-3">
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <CardTitle className="text-base">{request.prNumber}</CardTitle>
-                  <p className="text-sm text-muted-foreground">
-                    {request.requesterName} ·{" "}
-                    {getDepartmentLabel(request.requesterDepartment, locale)}
-                  </p>
-                </div>
-                <StatusBadge status={request.status} locale={locale} />
-              </div>
-              <div className="flex flex-wrap gap-2">
-                <PriorityBadge priority={request.urgency} locale={locale} />
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              <p>{request.reason}</p>
-              <div className="grid grid-cols-2 gap-3 text-muted-foreground">
-                <div>
-                  <p>{dictionary.common.date}</p>
-                  <p className="font-medium text-foreground">
-                    {formatDate(request.requestDate, locale)}
-                  </p>
-                </div>
-                <div>
-                  <p>{dictionary.common.amount}</p>
-                  <p className="font-medium text-foreground">
-                    {formatCurrency(request.totalAmount, locale)}
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-2">
-                <Button asChild variant="outline" className="flex-1 rounded-xl">
-                  <Link href={`/purchase-requests/${request.id}`}>
-                    <Eye />
-                    {dictionary.common.details}
-                  </Link>
-                </Button>
-                {request.status === "DRAFT" &&
-                (session.id === request.requesterId || session.role === "ADMIN") ? (
-                  <Button asChild className="rounded-xl">
-                    <Link href={`/purchase-requests/${request.id}/edit`}>
-                      <FilePenLine />
-                      {dictionary.common.edit}
-                    </Link>
-                  </Button>
-                ) : null}
-              </div>
-            </CardContent>
-          </Card>
+          (() => {
+            const isAwaitingReceiptReferences =
+              request.status === "ORDERED" && Boolean(request.receivedAt);
+            const statusLabel = isAwaitingReceiptReferences
+              ? dictionary.approval.awaitingReceiptReferences
+              : undefined;
+
+            return (
+              <Card key={request.id} className="border-border/70">
+                <CardHeader className="space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-base">{request.prNumber}</CardTitle>
+                      <p className="text-sm text-muted-foreground">
+                        {request.requesterName} ·{" "}
+                        {getDepartmentLabel(request.requesterDepartment, locale)}
+                      </p>
+                    </div>
+                    <StatusBadge
+                      status={request.status}
+                      locale={locale}
+                      label={statusLabel}
+                      className={
+                        isAwaitingReceiptReferences
+                          ? pendingReceiptStatusClassName
+                          : undefined
+                      }
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <PriorityBadge priority={request.urgency} locale={locale} />
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3 text-sm">
+                  <p>{request.reason}</p>
+                  <div className="grid grid-cols-2 gap-3 text-muted-foreground">
+                    <div>
+                      <p>{dictionary.common.date}</p>
+                      <p className="font-medium text-foreground">
+                        {formatDate(request.requestDate, locale)}
+                      </p>
+                    </div>
+                    <div>
+                      <p>{dictionary.common.amount}</p>
+                      <p className="font-medium text-foreground">
+                        {formatCurrency(request.totalAmount, locale)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button asChild variant="outline" className="flex-1 rounded-xl">
+                      <Link href={`/purchase-requests/${request.id}`}>
+                        <Eye />
+                        {dictionary.common.details}
+                      </Link>
+                    </Button>
+                    {request.status === "DRAFT" &&
+                    (session.id === request.requesterId || session.role === "ADMIN") ? (
+                      <Button asChild className="rounded-xl">
+                        <Link href={`/purchase-requests/${request.id}/edit`}>
+                          <FilePenLine />
+                          {dictionary.common.edit}
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
+                </CardContent>
+              </Card>
+            );
+          })()
         ))}
       </div>
 
@@ -115,54 +136,73 @@ export function PurchaseRequestList({
               </TableHeader>
               <TableBody>
                 {requests.map((request) => (
-                  <TableRow key={request.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{request.prNumber}</p>
-                        <p className="line-clamp-1 max-w-xs text-xs text-muted-foreground">
-                          {request.reason}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div>
-                        <p>{request.requesterName}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {getDepartmentLabel(request.requesterDepartment, locale)}
-                        </p>
-                      </div>
-                    </TableCell>
-                    <TableCell>{formatDate(request.requestDate, locale)}</TableCell>
-                    <TableCell>
-                      <StatusBadge status={request.status} locale={locale} />
-                    </TableCell>
-                    <TableCell>
-                      <PriorityBadge priority={request.urgency} locale={locale} />
-                    </TableCell>
-                    <TableCell className="font-mono">
-                      {formatCurrency(request.totalAmount, locale)}
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button asChild variant="outline" size="sm">
-                          <Link href={`/purchase-requests/${request.id}`}>
-                            <Eye />
-                            {dictionary.common.open}
-                          </Link>
-                        </Button>
-                        {request.status === "DRAFT" &&
-                        (session.id === request.requesterId ||
-                          session.role === "ADMIN") ? (
-                          <Button asChild size="sm">
-                            <Link href={`/purchase-requests/${request.id}/edit`}>
-                              <FilePenLine />
-                              {dictionary.common.edit}
-                            </Link>
-                          </Button>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                  </TableRow>
+                  (() => {
+                    const isAwaitingReceiptReferences =
+                      request.status === "ORDERED" && Boolean(request.receivedAt);
+                    const statusLabel = isAwaitingReceiptReferences
+                      ? dictionary.approval.awaitingReceiptReferences
+                      : undefined;
+
+                    return (
+                      <TableRow key={request.id}>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{request.prNumber}</p>
+                            <p className="line-clamp-1 max-w-xs text-xs text-muted-foreground">
+                              {request.reason}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p>{request.requesterName}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {getDepartmentLabel(request.requesterDepartment, locale)}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell>{formatDate(request.requestDate, locale)}</TableCell>
+                        <TableCell>
+                          <StatusBadge
+                            status={request.status}
+                            locale={locale}
+                            label={statusLabel}
+                            className={
+                              isAwaitingReceiptReferences
+                                ? pendingReceiptStatusClassName
+                                : undefined
+                            }
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <PriorityBadge priority={request.urgency} locale={locale} />
+                        </TableCell>
+                        <TableCell className="font-mono">
+                          {formatCurrency(request.totalAmount, locale)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-2">
+                            <Button asChild variant="outline" size="sm">
+                              <Link href={`/purchase-requests/${request.id}`}>
+                                <Eye />
+                                {dictionary.common.open}
+                              </Link>
+                            </Button>
+                            {request.status === "DRAFT" &&
+                            (session.id === request.requesterId ||
+                              session.role === "ADMIN") ? (
+                              <Button asChild size="sm">
+                                <Link href={`/purchase-requests/${request.id}/edit`}>
+                                  <FilePenLine />
+                                  {dictionary.common.edit}
+                                </Link>
+                              </Button>
+                            ) : null}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })()
                 ))}
               </TableBody>
             </Table>

@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  CircleAlert,
   Download,
   FilePenLine,
   GitBranch,
@@ -15,6 +16,12 @@ import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt
 import { ReceiptReferencePanel } from "@/components/purchase-requests/receipt-reference-panel";
 import { StatusBadge } from "@/components/purchase-requests/status-badge";
 import { SubmitPurchaseRequestButton } from "@/components/purchase-requests/submit-purchase-request-button";
+import {
+  Alert,
+  AlertAction,
+  AlertDescription,
+  AlertTitle,
+} from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -64,6 +71,14 @@ export default async function PurchaseRequestDetailPage({
     (session.role === "PURCHASING" || session.role === "ADMIN");
   const receiptReferenceStatus =
     request.status === "COMPLETED" ? "COMPLETED" : "ORDERED";
+  const isAwaitingReceiptReferences =
+    request.status === "ORDERED" && Boolean(request.receivedAt);
+  const statusLabel = isAwaitingReceiptReferences
+    ? dictionary.approval.awaitingReceiptReferences
+    : undefined;
+  const statusClassName = isAwaitingReceiptReferences
+    ? "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300"
+    : undefined;
 
   return (
     <div className="space-y-6">
@@ -71,7 +86,12 @@ export default async function PurchaseRequestDetailPage({
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
             <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge status={request.status} locale={locale} />
+              <StatusBadge
+                status={request.status}
+                locale={locale}
+                label={statusLabel}
+                className={statusClassName}
+              />
               <PriorityBadge priority={request.urgency} locale={locale} />
             </div>
             <div>
@@ -95,6 +115,28 @@ export default async function PurchaseRequestDetailPage({
           </div>
         </div>
       </section>
+
+      {isAwaitingReceiptReferences && canEditReceiptReferences ? (
+        <Alert className="border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+          <CircleAlert className="size-4" />
+          <AlertTitle>{dictionary.approval.receiptReferencesPendingTitle}</AlertTitle>
+          <AlertDescription className="text-amber-900/80 dark:text-amber-100/80">
+            {dictionary.approval.receiptReferencesPendingDescription}
+          </AlertDescription>
+          <AlertAction>
+            <Button
+              asChild
+              size="sm"
+              variant="outline"
+              className="border-amber-500/30 bg-background/70"
+            >
+              <a href="#receipt-reference-panel">
+                {dictionary.approval.receiptReferencesPendingAction}
+              </a>
+            </Button>
+          </AlertAction>
+        </Alert>
+      ) : null}
 
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">

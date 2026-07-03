@@ -1,5 +1,6 @@
 import "server-only";
 
+import { managementDepartment } from "@/lib/constants";
 import type { Role, SessionUser } from "@/lib/types";
 import { AppError } from "@/server/shared/errors";
 
@@ -19,6 +20,14 @@ export function isApprover(user: SessionUser) {
 
 export function isPurchasing(user: SessionUser) {
   return user.role === "PURCHASING" || user.role === "ADMIN";
+}
+
+export function hasGlobalPurchaseRequestVisibility(user: SessionUser) {
+  return (
+    isAdmin(user) ||
+    isPurchasing(user) ||
+    (user.role === "APPROVER" && user.department === managementDepartment)
+  );
 }
 
 export function canManageRequestAsOwner(user: SessionUser, requesterId: string) {

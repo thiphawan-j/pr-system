@@ -58,7 +58,7 @@ jobs:
             exit 1
           }
 
-          docker volume inspect pr-system-storage-data >/dev/null 2>&1 || docker volume create pr-system-storage-data
+          docker volume inspect pr-system_pr-system-storage >/dev/null 2>&1 || docker volume create pr-system_pr-system-storage
 
           git fetch origin main
           git reset --hard origin/main
@@ -66,6 +66,11 @@ jobs:
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system config --services
 
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d postgres
+
+          docker run --rm \
+            -v pr-system_pr-system-storage:/storage \
+            postgres:16-alpine \
+            sh -c 'mkdir -p /storage/pr-attachments && chown -R 1001:1001 /storage && chmod -R u+rwX /storage'
 
           docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm --build migrate
 

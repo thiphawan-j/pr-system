@@ -7,6 +7,8 @@ import type {
 
 export const appName = "PR Flow";
 
+export const managementDepartment = "บริหาร/จัดการ" as const;
+
 export const departments = [
   "Operations",
   "Projects",
@@ -15,6 +17,7 @@ export const departments = [
   "Admin",
   "Purchasing",
   "ซ่อมบำรุง",
+  managementDepartment,
 ] as const;
 
 export const units = ["ชิ้น", "ชุด", "เครื่อง", "กล่อง", "ใบ", "เมตร"] as const;

@@ -75,6 +75,7 @@ export type PurchaseRequestListItem = {
   id: string;
   prNumber: string;
   requestDate: string;
+  receivedAt?: string | null;
   requesterId: string;
   requesterName: string;
   requesterDepartment: string;

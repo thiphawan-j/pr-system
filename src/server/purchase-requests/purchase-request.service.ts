@@ -26,6 +26,7 @@ import type {
 import { toAttachmentCreateManyInput } from "@/server/attachments/attachment.service";
 import {
   canManageRequestAsOwner,
+  hasGlobalPurchaseRequestVisibility,
   isAdmin,
   isApprover,
   isPurchasing,
@@ -104,6 +105,10 @@ function calculateTotal(items: PersistedItem[]) {
 }
 
 function buildVisibleWhere(session: SessionUser): Prisma.PurchaseRequestWhereInput {
+  if (hasGlobalPurchaseRequestVisibility(session)) {
+    return {};
+  }
+
   if (session.role === "EMPLOYEE") {
     return { requesterId: session.id };
   }
@@ -196,6 +201,7 @@ function toListItem(
     id: request.id,
     prNumber: request.prNumber,
     requestDate: toBangkokDateValue(request.requestDate),
+    receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
     requesterId: request.requesterId,
     requesterName: request.requester.name,
     requesterDepartment: request.department,
@@ -311,7 +317,7 @@ function assertCanView(
   department: string,
   currentApproverId?: string | null,
 ) {
-  if (isAdmin(session) || isPurchasing(session)) {
+  if (hasGlobalPurchaseRequestVisibility(session)) {
     return;
   }
 
@@ -465,6 +471,22 @@ async function notifyProgressUpdate(input: {
           : `${input.prNumber} ถูกปิดงานเรียบร้อยแล้ว`,
       link: `/purchase-requests/${input.requestId}`,
       type: NotificationType.SUCCESS,
+    },
+  ]);
+}
+
+async function notifyReceiptReferencesPending(input: {
+  requestId: string;
+  prNumber: string;
+  purchasingUserId: string;
+}) {
+  await createNotifications([
+    {
+      userId: input.purchasingUserId,
+      title: "PR รอกรอกเลขเอกสาร",
+      message: `${input.prNumber} มีการยืนยันรับของแล้ว กรุณาบันทึกเลขรับของหรือใบกำกับภาษี`,
+      link: `/purchase-requests/${input.requestId}`,
+      type: NotificationType.WARNING,
     },
   ]);
 }
@@ -849,6 +871,18 @@ export async function progressPurchaseRequest(
       prNumber: request.prNumber,
       requesterId: request.requesterId,
       action: input.action,
+    });
+  }
+
+  if (
+    input.action === "RECEIVED" &&
+    request.currentApproverId &&
+    request.currentApproverId !== session.id
+  ) {
+    await notifyReceiptReferencesPending({
+      requestId: id,
+      prNumber: request.prNumber,
+      purchasingUserId: request.currentApproverId,
     });
   }
 }

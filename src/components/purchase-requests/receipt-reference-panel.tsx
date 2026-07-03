@@ -6,7 +6,13 @@ import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
@@ -79,9 +85,14 @@ export function ReceiptReferencePanel({
   }
 
   return (
-    <Card className="border-border/70">
+    <Card id="receipt-reference-panel" className="border-border/70">
       <CardHeader>
         <CardTitle>{dictionary.approval.receiptReferenceTitle}</CardTitle>
+        {status === "ORDERED" ? (
+          <CardDescription>
+            {dictionary.approval.receiptReferenceDescription}
+          </CardDescription>
+        ) : null}
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">

@@ -214,11 +214,18 @@ export const dictionaries = {
       receivedTitle: "ยืนยันรับของ",
       receivedCommentPlaceholder: "เช่น รับของครบแล้ว / มีของขาดบางรายการ",
       complete: "บันทึกรับของ",
+      awaitingReceiptReferences: "รอบันทึกเลขเอกสาร",
       receiptReferenceTitle: "เอกสารรับของ / ใบกำกับภาษี",
+      receiptReferenceDescription:
+        "รับของแล้ว กรุณากรอกหมายเลขรับของหรือเลขที่ใบกำกับภาษีเพื่อปิดงาน",
       receiptNumberPlaceholder: "เช่น GR-2026-0001",
       taxInvoiceNumberPlaceholder: "เช่น INV-2026-0001",
       receiptReferenceNotePlaceholder:
         "เช่น รับของครบแล้ว / ระบุเงื่อนไขหรือรายละเอียดเอกสารเพิ่มเติม",
+      receiptReferencesPendingTitle: "รับของแล้ว รอกรอกเลขเอกสาร",
+      receiptReferencesPendingDescription:
+        "กรอกหมายเลขรับของหรือเลขที่ใบกำกับภาษีเพื่อปิดงาน PR นี้",
+      receiptReferencesPendingAction: "กรอกเลขเอกสาร",
       saveReceiptReferences: "บันทึกเอกสารและปิดงาน",
       saveReceiptReferencesSuccess: "บันทึกเอกสารและปิดงานเรียบร้อย",
       updateReceiptReferences: "อัปเดตเลขเอกสาร",
@@ -366,6 +373,7 @@ export const dictionaries = {
       Admin: "ธุรการ",
       Purchasing: "จัดซื้อ",
       "ซ่อมบำรุง": "ซ่อมบำรุง",
+      "บริหาร/จัดการ": "บริหาร/จัดการ",
     },
     priorities: {
       LOW: "ต่ำ",
@@ -590,11 +598,18 @@ export const dictionaries = {
       receivedCommentPlaceholder:
         "For example: goods received in full / some items were missing",
       complete: "Save receipt confirmation",
+      awaitingReceiptReferences: "Awaiting document numbers",
       receiptReferenceTitle: "Receipt / tax invoice details",
+      receiptReferenceDescription:
+        "Goods have been received. Please enter the receipt number or tax invoice number to close this PR.",
       receiptNumberPlaceholder: "For example: GR-2026-0001",
       taxInvoiceNumberPlaceholder: "For example: INV-2026-0001",
       receiptReferenceNotePlaceholder:
         "For example: received in full / add document conditions or extra details",
+      receiptReferencesPendingTitle: "Goods received, document numbers pending",
+      receiptReferencesPendingDescription:
+        "Enter the receipt number or tax invoice number to close this PR.",
+      receiptReferencesPendingAction: "Enter document numbers",
       saveReceiptReferences: "Save documents and close",
       saveReceiptReferencesSuccess: "Documents saved and request closed",
       updateReceiptReferences: "Update document numbers",
@@ -742,6 +757,7 @@ export const dictionaries = {
       Admin: "Admin",
       Purchasing: "Purchasing",
       "ซ่อมบำรุง": "Maintenance",
+      "บริหาร/จัดการ": "Management",
     },
     priorities: {
       LOW: "Low",
@@ -876,6 +892,8 @@ const translatedMessages: Record<string, string> = {
     "You do not have permission to access this area",
   "เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่อีกครั้ง":
     "An internal error occurred. Please try again.",
+  "ระบบจัดเก็บไฟล์แนบยังไม่พร้อม กรุณาแจ้งผู้ดูแลระบบ":
+    "Attachment storage is not ready. Please contact the administrator.",
   "ไม่พบเอกสาร PR ที่ต้องการ": "PR document not found",
   "ไม่พบผู้อนุมัติสำหรับแผนกนี้":
     "No approver was found for this department",
@@ -930,6 +948,7 @@ const translatedNotificationTitles: Record<string, string> = {
   "PR ถูกปฏิเสธ": "PR rejected",
   "PR ถูกส่งกลับแก้ไข": "PR returned for changes",
   "PR อยู่ระหว่างจัดซื้อ": "PR is being purchased",
+  "PR รอกรอกเลขเอกสาร": "PR awaiting document numbers",
   "PR ดำเนินการเสร็จสมบูรณ์": "PR completed",
 };
 
@@ -962,6 +981,11 @@ const translatedNotificationMessages: Array<{
   {
     pattern: /^(.+) ถูกส่งคำสั่งซื้อแล้ว$/,
     render: ([, prNumber]) => `${prNumber} has been ordered`,
+  },
+  {
+    pattern: /^(.+) มีการยืนยันรับของแล้ว กรุณาบันทึกเลขรับของหรือใบกำกับภาษี$/,
+    render: ([, prNumber]) =>
+      `${prNumber} has been marked as received. Please enter the receipt or tax invoice number.`,
   },
   {
     pattern: /^(.+) ถูกปิดงานเรียบร้อยแล้ว$/,

@@ -10,10 +10,7 @@ import type {
   PurchaseRequestAttachmentInput,
   SessionUser,
 } from "@/lib/types";
-import {
-  isAdmin,
-  isPurchasing,
-} from "@/server/auth/authorization";
+import { hasGlobalPurchaseRequestVisibility } from "@/server/auth/authorization";
 import { getDb } from "@/server/db";
 import { AppError } from "@/server/shared/errors";
 
@@ -90,11 +87,11 @@ export function validateAttachmentFiles(files: File[]) {
 
 export async function saveAttachmentFiles(files: File[]) {
   validateAttachmentFiles(files);
-  await mkdir(attachmentStorageRoot, { recursive: true });
-
   const savedFiles: PurchaseRequestAttachmentInput[] = [];
 
   try {
+    await mkdir(attachmentStorageRoot, { recursive: true });
+
     for (const file of files) {
       const safeName = sanitizeFileName(file.name);
       const storedName = `${randomUUID()}-${safeName}`;
@@ -115,6 +112,25 @@ export async function saveAttachmentFiles(files: File[]) {
     return savedFiles;
   } catch (error) {
     await deleteSavedAttachmentFiles(savedFiles);
+
+    if (
+      error &&
+      typeof error === "object" &&
+      "code" in error &&
+      typeof error.code === "string" &&
+      ["EACCES", "EPERM", "EROFS", "ENOENT"].includes(error.code)
+    ) {
+      console.error("[attachments] failed to save attachment files", {
+        code: error.code,
+        storageRoot,
+        attachmentStorageRoot,
+      });
+      throw new AppError(
+        "ระบบจัดเก็บไฟล์แนบยังไม่พร้อม กรุณาแจ้งผู้ดูแลระบบ",
+        500,
+      );
+    }
+
     throw error;
   }
 }
@@ -145,7 +161,7 @@ function canViewPurchaseRequest(
     currentApproverId?: string | null;
   },
 ) {
-  if (isAdmin(session) || isPurchasing(session)) {
+  if (hasGlobalPurchaseRequestVisibility(session)) {
     return true;
   }
 
