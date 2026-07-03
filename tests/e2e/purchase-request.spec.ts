@@ -15,7 +15,7 @@ const profileCredentials = {
   password: "Passw0rd!",
 };
 
-const draftStatusText = /Draft|แบบร่าง/i;
+const draftStatusText = /Draft|ร่าง/i;
 const pendingApprovalStatusText = /รออนุมัติ|pending approval/i;
 const approvedStatusText = /อนุมัติแล้ว|approved/i;
 
