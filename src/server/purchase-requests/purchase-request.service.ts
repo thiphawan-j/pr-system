@@ -6,6 +6,13 @@ import {
   Prisma,
   PurchaseRequestStatus,
 } from "@prisma/client";
+import {
+  toBangkokDateValue,
+  toBangkokIsoString,
+  toBangkokMonthValue,
+  toUtcEndOfDayFromDateValue,
+  toUtcStartOfDayFromDateValue,
+} from "@/lib/format";
 import type {
   DashboardSummary,
   PurchaseRequestAttachmentInput,
@@ -41,7 +48,7 @@ type PersistedItem = {
   supplierName?: string;
   quantity: number;
   unit?: string;
-  unitPrice?: number | null;
+  unitPrice: number;
   amount: number;
 };
 
@@ -82,8 +89,10 @@ function toPersistedItems(items: PurchaseRequestItemInput[]): PersistedItem[] {
     supplierName: item.supplierName,
     quantity: item.quantity,
     unit: item.unit,
+    // Persist zero instead of null so older databases that still expect a
+    // non-null unit price do not crash on valid "price omitted" requests.
     unitPrice:
-      item.unitPrice === undefined ? null : Number(item.unitPrice.toFixed(2)),
+      item.unitPrice === undefined ? 0 : Number(item.unitPrice.toFixed(2)),
     amount: Number((item.quantity * (item.unitPrice ?? 0)).toFixed(2)),
   }));
 }
@@ -144,8 +153,8 @@ function buildFilterWhere(
   if (filters.from || filters.to) {
     andConditions.push({
       requestDate: {
-        gte: filters.from ? new Date(filters.from) : undefined,
-        lte: filters.to ? new Date(`${filters.to}T23:59:59.999Z`) : undefined,
+        gte: filters.from ? toUtcStartOfDayFromDateValue(filters.from) : undefined,
+        lte: filters.to ? toUtcEndOfDayFromDateValue(filters.to) : undefined,
       },
     });
   }
@@ -186,7 +195,7 @@ function toListItem(
   return {
     id: request.id,
     prNumber: request.prNumber,
-    requestDate: request.requestDate.toISOString(),
+    requestDate: toBangkokDateValue(request.requestDate),
     requesterId: request.requesterId,
     requesterName: request.requester.name,
     requesterDepartment: request.department,
@@ -208,7 +217,7 @@ function toDetail(
   return {
     id: request.id,
     prNumber: request.prNumber,
-    requestDate: request.requestDate.toISOString(),
+    requestDate: toBangkokDateValue(request.requestDate),
     department: request.department,
     reason: request.reason,
     urgency: request.urgency,
@@ -231,16 +240,16 @@ function toDetail(
           role: request.currentApprover.role,
         }
       : null,
-    submittedAt: request.submittedAt?.toISOString() ?? null,
-    approvedAt: request.approvedAt?.toISOString() ?? null,
-    orderedAt: request.orderedAt?.toISOString() ?? null,
-    receivedAt: request.receivedAt?.toISOString() ?? null,
-    completedAt: request.completedAt?.toISOString() ?? null,
+    submittedAt: request.submittedAt ? toBangkokIsoString(request.submittedAt) : null,
+    approvedAt: request.approvedAt ? toBangkokIsoString(request.approvedAt) : null,
+    orderedAt: request.orderedAt ? toBangkokIsoString(request.orderedAt) : null,
+    receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
+    completedAt: request.completedAt ? toBangkokIsoString(request.completedAt) : null,
     receiptNumber: request.receiptNumber ?? null,
     taxInvoiceNumber: request.taxInvoiceNumber ?? null,
     receiptReferenceNote: request.receiptReferenceNote ?? null,
-    createdAt: request.createdAt.toISOString(),
-    updatedAt: request.updatedAt.toISOString(),
+    createdAt: toBangkokIsoString(request.createdAt),
+    updatedAt: toBangkokIsoString(request.updatedAt),
     items: request.items.map((item) => ({
       id: item.id,
       itemName: item.itemName,
@@ -249,7 +258,14 @@ function toDetail(
       quantity: item.quantity,
       unit: item.unit ?? undefined,
       unitPrice:
-        item.unitPrice === null ? undefined : decimalToNumber(item.unitPrice),
+        item.unitPrice === null
+          ? undefined
+          : (() => {
+              const unitPrice = decimalToNumber(item.unitPrice);
+              return unitPrice === 0 && decimalToNumber(item.amount) === 0
+                ? undefined
+                : unitPrice;
+            })(),
       amount: decimalToNumber(item.amount),
     })),
     attachments: request.attachments.map((attachment) => ({
@@ -259,7 +275,7 @@ function toDetail(
       mimeType: attachment.mimeType,
       size: attachment.size,
       storagePath: attachment.storagePath,
-      createdAt: attachment.createdAt.toISOString(),
+      createdAt: toBangkokIsoString(attachment.createdAt),
       uploadedBy: {
         id: attachment.uploadedBy.id,
         employeeCode: attachment.uploadedBy.employeeCode,
@@ -275,7 +291,7 @@ function toDetail(
       action: approval.action,
       comment: approval.comment,
       stepLabel: approval.stepLabel,
-      createdAt: approval.createdAt.toISOString(),
+      createdAt: toBangkokIsoString(approval.createdAt),
       approver: {
         id: approval.approver.id,
         employeeCode: approval.approver.employeeCode,
@@ -334,8 +350,7 @@ function assertEditableDraft(
 
 async function generateNextPrNumber(requestDate: Date) {
   const db = getDb();
-  const year = requestDate.getUTCFullYear();
-  const month = `${requestDate.getUTCMonth() + 1}`.padStart(2, "0");
+  const [year, month] = toBangkokMonthValue(requestDate).split("-");
   const prefix = `PR-${year}${month}`;
 
   const latest = await db.purchaseRequest.findFirst({
@@ -519,7 +534,7 @@ export async function createPurchaseRequest(
   const db = getDb();
   const normalizedItems = toPersistedItems(input.items);
   const totalAmount = calculateTotal(normalizedItems);
-  const requestDate = new Date(`${input.requestDate}T00:00:00.000Z`);
+  const requestDate = toUtcStartOfDayFromDateValue(input.requestDate);
   const prNumber = await generateNextPrNumber(requestDate);
 
   let currentApprover = null;
@@ -613,7 +628,7 @@ export async function updatePurchaseRequest(
     await transaction.purchaseRequest.update({
       where: { id },
       data: {
-        requestDate: new Date(`${input.requestDate}T00:00:00.000Z`),
+        requestDate: toUtcStartOfDayFromDateValue(input.requestDate),
         department: input.department,
         reason: input.reason,
         urgency: input.urgency,
@@ -812,7 +827,7 @@ export async function progressPurchaseRequest(
       orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
       receivedAt:
         input.action === "RECEIVED" && input.receivedDate
-          ? new Date(`${input.receivedDate}T00:00:00.000Z`)
+          ? toUtcStartOfDayFromDateValue(input.receivedDate)
           : request.receivedAt,
       approvals: {
         create: {
@@ -983,7 +998,11 @@ export async function getDashboardSummary(session: SessionUser) {
         where: {
           ...visibleWhere,
           requestDate: {
-            gte: new Date(new Date().setMonth(new Date().getMonth() - 5)),
+            gte: toUtcStartOfDayFromDateValue(
+              toBangkokDateValue(
+                new Date(new Date().setMonth(new Date().getMonth() - 5)),
+              ),
+            ),
           },
         },
         select: {
@@ -999,7 +1018,7 @@ export async function getDashboardSummary(session: SessionUser) {
   const monthlyMap = new Map<string, { amount: number; count: number }>();
 
   recent.forEach((request) => {
-    const key = request.requestDate.toISOString().slice(0, 7);
+    const key = toBangkokMonthValue(request.requestDate);
     const current = monthlyMap.get(key) ?? { amount: 0, count: 0 };
     current.amount += decimalToNumber(request.totalAmount);
     current.count += 1;
@@ -1042,7 +1061,7 @@ export async function getReportSummary(
 
   requests.forEach((request) => {
     const amount = decimalToNumber(request.totalAmount);
-    const month = request.requestDate.toISOString().slice(0, 7);
+    const month = toBangkokMonthValue(request.requestDate);
 
     const department = byDepartmentMap.get(request.department) ?? {
       totalAmount: 0,

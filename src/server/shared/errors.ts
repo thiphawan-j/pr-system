@@ -1,4 +1,6 @@
+import { Prisma } from "@prisma/client";
 import { NextResponse } from "next/server";
+import { ZodError } from "zod";
 
 export class AppError extends Error {
   statusCode: number;
@@ -12,6 +14,68 @@ export class AppError extends Error {
 
 export function isAppError(error: unknown): error is AppError {
   return error instanceof AppError;
+}
+
+function getFirstZodMessage(error: ZodError) {
+  return error.issues[0]?.message ?? "ข้อมูลที่ส่งมาไม่ถูกต้อง";
+}
+
+function isSchemaMismatchError(error: Prisma.PrismaClientKnownRequestError) {
+  if (error.code === "P2022") {
+    return true;
+  }
+
+  if (error.code !== "P2011") {
+    return false;
+  }
+
+  return JSON.stringify(error.meta ?? {}).includes("unitPrice");
+}
+
+function toPrismaErrorResponse(error: Prisma.PrismaClientKnownRequestError) {
+  if (isSchemaMismatchError(error)) {
+    return NextResponse.json(
+      { error: "ฐานข้อมูลของระบบยังไม่อัปเดต กรุณาแจ้งผู้ดูแลระบบให้รัน migration ล่าสุด" },
+      { status: 500 },
+    );
+  }
+
+  if (error.code === "P2002") {
+    return NextResponse.json(
+      { error: "ข้อมูลนี้ถูกสร้างซ้ำในระบบ กรุณาลองใหม่อีกครั้ง" },
+      { status: 409 },
+    );
+  }
+
+  return null;
+}
+
+function toErrorLogPayload(error: unknown) {
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    return {
+      type: "PrismaClientKnownRequestError",
+      code: error.code,
+      message: error.message,
+      meta: error.meta,
+    };
+  }
+
+  if (error instanceof ZodError) {
+    return {
+      type: "ZodError",
+      issues: error.issues,
+    };
+  }
+
+  if (error instanceof Error) {
+    return {
+      type: error.name,
+      message: error.message,
+      stack: error.stack,
+    };
+  }
+
+  return { type: typeof error, error };
 }
 
 export function invariant(
@@ -29,7 +93,20 @@ export function toErrorResponse(error: unknown) {
     return NextResponse.json({ error: error.message }, { status: error.statusCode });
   }
 
-  console.error(error);
+  if (error instanceof ZodError) {
+    return NextResponse.json({ error: getFirstZodMessage(error) }, { status: 400 });
+  }
+
+  if (error instanceof Prisma.PrismaClientKnownRequestError) {
+    const response = toPrismaErrorResponse(error);
+
+    if (response) {
+      console.error("[api-error]", toErrorLogPayload(error));
+      return response;
+    }
+  }
+
+  console.error("[api-error]", toErrorLogPayload(error));
 
   return NextResponse.json(
     { error: "เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่อีกครั้ง" },

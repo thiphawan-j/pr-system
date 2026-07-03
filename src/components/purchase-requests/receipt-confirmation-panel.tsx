@@ -10,6 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { toBangkokDateValue } from "@/lib/format";
 import { translateMessage } from "@/lib/i18n";
 
 type ReceiptConfirmationPanelProps = {
@@ -20,9 +21,7 @@ export function ReceiptConfirmationPanel({
   requestId,
 }: ReceiptConfirmationPanelProps) {
   const router = useRouter();
-  const [receivedDate, setReceivedDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [receivedDate, setReceivedDate] = useState(toBangkokDateValue());
   const [comment, setComment] = useState("");
   const [isPending, setIsPending] = useState(false);
   const { dictionary, locale } = useI18n();

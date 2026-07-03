@@ -73,6 +73,8 @@ export const dictionaries = {
       document: "เอกสาร",
       updatedAt: "อัปเดตล่าสุด",
       createdAt: "สร้างเมื่อ",
+      showPassword: "แสดงรหัสผ่าน",
+      hidePassword: "ซ่อนรหัสผ่าน",
     },
     auth: {
       heroBadge: "Purchase Request Management System",
@@ -446,6 +448,8 @@ export const dictionaries = {
       document: "Document",
       updatedAt: "Last updated",
       createdAt: "Created at",
+      showPassword: "Show password",
+      hidePassword: "Hide password",
     },
     auth: {
       heroBadge: "Purchase Request Management System",
@@ -847,6 +851,7 @@ const translatedMessages: Record<string, string> = {
   "จำนวนต้องมากกว่า 0": "Quantity must be greater than 0",
   "กรุณาเลือกหน่วย": "Please select a unit",
   "ราคาต่อหน่วยต้องมากกว่า 0": "Unit price must be greater than 0",
+  "ราคาต่อหน่วยต้องไม่ติดลบ": "Unit price cannot be negative",
   "กรุณาระบุวันที่เอกสาร": "Please enter the document date",
   "กรุณาเลือกแผนก": "Please select a department",
   "กรุณาระบุเหตุผลอย่างน้อย 10 ตัวอักษร":

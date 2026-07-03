@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { translateMessage } from "@/lib/i18n";
 import { loginSchema } from "@/server/purchase-requests/purchase-request.schemas";
 
@@ -91,16 +92,14 @@ export function LoginForm() {
 
           <div className="space-y-2">
             <Label htmlFor="password">{dictionary.auth.password}</Label>
-            <div className="relative">
-              <LockKeyhole className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                className="pl-9"
-                {...form.register("password")}
-              />
-            </div>
+            <PasswordInput
+              id="password"
+              autoComplete="current-password"
+              leadingIcon={<LockKeyhole className="size-4" />}
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
+              {...form.register("password")}
+            />
             {form.formState.errors.password ? (
               <p className="text-xs text-destructive">
                 {translateMessage(form.formState.errors.password.message, locale)}

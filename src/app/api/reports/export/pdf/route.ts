@@ -7,7 +7,7 @@ import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { NextRequest } from "next/server";
 
 import { requireSession } from "@/server/auth/session";
-import { formatCurrency, formatNumber } from "@/lib/format";
+import { formatCurrency, formatDateTime, formatNumber } from "@/lib/format";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { purchaseRequestFiltersSchema } from "@/server/purchase-requests/purchase-request.schemas";
 import { getReportSummary } from "@/server/purchase-requests/purchase-request.service";
@@ -88,7 +88,7 @@ export async function GET(request: NextRequest) {
 
     drawLine("PR Flow Report", { size: 18, bold: true });
     drawLine(dictionary.reports.pdfTitle, { size: 15 });
-    drawLine(`${dictionary.reports.generatedAt}: ${new Date().toISOString()}`, {
+    drawLine(`${dictionary.reports.generatedAt}: ${formatDateTime(new Date(), locale)}`, {
       size: 10,
       color: rgb(0.45, 0.49, 0.56),
     });

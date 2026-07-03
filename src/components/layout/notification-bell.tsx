@@ -16,7 +16,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
-import { formatDateTime } from "@/lib/format";
+import { formatDateTime, toBangkokIsoString } from "@/lib/format";
 import {
   translateNotificationMessage,
   translateNotificationTitle,
@@ -51,7 +51,7 @@ export function NotificationBell({
         setNotifications((current) =>
           current.map((item) =>
             item.id === notification.id
-              ? { ...item, readAt: new Date().toISOString() }
+              ? { ...item, readAt: toBangkokIsoString(new Date()) }
               : item,
           ),
         );

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { NotificationType } from "@prisma/client";
+import { toBangkokIsoString } from "@/lib/format";
 import type { NotificationItem } from "@/lib/types";
 import { getDb } from "@/server/db";
 import {
@@ -32,8 +33,8 @@ function toNotificationDto(notification: {
     message: notification.message,
     link: notification.link,
     type: notification.type,
-    readAt: notification.readAt?.toISOString() ?? null,
-    createdAt: notification.createdAt.toISOString(),
+    readAt: notification.readAt ? toBangkokIsoString(notification.readAt) : null,
+    createdAt: toBangkokIsoString(notification.createdAt),
   } satisfies NotificationItem;
 }
 

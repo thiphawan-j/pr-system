@@ -16,8 +16,8 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import { translateMessage } from "@/lib/i18n";
 import { changePasswordSchema } from "@/server/users/user.schemas";
 
@@ -90,10 +90,11 @@ export function ChangePasswordForm() {
             <Label htmlFor="currentPassword">
               {dictionary.profile.currentPassword}
             </Label>
-            <Input
+            <PasswordInput
               id="currentPassword"
-              type="password"
               autoComplete="current-password"
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
               {...form.register("currentPassword")}
             />
             {form.formState.errors.currentPassword ? (
@@ -108,11 +109,12 @@ export function ChangePasswordForm() {
 
           <div className="space-y-2">
             <Label htmlFor="newPassword">{dictionary.profile.newPassword}</Label>
-            <Input
+            <PasswordInput
               id="newPassword"
-              type="password"
               autoComplete="new-password"
               placeholder={dictionary.admin.passwordHint}
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
               {...form.register("newPassword")}
             />
             {form.formState.errors.newPassword ? (
@@ -130,10 +132,11 @@ export function ChangePasswordForm() {
             <Label htmlFor="confirmPassword">
               {dictionary.profile.confirmPassword}
             </Label>
-            <Input
+            <PasswordInput
               id="confirmPassword"
-              type="password"
               autoComplete="new-password"
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
               {...form.register("confirmPassword")}
             />
             {form.formState.errors.confirmPassword ? (

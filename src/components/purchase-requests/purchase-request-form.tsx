@@ -22,7 +22,11 @@ import {
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { departments, units } from "@/lib/constants";
-import { formatCurrency, formatFileSize } from "@/lib/format";
+import {
+  formatCurrency,
+  formatFileSize,
+  toBangkokDateValue,
+} from "@/lib/format";
 import {
   getDepartmentLabel,
   interpolate,
@@ -70,7 +74,7 @@ export function PurchaseRequestForm({
     resolver: zodResolver(purchaseRequestPayloadSchema),
     defaultValues: initialData
       ? {
-          requestDate: initialData.requestDate.slice(0, 10),
+          requestDate: toBangkokDateValue(initialData.requestDate),
           department: initialData.department as PurchaseRequestFormValues["department"],
           reason: initialData.reason,
           urgency: initialData.urgency,
@@ -87,7 +91,7 @@ export function PurchaseRequestForm({
           submit: false,
         }
       : {
-          requestDate: new Date().toISOString().slice(0, 10),
+          requestDate: toBangkokDateValue(),
           department: session.department as PurchaseRequestFormValues["department"],
           reason: "",
           urgency: "NORMAL",

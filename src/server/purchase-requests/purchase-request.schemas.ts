@@ -22,7 +22,7 @@ const optionalPositiveNumber = z.preprocess(
 
     return value;
   },
-  z.coerce.number().positive("ราคาต่อหน่วยต้องมากกว่า 0").optional(),
+  z.coerce.number().nonnegative("ราคาต่อหน่วยต้องไม่ติดลบ").optional(),
 );
 
 export const loginSchema = z.object({

@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { PasswordInput } from "@/components/ui/password-input";
 import {
   Select,
   SelectContent,
@@ -396,10 +397,11 @@ function ResetPasswordDialog({
         <form className="grid gap-4" onSubmit={form.handleSubmit(onSubmit)}>
           <div className="space-y-2">
             <Label htmlFor="reset-newPassword">{dictionary.profile.newPassword}</Label>
-            <Input
+            <PasswordInput
               id="reset-newPassword"
-              type="password"
               autoComplete="new-password"
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
               {...form.register("newPassword")}
             />
             {form.formState.errors.newPassword ? (
@@ -413,10 +415,11 @@ function ResetPasswordDialog({
             <Label htmlFor="reset-confirmPassword">
               {dictionary.profile.confirmPassword}
             </Label>
-            <Input
+            <PasswordInput
               id="reset-confirmPassword"
-              type="password"
               autoComplete="new-password"
+              showPasswordLabel={dictionary.common.showPassword}
+              hidePasswordLabel={dictionary.common.hidePassword}
               {...form.register("confirmPassword")}
             />
             {form.formState.errors.confirmPassword ? (
