@@ -1,5 +1,6 @@
 import "server-only";
 
+import nodemailer, { type Transporter } from "nodemailer";
 import { appName } from "@/lib/constants";
 
 type NotificationEmailInput = {
@@ -14,34 +15,107 @@ type NotificationEmailDeliveryResult = {
   messageId: string | null;
 };
 
-type EmailSettings = {
-  apiKey: string;
-  from: string;
-  replyTo?: string;
-  appUrl?: string;
-  subjectPrefix: string;
+type MailInput = {
+  to: string;
+  subject: string;
+  text: string;
+  html?: string;
 };
 
-function getEmailSettings(): EmailSettings | null {
-  const apiKey = process.env.RESEND_API_KEY?.trim();
-  const from = process.env.EMAIL_FROM?.trim();
+type EmailSettings = {
+  host: string;
+  port: number;
+  secure: boolean;
+  user: string;
+  pass: string;
+  from: string;
+  appUrl: string;
+};
 
-  if (!apiKey || !from) {
+let transporter: Transporter | null = null;
+let transporterKey: string | null = null;
+
+function parseSmtpPort(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const port = Number(value);
+
+  return Number.isInteger(port) && port > 0 ? port : null;
+}
+
+function parseSmtpSecure(value: string | undefined) {
+  if (!value) {
+    return null;
+  }
+
+  const normalized = value.trim().toLowerCase();
+
+  if (["1", "true", "yes"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no"].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
+function getEmailSettings(): EmailSettings | null {
+  const host = process.env.SMTP_HOST?.trim();
+  const port = parseSmtpPort(process.env.SMTP_PORT?.trim());
+  const secure = parseSmtpSecure(process.env.SMTP_SECURE);
+  const user = process.env.SMTP_USER?.trim();
+  const pass = process.env.SMTP_PASS;
+  const from = process.env.SMTP_FROM?.trim();
+  const appUrl = process.env.APP_URL?.trim();
+
+  if (!host || !port || secure === null || !user || !pass || !from || !appUrl) {
     return null;
   }
 
   return {
-    apiKey,
+    host,
+    port,
+    secure,
+    user,
+    pass,
     from,
-    replyTo: process.env.EMAIL_REPLY_TO?.trim() || undefined,
-    appUrl: process.env.APP_URL?.trim() || undefined,
-    subjectPrefix:
-      process.env.EMAIL_SUBJECT_PREFIX?.trim() || appName,
+    appUrl,
   };
 }
 
 export function isEmailDeliveryEnabled() {
   return getEmailSettings() !== null;
+}
+
+function getTransporter(settings: EmailSettings): Transporter {
+  const nextTransporterKey = [
+    settings.host,
+    settings.port,
+    settings.secure,
+    settings.user,
+    settings.from,
+  ].join("|");
+
+  if (transporter && transporterKey === nextTransporterKey) {
+    return transporter;
+  }
+
+  transporter = nodemailer.createTransport({
+    host: settings.host,
+    port: settings.port,
+    secure: settings.secure,
+    auth: {
+      user: settings.user,
+      pass: settings.pass,
+    },
+  });
+  transporterKey = nextTransporterKey;
+
+  return transporter;
 }
 
 function toAbsoluteUrl(link: string | null | undefined, appUrl?: string) {
@@ -73,8 +147,8 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
-function buildSubject(title: string, subjectPrefix: string) {
-  return `${subjectPrefix} | ${title}`;
+function buildSubject(title: string) {
+  return `${appName} | ${title}`;
 }
 
 function buildTextBody(input: NotificationEmailInput, actionUrl: string | null) {
@@ -118,6 +192,28 @@ function buildHtmlBody(input: NotificationEmailInput, actionUrl: string | null) 
   `;
 }
 
+export async function sendMail(
+  input: MailInput,
+): Promise<NotificationEmailDeliveryResult> {
+  const settings = getEmailSettings();
+
+  if (!settings) {
+    return { messageId: null };
+  }
+
+  const result = await getTransporter(settings).sendMail({
+    from: settings.from,
+    to: input.to,
+    subject: input.subject,
+    text: input.text,
+    html: input.html,
+  });
+
+  return {
+    messageId: typeof result.messageId === "string" ? result.messageId : null,
+  };
+}
+
 export async function sendNotificationEmail(
   input: NotificationEmailInput,
 ): Promise<NotificationEmailDeliveryResult> {
@@ -128,43 +224,10 @@ export async function sendNotificationEmail(
   }
 
   const actionUrl = toAbsoluteUrl(input.link, settings.appUrl);
-  const response = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${settings.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      from: settings.from,
-      to: input.email,
-      reply_to: settings.replyTo,
-      subject: buildSubject(input.title, settings.subjectPrefix),
-      text: buildTextBody(input, actionUrl),
-      html: buildHtmlBody(input, actionUrl),
-    }),
+  return sendMail({
+    to: input.email,
+    subject: buildSubject(input.title),
+    text: buildTextBody(input, actionUrl),
+    html: buildHtmlBody(input, actionUrl),
   });
-  const rawPayload = await response.text();
-  let payload: { id?: unknown; message?: unknown } | null = null;
-
-  if (rawPayload) {
-    try {
-      payload = JSON.parse(rawPayload) as { id?: unknown; message?: unknown };
-    } catch {
-      payload = null;
-    }
-  }
-
-  if (!response.ok) {
-    const detail =
-      payload && typeof payload === "object"
-        ? JSON.stringify(payload)
-        : rawPayload;
-    throw new Error(
-      `Failed to send notification email to ${input.email}: ${response.status} ${detail}`,
-    );
-  }
-
-  return {
-    messageId: typeof payload?.id === "string" ? payload.id : null,
-  };
 }

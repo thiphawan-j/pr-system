@@ -43,11 +43,10 @@ function toNotificationDto(notification: {
 }
 
 function toEmailStatusError(error: unknown) {
-  if (error instanceof Error) {
-    return error.message;
-  }
+  const message = error instanceof Error ? error.message : String(error);
+  const smtpPass = process.env.SMTP_PASS;
 
-  return String(error);
+  return smtpPass ? message.replaceAll(smtpPass, "[redacted]") : message;
 }
 
 async function createNotificationRecords(notifications: NotificationDraft[]) {
@@ -103,7 +102,7 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
   });
   const recipientsById = new Map(recipients.map((recipient) => [recipient.id, recipient]));
 
-  const results = await Promise.allSettled(
+  await Promise.all(
     notifications.map(async (notification) => {
       const recipient = recipientsById.get(notification.userId);
 
@@ -120,59 +119,41 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
         return;
       }
 
-      const result = await sendNotificationEmail({
-        email: recipient.email,
-        name: recipient.name,
-        title: notification.title,
-        message: notification.message,
-        link: notification.link,
-      });
+      try {
+        const result = await sendNotificationEmail({
+          email: recipient.email,
+          name: recipient.name,
+          title: notification.title,
+          message: notification.message,
+          link: notification.link,
+        });
 
-      await db.notification.update({
-        where: { id: notification.id },
-        data: {
-          emailStatus: NotificationEmailStatus.SENT,
-          emailSentAt: new Date(),
-          emailError: null,
-          emailMessageId: result.messageId,
-        },
-      });
+        await db.notification.update({
+          where: { id: notification.id },
+          data: {
+            emailStatus: NotificationEmailStatus.SENT,
+            emailSentAt: new Date(),
+            emailError: null,
+            emailMessageId: result.messageId,
+          },
+        });
+      } catch (error) {
+        const emailError = toEmailStatusError(error);
+
+        await db.notification.update({
+          where: { id: notification.id },
+          data: {
+            emailStatus: NotificationEmailStatus.FAILED,
+            emailError,
+            emailSentAt: null,
+            emailMessageId: null,
+          },
+        });
+
+        console.error("Failed to send notification email", emailError);
+      }
     }),
   );
-
-  const failures = results.flatMap((result, index) => {
-    if (result.status !== "rejected") {
-      return [];
-    }
-
-    return [
-      {
-        notification: notifications[index],
-        reason: result.reason,
-      },
-    ];
-  });
-
-  await Promise.all(
-    failures.map(({ notification, reason }) =>
-      db.notification.update({
-        where: { id: notification.id },
-        data: {
-          emailStatus: NotificationEmailStatus.FAILED,
-          emailError: toEmailStatusError(reason),
-          emailSentAt: null,
-          emailMessageId: null,
-        },
-      }),
-    ),
-  );
-
-  if (failures.length) {
-    console.error(
-      `Failed to send ${failures.length} notification email(s)`,
-      failures.map((failure) => failure.reason),
-    );
-  }
 }
 
 export async function listNotificationsForUser(userId: string, limit = 8) {

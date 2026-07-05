@@ -136,12 +136,15 @@ DATABASE_URL=...
 DATABASE_URL=...
 JWT_SECRET=...
 APP_URL=https://your-production-domain
-RESEND_API_KEY=...
-EMAIL_FROM="PR Flow <no-reply@your-production-domain>"
-EMAIL_REPLY_TO="procurement@your-production-domain"
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_SECURE=false
+SMTP_USER=your-gmail-address@gmail.com
+SMTP_PASS=your-gmail-app-password
+SMTP_FROM="PR Flow <your-gmail-address@gmail.com>"
 ```
 
-ถ้าตั้ง `RESEND_API_KEY` และ `EMAIL_FROM` ระบบจะส่งอีเมลตาม notification ในแอปให้อัตโนมัติ หากยังไม่ตั้งค่าไว้ ระบบจะสร้าง notification ในแอปตามเดิมโดยไม่พยายามส่งอีเมล
+ถ้าตั้งค่า `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` และ `APP_URL` ระบบจะส่งอีเมลตาม notification ในแอปผ่าน Gmail SMTP ให้อัตโนมัติ หากยังไม่ตั้งค่าไว้ ระบบจะสร้าง notification ในแอปตามเดิมโดยไม่พยายามส่งอีเมล
 
 ขั้นตอน deploy production ใน workflow คือ:
 
