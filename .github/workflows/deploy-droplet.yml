@@ -21,7 +21,7 @@ jobs:
   deploy:
     name: Deploy production
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     if: >-
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -44,8 +44,13 @@ jobs:
           DROPLET_USER: ${{ secrets.DROPLET_USER }}
           APP_DIR: /opt/pr-system/pr-system
         run: |
-          ssh -i ~/.ssh/droplet_key "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'REMOTE'
-          set -euo pipefail
+          ssh \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=120 \
+            -o TCPKeepAlive=yes \
+            -i ~/.ssh/droplet_key \
+            "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'REMOTE'
+                    set -euo pipefail
 
           APP_DIR="/opt/pr-system/pr-system"
           cd "$APP_DIR"
