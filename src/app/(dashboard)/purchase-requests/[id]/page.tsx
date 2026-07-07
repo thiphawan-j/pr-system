@@ -55,9 +55,20 @@ export default async function PurchaseRequestDetailPage({
   ]);
   const { id } = await params;
   const request = await getPurchaseRequestById(id, session);
+  const isPurchasingReturnStatus =
+    request.status === "NEED_REVISION" ||
+    request.status === "NEED_CLARIFICATION";
+  const latestPurchasingReturn = request.approvals
+    .slice()
+    .reverse()
+    .find(
+      (approval) =>
+        approval.action === "REQUESTED_REVISION" ||
+        approval.action === "REQUESTED_CLARIFICATION",
+    );
 
   const canEdit =
-    request.status === "DRAFT" &&
+    (request.status === "DRAFT" || isPurchasingReturnStatus) &&
     (request.requester.id === session.id || session.role === "ADMIN");
   const canApprove =
     request.status === "PENDING_APPROVAL" &&
@@ -107,7 +118,9 @@ export default async function PurchaseRequestDetailPage({
               <Button asChild variant="outline" className="rounded-xl">
                 <Link href={`/purchase-requests/${request.id}/edit`}>
                   <FilePenLine />
-                  {dictionary.purchaseRequests.editDraft}
+                  {isPurchasingReturnStatus
+                    ? dictionary.purchaseRequests.editReturnedRequest
+                    : dictionary.purchaseRequests.editDraft}
                 </Link>
               </Button>
             ) : null}
@@ -117,6 +130,43 @@ export default async function PurchaseRequestDetailPage({
           </div>
         </div>
       </section>
+
+      {isPurchasingReturnStatus ? (
+        <Alert
+          className={
+            request.status === "NEED_REVISION"
+              ? "border-rose-500/25 bg-rose-500/10 text-rose-950 dark:text-rose-100"
+              : "border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100"
+          }
+        >
+          <CircleAlert className="size-4" />
+          <AlertTitle>
+            {request.status === "NEED_REVISION"
+              ? dictionary.approval.needRevisionTitle
+              : dictionary.approval.needClarificationTitle}
+          </AlertTitle>
+          <AlertDescription
+            className={
+              request.status === "NEED_REVISION"
+                ? "text-rose-900/80 dark:text-rose-100/80"
+                : "text-amber-900/80 dark:text-amber-100/80"
+            }
+          >
+            {latestPurchasingReturn?.comment
+              ? translateWorkflowText(latestPurchasingReturn.comment, locale)
+              : dictionary.approval.purchasingReturnNoComment}
+          </AlertDescription>
+          {canEdit ? (
+            <AlertAction>
+              <Button asChild size="sm" variant="outline" className="bg-background/70">
+                <Link href={`/purchase-requests/${request.id}/edit`}>
+                  {dictionary.purchaseRequests.editReturnedRequest}
+                </Link>
+              </Button>
+            </AlertAction>
+          ) : null}
+        </Alert>
+      ) : null}
 
       {isAwaitingReceiptReferences && canEditReceiptReferences ? (
         <Alert className="border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100">

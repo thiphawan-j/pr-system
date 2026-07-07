@@ -17,23 +17,29 @@ type PurchasingProgressPanelProps = {
   status: PurchaseRequestStatus;
 };
 
+type PurchasingAction = "ORDERED" | "REQUEST_REVISION" | "REQUEST_CLARIFICATION";
+
 export function PurchasingProgressPanel({
   requestId,
   status,
 }: PurchasingProgressPanelProps) {
   const router = useRouter();
   const [comment, setComment] = useState("");
+  const [pendingAction, setPendingAction] = useState<PurchasingAction | null>(null);
   const [isPending, setIsPending] = useState(false);
   const { dictionary, locale } = useI18n();
-
-  const nextAction = "ORDERED";
-  const nextLabel = dictionary.approval.confirmOrdered;
 
   useEffect(() => {
     setComment("");
   }, [status]);
 
-  function handleSubmit() {
+  function handleSubmit(action: PurchasingAction) {
+    if (action !== "ORDERED" && !comment.trim()) {
+      toast.error(dictionary.approval.purchasingCommentRequired);
+      return;
+    }
+
+    setPendingAction(action);
     setIsPending(true);
     startTransition(async () => {
       const response = await fetch(`/api/purchase-requests/${requestId}/status`, {
@@ -42,12 +48,13 @@ export function PurchasingProgressPanel({
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          action: nextAction,
+          action,
           comment,
         }),
       });
       const payload = await response.json().catch(() => null);
       setIsPending(false);
+      setPendingAction(null);
 
       if (!response.ok) {
         toast.error(
@@ -77,15 +84,62 @@ export function PurchasingProgressPanel({
             onChange={(event) => setComment(event.target.value)}
             placeholder={dictionary.approval.purchasingCommentPlaceholder}
           />
+          <div className="flex flex-wrap gap-2">
+            {dictionary.approval.purchasingReturnExamples.map((example) => (
+              <Button
+                key={example}
+                type="button"
+                variant="outline"
+                size="sm"
+                className="rounded-full"
+                disabled={isPending}
+                onClick={() =>
+                  setComment((currentComment) =>
+                    currentComment ? `${currentComment}\n${example}` : example,
+                  )
+                }
+              >
+                {example}
+              </Button>
+            ))}
+          </div>
         </div>
-        <Button
-          type="button"
-          className="w-full rounded-xl"
-          disabled={isPending}
-          onClick={handleSubmit}
-        >
-          {isPending ? dictionary.common.saving : nextLabel}
-        </Button>
+        <div className="grid gap-2">
+          <Button
+            type="button"
+            className="rounded-xl"
+            disabled={isPending}
+            onClick={() => handleSubmit("ORDERED")}
+          >
+            {isPending && pendingAction === "ORDERED"
+              ? dictionary.common.saving
+              : dictionary.approval.approvePo}
+          </Button>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <Button
+              type="button"
+              variant="secondary"
+              className="rounded-xl"
+              disabled={isPending}
+              onClick={() => handleSubmit("REQUEST_CLARIFICATION")}
+            >
+              {isPending && pendingAction === "REQUEST_CLARIFICATION"
+                ? dictionary.common.saving
+                : dictionary.approval.requestClarification}
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              className="rounded-xl"
+              disabled={isPending}
+              onClick={() => handleSubmit("REQUEST_REVISION")}
+            >
+              {isPending && pendingAction === "REQUEST_REVISION"
+                ? dictionary.common.saving
+                : dictionary.approval.requestRevision}
+            </Button>
+          </div>
+        </div>
       </CardContent>
     </Card>
   );

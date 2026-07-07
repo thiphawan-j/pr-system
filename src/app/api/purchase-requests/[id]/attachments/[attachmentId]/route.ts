@@ -9,9 +9,34 @@ function getContentDisposition(
   fileName: string,
   dispositionType: "attachment" | "inline",
 ) {
-  const encodedFileName = encodeURIComponent(fileName);
+  const encodedFileName = encodeRfc5987Value(fileName);
+  const fallbackFileName = getAsciiFallbackFileName(fileName);
 
-  return `${dispositionType}; filename="${fileName.replace(/"/g, "")}"; filename*=UTF-8''${encodedFileName}`;
+  return `${dispositionType}; filename="${fallbackFileName}"; filename*=UTF-8''${encodedFileName}`;
+}
+
+function getAsciiFallbackFileName(fileName: string) {
+  const extensionMatch = fileName.match(/(\.[A-Za-z0-9]{1,12})$/);
+  const extension = extensionMatch?.[1] ?? "";
+  const baseName = extension ? fileName.slice(0, -extension.length) : fileName;
+  const safeBaseName = baseName
+    .normalize("NFKD")
+    .replace(/[^\x20-\x7E]/g, "-")
+    .replace(/["\\\/;,\r\n]/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "")
+    .trim();
+
+  return `${safeBaseName || "attachment"}${extension}`;
+}
+
+function encodeRfc5987Value(value: string) {
+  return encodeURIComponent(value).replace(
+    /['()*]/g,
+    (character) =>
+      `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
 }
 
 export async function GET(

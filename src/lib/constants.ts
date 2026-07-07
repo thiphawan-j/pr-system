@@ -43,6 +43,8 @@ export const statusLabels: Record<PurchaseRequestStatus, string> = {
   SUBMITTED: "ส่งคำขอแล้ว",
   PENDING_APPROVAL: "รออนุมัติ",
   APPROVED: "อนุมัติแล้ว",
+  NEED_REVISION: "รอแก้ไขจากผู้ขอซื้อ",
+  NEED_CLARIFICATION: "รอข้อมูลเพิ่มเติม",
   REJECTED: "ถูกปฏิเสธ",
   ORDERED: "สั่งซื้อแล้ว",
   COMPLETED: "เสร็จสมบูรณ์",
@@ -54,6 +56,8 @@ export const approvalActionLabels: Record<ApprovalAction, string> = {
   APPROVED: "อนุมัติ",
   REJECTED: "ปฏิเสธ",
   RETURNED: "ส่งกลับแก้ไข",
+  REQUESTED_REVISION: "ส่งกลับแก้ไขโดยจัดซื้อ",
+  REQUESTED_CLARIFICATION: "ถามข้อมูลเพิ่มเติม",
   ORDERED: "สั่งซื้อแล้ว",
   COMPLETED: "ปิดงาน",
   COMMENTED: "เพิ่มหมายเหตุ",
@@ -66,6 +70,10 @@ export const statusToneClassNames: Record<PurchaseRequestStatus, string> = {
     "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
   APPROVED:
     "bg-emerald-500/15 text-emerald-700 ring-emerald-500/20 dark:text-emerald-300",
+  NEED_REVISION:
+    "bg-rose-500/15 text-rose-700 ring-rose-500/20 dark:text-rose-300",
+  NEED_CLARIFICATION:
+    "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
   REJECTED: "bg-rose-500/15 text-rose-700 ring-rose-500/20 dark:text-rose-300",
   ORDERED:
     "bg-cyan-500/15 text-cyan-700 ring-cyan-500/20 dark:text-cyan-300",

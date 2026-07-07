@@ -239,7 +239,13 @@ function buildFilterWhere(
         break;
       case "rejected":
         andConditions.push({
-          status: PurchaseRequestStatus.REJECTED,
+          status: {
+            in: [
+              PurchaseRequestStatus.REJECTED,
+              PurchaseRequestStatus.NEED_REVISION,
+              PurchaseRequestStatus.NEED_CLARIFICATION,
+            ],
+          },
         });
         break;
       case "awaiting_receipt":
@@ -443,9 +449,20 @@ function assertEditableDraft(
     403,
   );
   invariant(
-    request.status === PurchaseRequestStatus.DRAFT,
-    "เอกสารที่ส่งอนุมัติแล้วไม่สามารถแก้ไขได้",
+    isEditableRequestStatus(request.status),
+    "เอกสารนี้ไม่สามารถแก้ไขได้",
     400,
+  );
+}
+
+function isEditableRequestStatus(status: PurchaseRequestStatus) {
+  return status === PurchaseRequestStatus.DRAFT || isPurchasingReturnStatus(status);
+}
+
+function isPurchasingReturnStatus(status: PurchaseRequestStatus) {
+  return (
+    status === PurchaseRequestStatus.NEED_REVISION ||
+    status === PurchaseRequestStatus.NEED_CLARIFICATION
   );
 }
 
@@ -545,6 +562,49 @@ async function notifyApprovalResult(input: {
   }
 
   await createNotifications(notifications);
+}
+
+async function notifyPurchasingReturn(input: {
+  requestId: string;
+  prNumber: string;
+  requesterId: string;
+  action: "REQUEST_REVISION" | "REQUEST_CLARIFICATION";
+}) {
+  await createNotifications([
+    {
+      userId: input.requesterId,
+      title:
+        input.action === "REQUEST_REVISION"
+          ? "PR รอแก้ไขจากผู้ขอซื้อ"
+          : "PR ต้องการข้อมูลเพิ่มเติม",
+      message:
+        input.action === "REQUEST_REVISION"
+          ? `${input.prNumber} ถูกฝ่ายจัดซื้อส่งกลับให้แก้ไข กรุณาตรวจสอบเหตุผล`
+          : `${input.prNumber} ฝ่ายจัดซื้อต้องการข้อมูลเพิ่มเติม กรุณาตรวจสอบคำถาม`,
+      link: `/purchase-requests/${input.requestId}`,
+      type:
+        input.action === "REQUEST_REVISION"
+          ? NotificationType.ERROR
+          : NotificationType.WARNING,
+    },
+  ]);
+}
+
+async function notifyPurchasingResubmission(input: {
+  requestId: string;
+  prNumber: string;
+  requesterName: string;
+  purchasingUserId: string;
+}) {
+  await createNotifications([
+    {
+      userId: input.purchasingUserId,
+      title: "PR ถูกส่งกลับมาตรวจอีกครั้ง",
+      message: `${input.prNumber} จาก ${input.requesterName} แก้ไขหรือตอบข้อมูลแล้ว`,
+      link: `/purchase-requests/${input.requestId}`,
+      type: NotificationType.INFO,
+    },
+  ]);
 }
 
 async function notifyProgressUpdate(input: {
@@ -667,6 +727,7 @@ export async function createPurchaseRequest(
     urgency: "LOW" | "NORMAL" | "HIGH" | "URGENT";
     items: PurchaseRequestItemInput[];
     submit: boolean;
+    requesterComment?: string;
     attachments?: PurchaseRequestAttachmentInput[];
   },
 ) {
@@ -736,6 +797,7 @@ export async function updatePurchaseRequest(
     urgency: "LOW" | "NORMAL" | "HIGH" | "URGENT";
     items: PurchaseRequestItemInput[];
     submit: boolean;
+    requesterComment?: string;
     attachments?: PurchaseRequestAttachmentInput[];
   },
 ) {
@@ -752,12 +814,61 @@ export async function updatePurchaseRequest(
 
   const normalizedItems = toPersistedItems(input.items);
   const totalAmount = calculateTotal(normalizedItems);
-  let currentApprover = null;
+  const isReturningToPurchasing = isPurchasingReturnStatus(existing.status);
+  let nextApproverId: string | null = null;
 
   if (input.submit) {
-    currentApprover = await findApproverForDepartment(input.department);
-    invariant(currentApprover, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
+    if (isReturningToPurchasing) {
+      nextApproverId =
+        existing.currentApproverId ?? (await findPrimaryPurchasingUser())?.id ?? null;
+    } else {
+      nextApproverId = (await findApproverForDepartment(input.department))?.id ?? null;
+    }
+
+    invariant(
+      nextApproverId,
+      isReturningToPurchasing
+        ? "ไม่พบผู้รับผิดชอบฝ่ายจัดซื้อ"
+        : "ไม่พบผู้อนุมัติสำหรับแผนกนี้",
+      400,
+    );
   }
+
+  const nextStatus = input.submit
+    ? isReturningToPurchasing
+      ? PurchaseRequestStatus.APPROVED
+      : PurchaseRequestStatus.PENDING_APPROVAL
+    : existing.status;
+  const updateComment = input.submit
+    ? isReturningToPurchasing
+      ? "แก้ไขและส่งกลับให้จัดซื้อตรวจอีกครั้ง"
+      : "แก้ไขและส่งเอกสารใหม่"
+    : isReturningToPurchasing
+      ? "แก้ไขเอกสารตามคำขอจัดซื้อ"
+      : "แก้ไขร่างเอกสาร";
+  const requesterComment = isReturningToPurchasing
+    ? input.requesterComment?.trim()
+    : undefined;
+  const approvalHistory = [
+    {
+      approverId: session.id,
+      action: input.submit
+        ? ApprovalAction.SUBMITTED
+        : ApprovalAction.DRAFT_SAVED,
+      stepLabel: "ผู้ขอซื้อ",
+      comment: updateComment,
+    },
+    ...(requesterComment
+      ? [
+          {
+            approverId: session.id,
+            action: ApprovalAction.COMMENTED,
+            stepLabel: "ความเห็นจากผู้ขอซื้อ",
+            comment: requesterComment,
+          },
+        ]
+      : []),
+  ];
 
   await db.$transaction(async (transaction) => {
     await transaction.purchaseRequestItem.deleteMany({
@@ -772,23 +883,16 @@ export async function updatePurchaseRequest(
         reason: input.reason,
         urgency: input.urgency,
         totalAmount,
-        currentApproverId: currentApprover?.id ?? null,
-        submittedAt: input.submit ? new Date() : null,
-        status: input.submit
-          ? PurchaseRequestStatus.PENDING_APPROVAL
-          : PurchaseRequestStatus.DRAFT,
+        currentApproverId: input.submit
+          ? nextApproverId
+          : existing.currentApproverId,
+        submittedAt: input.submit ? existing.submittedAt ?? new Date() : existing.submittedAt,
+        status: nextStatus,
         items: {
           create: normalizedItems,
         },
         approvals: {
-          create: {
-            approverId: session.id,
-            action: input.submit
-              ? ApprovalAction.SUBMITTED
-              : ApprovalAction.DRAFT_SAVED,
-            stepLabel: "ผู้ขอซื้อ",
-            comment: input.submit ? "แก้ไขและส่งเอกสารใหม่" : "แก้ไขร่างเอกสาร",
-          },
+          create: approvalHistory,
         },
       },
     });
@@ -804,8 +908,17 @@ export async function updatePurchaseRequest(
     }
   });
 
-  if (currentApprover) {
-    await notifySubmission(existing.id, existing.prNumber, session.name, currentApprover.id);
+  if (nextApproverId && input.submit) {
+    if (isReturningToPurchasing) {
+      await notifyPurchasingResubmission({
+        requestId: existing.id,
+        prNumber: existing.prNumber,
+        requesterName: session.name,
+        purchasingUserId: nextApproverId,
+      });
+    } else {
+      await notifySubmission(existing.id, existing.prNumber, session.name, nextApproverId);
+    }
   }
 
   return existing.id;
@@ -822,6 +935,11 @@ export async function submitPurchaseRequest(id: string, session: SessionUser) {
   }
 
   assertEditableDraft(session, request);
+  invariant(
+    request.status === PurchaseRequestStatus.DRAFT,
+    "เอกสารนี้ต้องแก้ไขและส่งกลับผ่านหน้าฟอร์ม",
+    400,
+  );
 
   const approver = await findApproverForDepartment(request.department);
   invariant(approver, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
@@ -921,7 +1039,7 @@ export async function progressPurchaseRequest(
   id: string,
   session: SessionUser,
   input: {
-    action: "ORDERED" | "RECEIVED";
+    action: "ORDERED" | "RECEIVED" | "REQUEST_REVISION" | "REQUEST_CLARIFICATION";
     comment?: string;
     receivedDate?: string;
   },
@@ -935,13 +1053,25 @@ export async function progressPurchaseRequest(
     throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
   }
 
-  if (input.action === "ORDERED") {
+  if (
+    input.action === "ORDERED" ||
+    input.action === "REQUEST_REVISION" ||
+    input.action === "REQUEST_CLARIFICATION"
+  ) {
     invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
     invariant(
       request.status === PurchaseRequestStatus.APPROVED,
-      "PR ต้องได้รับการอนุมัติก่อนจึงจะสั่งซื้อได้",
+      "PR ต้องได้รับการอนุมัติก่อนฝ่ายจัดซื้อจึงจะดำเนินการได้",
       400,
     );
+  }
+
+  if (
+    (input.action === "REQUEST_REVISION" ||
+      input.action === "REQUEST_CLARIFICATION") &&
+    !input.comment
+  ) {
+    throw new AppError("กรุณาระบุเหตุผลหรือคำถามประกอบการดำเนินการ", 400);
   }
 
   if (input.action === "RECEIVED") {
@@ -959,10 +1089,27 @@ export async function progressPurchaseRequest(
     );
   }
 
+  const nextStatus =
+    input.action === "REQUEST_REVISION"
+      ? PurchaseRequestStatus.NEED_REVISION
+      : input.action === "REQUEST_CLARIFICATION"
+        ? PurchaseRequestStatus.NEED_CLARIFICATION
+        : PurchaseRequestStatus.ORDERED;
+  const nextApprovalAction =
+    input.action === "ORDERED"
+      ? ApprovalAction.ORDERED
+      : input.action === "REQUEST_REVISION"
+        ? ApprovalAction.REQUESTED_REVISION
+        : input.action === "REQUEST_CLARIFICATION"
+          ? ApprovalAction.REQUESTED_CLARIFICATION
+          : ApprovalAction.COMMENTED;
+  const nextStepLabel =
+    input.action === "RECEIVED" ? "ยืนยันรับของ" : "ฝ่ายจัดซื้อ";
+
   await db.purchaseRequest.update({
     where: { id },
     data: {
-      status: PurchaseRequestStatus.ORDERED,
+      status: nextStatus,
       orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
       receivedAt:
         input.action === "RECEIVED" && input.receivedDate
@@ -971,11 +1118,8 @@ export async function progressPurchaseRequest(
       approvals: {
         create: {
           approverId: session.id,
-          action:
-            input.action === "ORDERED"
-              ? ApprovalAction.ORDERED
-              : ApprovalAction.COMMENTED,
-          stepLabel: input.action === "ORDERED" ? "ฝ่ายจัดซื้อ" : "ยืนยันรับของ",
+          action: nextApprovalAction,
+          stepLabel: nextStepLabel,
           comment: input.comment,
         },
       },
@@ -984,6 +1128,18 @@ export async function progressPurchaseRequest(
 
   if (input.action === "ORDERED") {
     await notifyProgressUpdate({
+      requestId: id,
+      prNumber: request.prNumber,
+      requesterId: request.requesterId,
+      action: input.action,
+    });
+  }
+
+  if (
+    input.action === "REQUEST_REVISION" ||
+    input.action === "REQUEST_CLARIFICATION"
+  ) {
+    await notifyPurchasingReturn({
       requestId: id,
       prNumber: request.prNumber,
       requesterId: request.requesterId,
@@ -1142,7 +1298,13 @@ export async function getDashboardSummary(session: SessionUser) {
       db.purchaseRequest.count({
         where: {
           ...visibleWhere,
-          status: PurchaseRequestStatus.REJECTED,
+          status: {
+            in: [
+              PurchaseRequestStatus.REJECTED,
+              PurchaseRequestStatus.NEED_REVISION,
+              PurchaseRequestStatus.NEED_CLARIFICATION,
+            ],
+          },
         },
       }),
       db.purchaseRequest.count({

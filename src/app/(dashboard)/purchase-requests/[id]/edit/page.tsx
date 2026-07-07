@@ -17,10 +17,12 @@ export default async function EditPurchaseRequestPage({
   const { id } = await params;
   const request = await getPurchaseRequestById(id, session);
 
-  if (
-    request.status !== "DRAFT" ||
-    (request.requester.id !== session.id && session.role !== "ADMIN")
-  ) {
+  const canEditStatus =
+    request.status === "DRAFT" ||
+    request.status === "NEED_REVISION" ||
+    request.status === "NEED_CLARIFICATION";
+
+  if (!canEditStatus || (request.requester.id !== session.id && session.role !== "ADMIN")) {
     redirect(`/purchase-requests/${id}`);
   }
 

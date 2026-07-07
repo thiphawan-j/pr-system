@@ -84,6 +84,7 @@ export const purchaseRequestPayloadSchema = z.object({
   urgency: z.enum(priorities, { error: "กรุณาเลือกระดับความเร่งด่วน" }),
   items: z.array(purchaseRequestItemSchema).min(1, "ต้องมีอย่างน้อย 1 รายการ"),
   submit: z.boolean().optional().default(false),
+  requesterComment: optionalTrimmedString,
 });
 
 export const purchaseRequestFiltersSchema = z.object({
@@ -150,7 +151,12 @@ export const approvalDecisionSchema = z
 
 export const purchasingProgressSchema = z
   .object({
-    action: z.enum(["ORDERED", "RECEIVED"]),
+    action: z.enum([
+      "ORDERED",
+      "RECEIVED",
+      "REQUEST_REVISION",
+      "REQUEST_CLARIFICATION",
+    ]),
     comment: optionalTrimmedString,
     receivedDate: z.iso.date("กรุณาระบุวันที่รับของ").optional(),
   })
@@ -160,6 +166,18 @@ export const purchasingProgressSchema = z
         code: z.ZodIssueCode.custom,
         path: ["receivedDate"],
         message: "กรุณาระบุวันที่รับของ",
+      });
+    }
+
+    if (
+      (value.action === "REQUEST_REVISION" ||
+        value.action === "REQUEST_CLARIFICATION") &&
+      !value.comment
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["comment"],
+        message: "กรุณาระบุเหตุผลหรือคำถามประกอบการดำเนินการ",
       });
     }
   });

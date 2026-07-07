@@ -186,9 +186,18 @@ export const dictionaries = {
       saveError: "บันทึกเอกสารไม่สำเร็จ",
       draftSaved: "บันทึกร่างเรียบร้อย",
       submittedSaved: "บันทึกและส่งอนุมัติแล้ว",
+      resubmitToPurchasing: "ส่งกลับให้จัดซื้อตรวจอีกครั้ง",
+      resubmittedToPurchasing: "ส่งกลับให้จัดซื้อตรวจอีกครั้งแล้ว",
+      requesterCommentTitle: "ความเห็นเพิ่มเติมถึงจัดซื้อ",
+      requesterCommentDescription:
+        "ระบุสิ่งที่แก้ไข คำตอบ หรือเอกสารที่แนบเพิ่ม เพื่อให้จัดซื้อตรวจต่อได้รวดเร็ว",
+      requesterCommentLabel: "ความเห็นจากผู้ขอซื้อ",
+      requesterCommentPlaceholder:
+        "เช่น แก้ไขจำนวนแล้ว / แนบใบเสนอราคาใหม่แล้ว / ผู้จำหน่ายยืนยันราคาเรียบร้อย",
       detailTitle: "ข้อมูลเอกสาร",
       currentApprover: "ผู้อนุมัติปัจจุบัน",
       editDraft: "แก้ไขร่างเอกสาร",
+      editReturnedRequest: "แก้ไข/ตอบกลับจัดซื้อ",
       submitApproval: "ส่งอนุมัติ",
       submitError: "ส่งเอกสารไม่สำเร็จ",
       submitSuccess: "ส่งเอกสารเพื่อขออนุมัติแล้ว",
@@ -228,8 +237,17 @@ export const dictionaries = {
       saveError: "บันทึกการอนุมัติไม่สำเร็จ",
       saveSuccess: "บันทึกผลการอนุมัติเรียบร้อย",
       purchasingTitle: "ฝ่ายจัดซื้อ",
-      purchasingCommentPlaceholder: "บันทึกเลข PO, ผู้ขาย หรือเงื่อนไขเพิ่มเติม",
-      confirmOrdered: "ยืนยันการสั่งซื้อ",
+      purchasingCommentPlaceholder:
+        "ระบุเลข PO/ผู้ขาย หรือเหตุผล/คำถามเมื่อต้องส่งกลับ",
+      purchasingReturnExamples: [
+        "ราคา/จำนวน/ผู้จำหน่ายไม่ถูกต้อง",
+        "ต้องการเอกสารหรือข้อมูลเพิ่ม",
+      ],
+      purchasingCommentRequired: "กรุณาระบุเหตุผลหรือคำถามก่อนส่งกลับ",
+      approvePo: "อนุมัติเปิด PO",
+      requestRevision: "ส่งกลับแก้ไข",
+      requestClarification: "ถามเพิ่มเติม",
+      confirmOrdered: "อนุมัติเปิด PO",
       confirmReceived: "บันทึกรับของ",
       receivedTitle: "ยืนยันรับของ",
       receivedCommentPlaceholder: "เช่น รับของครบแล้ว / มีของขาดบางรายการ",
@@ -246,6 +264,9 @@ export const dictionaries = {
       receiptReferencesPendingDescription:
         "กรอกหมายเลขรับของหรือเลขที่ใบกำกับภาษีเพื่อปิดงาน PR นี้",
       receiptReferencesPendingAction: "กรอกเลขเอกสาร",
+      needRevisionTitle: "รอแก้ไขจากผู้ขอซื้อ",
+      needClarificationTitle: "รอข้อมูลเพิ่มเติม",
+      purchasingReturnNoComment: "ฝ่ายจัดซื้อไม่ได้ระบุรายละเอียดเพิ่มเติม",
       saveReceiptReferences: "บันทึกเอกสารและปิดงาน",
       saveReceiptReferencesSuccess: "บันทึกเอกสารและปิดงานเรียบร้อย",
       updateReceiptReferences: "อัปเดตเลขเอกสาร",
@@ -408,6 +429,8 @@ export const dictionaries = {
       SUBMITTED: "ส่งคำขอแล้ว",
       PENDING_APPROVAL: "รออนุมัติ",
       APPROVED: "อนุมัติแล้ว",
+      NEED_REVISION: "รอแก้ไขจากผู้ขอซื้อ",
+      NEED_CLARIFICATION: "รอข้อมูลเพิ่มเติม",
       REJECTED: "ถูกปฏิเสธ",
       ORDERED: "สั่งซื้อแล้ว",
       COMPLETED: "เสร็จสมบูรณ์",
@@ -418,6 +441,8 @@ export const dictionaries = {
       APPROVED: "อนุมัติ",
       REJECTED: "ปฏิเสธ",
       RETURNED: "ส่งกลับแก้ไข",
+      REQUESTED_REVISION: "ส่งกลับแก้ไขโดยจัดซื้อ",
+      REQUESTED_CLARIFICATION: "ถามข้อมูลเพิ่มเติม",
       ORDERED: "สั่งซื้อแล้ว",
       COMPLETED: "ปิดงาน",
       COMMENTED: "เพิ่มหมายเหตุ",
@@ -591,9 +616,18 @@ export const dictionaries = {
       saveError: "Unable to save document",
       draftSaved: "Draft saved",
       submittedSaved: "Saved and submitted for approval",
+      resubmitToPurchasing: "Send back to Purchasing for review",
+      resubmittedToPurchasing: "Sent back to Purchasing for review",
+      requesterCommentTitle: "Additional note to Purchasing",
+      requesterCommentDescription:
+        "Describe what changed, answer the question, or mention newly attached documents so Purchasing can continue the review.",
+      requesterCommentLabel: "Requester comment",
+      requesterCommentPlaceholder:
+        "For example: quantity updated / new quotation attached / supplier confirmed the price",
       detailTitle: "Document details",
       currentApprover: "Current approver",
       editDraft: "Edit draft",
+      editReturnedRequest: "Edit / reply to Purchasing",
       submitApproval: "Submit for approval",
       submitError: "Unable to submit document",
       submitSuccess: "Submitted for approval",
@@ -633,8 +667,17 @@ export const dictionaries = {
       saveError: "Unable to save approval decision",
       saveSuccess: "Approval decision saved",
       purchasingTitle: "Purchasing",
-      purchasingCommentPlaceholder: "Record PO number, vendor, or extra terms",
-      confirmOrdered: "Confirm purchase order",
+      purchasingCommentPlaceholder:
+        "Record PO/vendor details, or explain the reason/question when returning",
+      purchasingReturnExamples: [
+        "Price, quantity, or supplier is incorrect",
+        "Additional documents or information are required",
+      ],
+      purchasingCommentRequired: "Please provide a reason or question before returning",
+      approvePo: "Approve PO opening",
+      requestRevision: "Return for revision",
+      requestClarification: "Ask for clarification",
+      confirmOrdered: "Approve PO opening",
       confirmReceived: "Save received date",
       receivedTitle: "Confirm receipt",
       receivedCommentPlaceholder:
@@ -652,6 +695,9 @@ export const dictionaries = {
       receiptReferencesPendingDescription:
         "Enter the receipt number or tax invoice number to close this PR.",
       receiptReferencesPendingAction: "Enter document numbers",
+      needRevisionTitle: "Waiting for requester revision",
+      needClarificationTitle: "Waiting for requester clarification",
+      purchasingReturnNoComment: "Purchasing did not add more detail",
       saveReceiptReferences: "Save documents and close",
       saveReceiptReferencesSuccess: "Documents saved and request closed",
       updateReceiptReferences: "Update document numbers",
@@ -814,6 +860,8 @@ export const dictionaries = {
       SUBMITTED: "Submitted",
       PENDING_APPROVAL: "Pending Approval",
       APPROVED: "Approved",
+      NEED_REVISION: "Waiting for Requester Revision",
+      NEED_CLARIFICATION: "Need Clarification",
       REJECTED: "Rejected",
       ORDERED: "Ordered",
       COMPLETED: "Completed",
@@ -824,6 +872,8 @@ export const dictionaries = {
       APPROVED: "Approved",
       REJECTED: "Rejected",
       RETURNED: "Returned for changes",
+      REQUESTED_REVISION: "Revision requested by Purchasing",
+      REQUESTED_CLARIFICATION: "Clarification requested",
       ORDERED: "Ordered",
       COMPLETED: "Closed",
       COMMENTED: "Commented",
@@ -920,6 +970,8 @@ const translatedMessages: Record<string, string> = {
   "ต้องมีอย่างน้อย 1 รายการ": "At least one item is required",
   "กรุณาระบุเหตุผลหรือหมายเหตุประกอบการดำเนินการ":
     "Please provide a reason or comment for this action",
+  "กรุณาระบุเหตุผลหรือคำถามประกอบการดำเนินการ":
+    "Please provide a reason or question for this action",
   "เกิดข้อผิดพลาดในการเชื่อมต่อระบบ":
     "A system connection error occurred",
   "กรุณาเข้าสู่ระบบก่อนใช้งาน": "Please sign in before continuing",
@@ -941,6 +993,8 @@ const translatedMessages: Record<string, string> = {
   "ไม่พบเอกสาร PR ที่ต้องการ": "PR document not found",
   "ไม่พบผู้อนุมัติสำหรับแผนกนี้":
     "No approver was found for this department",
+  "ไม่พบผู้รับผิดชอบฝ่ายจัดซื้อ":
+    "No responsible Purchasing user was found",
   "ไม่สามารถปิดการใช้งานบัญชีของตัวเองได้":
     "You cannot disable your own account",
   "ต้องมีผู้ดูแลระบบที่เปิดใช้งานอย่างน้อย 1 บัญชี":
@@ -953,8 +1007,13 @@ const translatedMessages: Record<string, string> = {
     "You are not the responsible approver for this document",
   "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้":
     "Only Purchasing can perform this action",
+  "เอกสารนี้ไม่สามารถแก้ไขได้": "This document cannot be edited",
+  "เอกสารนี้ต้องแก้ไขและส่งกลับผ่านหน้าฟอร์ม":
+    "This document must be edited and sent back from the form",
   "PR ต้องได้รับการอนุมัติก่อนจึงจะสั่งซื้อได้":
     "The PR must be approved before ordering",
+  "PR ต้องได้รับการอนุมัติก่อนฝ่ายจัดซื้อจึงจะดำเนินการได้":
+    "The PR must be approved before Purchasing can proceed",
   "PR ต้องถูกสั่งซื้อแล้วก่อนจึงจะยืนยันรับของได้":
     "The PR must be ordered before receipt can be confirmed",
   "กรุณาระบุวันที่รับของ": "Please provide the received date",
@@ -982,7 +1041,11 @@ const translatedWorkflowText: Record<string, string> = {
   "บันทึกร่างเอกสาร": "Saved document draft",
   "แก้ไขและส่งเอกสารใหม่": "Edited and resubmitted the document",
   "แก้ไขร่างเอกสาร": "Edited document draft",
+  "แก้ไขเอกสารตามคำขอจัดซื้อ": "Edited the document per Purchasing request",
+  "แก้ไขและส่งกลับให้จัดซื้อตรวจอีกครั้ง":
+    "Edited and sent back to Purchasing for review",
   "ส่งเอกสารเข้าระบบเพื่ออนุมัติ": "Submitted the document for approval",
+  "ความเห็นจากผู้ขอซื้อ": "Requester comment",
 };
 
 const translatedNotificationTitles: Record<string, string> = {
@@ -991,6 +1054,9 @@ const translatedNotificationTitles: Record<string, string> = {
   "มี PR พร้อมดำเนินการสั่งซื้อ": "PR ready for purchasing",
   "PR ถูกปฏิเสธ": "PR rejected",
   "PR ถูกส่งกลับแก้ไข": "PR returned for changes",
+  "PR รอแก้ไขจากผู้ขอซื้อ": "PR waiting for requester revision",
+  "PR ต้องการข้อมูลเพิ่มเติม": "PR needs more information",
+  "PR ถูกส่งกลับมาตรวจอีกครั้ง": "PR sent back for review",
   "PR อยู่ระหว่างจัดซื้อ": "PR is being purchased",
   "PR รอกรอกเลขเอกสาร": "PR awaiting document numbers",
   "PR ดำเนินการเสร็จสมบูรณ์": "PR completed",
@@ -1021,6 +1087,21 @@ const translatedNotificationMessages: Array<{
     pattern: /^(.+) ต้องการข้อมูลเพิ่มเติมก่อนอนุมัติ$/,
     render: ([, prNumber]) =>
       `${prNumber} needs more information before approval`,
+  },
+  {
+    pattern: /^(.+) ถูกฝ่ายจัดซื้อส่งกลับให้แก้ไข กรุณาตรวจสอบเหตุผล$/,
+    render: ([, prNumber]) =>
+      `${prNumber} was returned by Purchasing for revision. Please review the reason.`,
+  },
+  {
+    pattern: /^(.+) ฝ่ายจัดซื้อต้องการข้อมูลเพิ่มเติม กรุณาตรวจสอบคำถาม$/,
+    render: ([, prNumber]) =>
+      `${prNumber} needs more information for Purchasing. Please review the question.`,
+  },
+  {
+    pattern: /^(.+) จาก (.+) แก้ไขหรือตอบข้อมูลแล้ว$/,
+    render: ([, prNumber, requester]) =>
+      `${prNumber} from ${requester} was revised or answered`,
   },
   {
     pattern: /^(.+) ถูกส่งคำสั่งซื้อแล้ว$/,

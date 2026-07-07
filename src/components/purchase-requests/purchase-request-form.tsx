@@ -71,6 +71,9 @@ export function PurchaseRequestForm({
   );
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const { dictionary, locale } = useI18n();
+  const isPurchasingReturnEdit =
+    initialData?.status === "NEED_REVISION" ||
+    initialData?.status === "NEED_CLARIFICATION";
   const form = useForm<
     PurchaseRequestFormValues,
     undefined,
@@ -94,6 +97,7 @@ export function PurchaseRequestForm({
             amount: item.amount,
           })),
           submit: false,
+          requesterComment: "",
         }
       : {
           requestDate: toBangkokDateValue(),
@@ -102,6 +106,7 @@ export function PurchaseRequestForm({
           urgency: "NORMAL",
           items: [{ ...itemDefaults }],
           submit: false,
+          requesterComment: "",
         },
   });
 
@@ -229,7 +234,9 @@ export function PurchaseRequestForm({
 
         toast.success(
           submit
-            ? dictionary.purchaseRequests.submittedSaved
+            ? isPurchasingReturnEdit
+              ? dictionary.purchaseRequests.resubmittedToPurchasing
+              : dictionary.purchaseRequests.submittedSaved
             : dictionary.purchaseRequests.draftSaved,
         );
         router.push(`/purchase-requests/${responsePayload.id}`);
@@ -586,6 +593,32 @@ export function PurchaseRequestForm({
         </CardContent>
       </Card>
 
+      {isPurchasingReturnEdit ? (
+        <Card className="border-border/70">
+          <CardHeader className="space-y-2">
+            <CardTitle>
+              {dictionary.purchaseRequests.requesterCommentTitle}
+            </CardTitle>
+            <p className="text-sm text-muted-foreground">
+              {dictionary.purchaseRequests.requesterCommentDescription}
+            </p>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-2">
+              <Label htmlFor="requesterComment">
+                {dictionary.purchaseRequests.requesterCommentLabel}
+              </Label>
+              <Textarea
+                id="requesterComment"
+                rows={4}
+                placeholder={dictionary.purchaseRequests.requesterCommentPlaceholder}
+                {...form.register("requesterComment")}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
+
       <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
         <Button
           type="button"
@@ -604,7 +637,9 @@ export function PurchaseRequestForm({
         >
           {isPending
             ? dictionary.common.sending
-            : dictionary.purchaseRequests.saveAndSubmit}
+            : isPurchasingReturnEdit
+              ? dictionary.purchaseRequests.resubmitToPurchasing
+              : dictionary.purchaseRequests.saveAndSubmit}
         </Button>
       </div>
     </div>

@@ -241,7 +241,11 @@ export async function deleteAttachmentFromPurchaseRequest(
     throw new AppError("คุณไม่มีสิทธิ์แก้ไขเอกสารนี้", 403);
   }
 
-  if (attachment.purchaseRequest.status !== "DRAFT") {
+  if (
+    !["DRAFT", "NEED_REVISION", "NEED_CLARIFICATION"].includes(
+      attachment.purchaseRequest.status,
+    )
+  ) {
     throw new AppError("เอกสารที่ส่งอนุมัติแล้วไม่สามารถแก้ไขได้", 400);
   }
 
