@@ -1,7 +1,6 @@
 import "server-only";
 
-import nodemailer, { type Transporter } from "nodemailer";
-import { appName } from "@/lib/constants";
+import { randomUUID } from "node:crypto";
 
 type NotificationEmailInput = {
   email: string;
@@ -23,106 +22,57 @@ type MailInput = {
 };
 
 type EmailSettings = {
-  host: string;
-  port: number;
-  secure: boolean;
-  user: string;
-  pass: string;
-  from: string;
-  appUrl: string;
+  provider: "google_apps_script";
+  webhookUrl: string;
+  webhookSecret: string;
+  fromName: string;
+  appUrl?: string;
 };
 
-let transporter: Transporter | null = null;
-let transporterKey: string | null = null;
+const googleAppsScriptProvider = "google_apps_script";
+const emailGatewayTimeoutMs = 10_000;
 
-const smtpConnectionTimeoutMs = 10_000;
-const smtpGreetingTimeoutMs = 10_000;
-const smtpSocketTimeoutMs = 15_000;
-
-function parseSmtpPort(value: string | undefined) {
-  if (!value) {
+function parseHttpsUrl(value: string | undefined) {
+  if (!value?.trim()) {
     return null;
   }
 
-  const port = Number(value);
+  try {
+    const url = new URL(value.trim());
 
-  return Number.isInteger(port) && port > 0 ? port : null;
-}
-
-function parseSmtpSecure(value: string | undefined) {
-  if (!value) {
+    return url.protocol === "https:" ? url.toString() : null;
+  } catch {
     return null;
   }
-
-  const normalized = value.trim().toLowerCase();
-
-  if (["1", "true", "yes"].includes(normalized)) {
-    return true;
-  }
-
-  if (["0", "false", "no"].includes(normalized)) {
-    return false;
-  }
-
-  return null;
 }
 
 function getEmailSettings(): EmailSettings | null {
-  const host = process.env.SMTP_HOST?.trim();
-  const port = parseSmtpPort(process.env.SMTP_PORT?.trim());
-  const secure = parseSmtpSecure(process.env.SMTP_SECURE);
-  const user = process.env.SMTP_USER?.trim();
-  const pass = process.env.SMTP_PASS;
-  const from = process.env.SMTP_FROM?.trim();
+  const provider = process.env.EMAIL_PROVIDER?.trim().toLowerCase();
+  const webhookUrl = parseHttpsUrl(process.env.GOOGLE_MAIL_WEBHOOK_URL);
+  const webhookSecret = process.env.GOOGLE_MAIL_WEBHOOK_SECRET;
+  const fromName = process.env.EMAIL_FROM_NAME?.trim();
   const appUrl = process.env.APP_URL?.trim();
 
-  if (!host || !port || secure === null || !user || !pass || !from || !appUrl) {
+  if (
+    provider !== googleAppsScriptProvider ||
+    !webhookUrl ||
+    !webhookSecret?.trim() ||
+    !fromName
+  ) {
     return null;
   }
 
   return {
-    host,
-    port,
-    secure,
-    user,
-    pass,
-    from,
+    provider,
+    webhookUrl,
+    webhookSecret,
+    fromName,
     appUrl,
   };
 }
 
 export function isEmailDeliveryEnabled() {
   return getEmailSettings() !== null;
-}
-
-function getTransporter(settings: EmailSettings): Transporter {
-  const nextTransporterKey = [
-    settings.host,
-    settings.port,
-    settings.secure,
-    settings.user,
-    settings.from,
-  ].join("|");
-
-  if (transporter && transporterKey === nextTransporterKey) {
-    return transporter;
-  }
-
-  transporter = nodemailer.createTransport({
-    host: settings.host,
-    port: settings.port,
-    secure: settings.secure,
-    connectionTimeout: smtpConnectionTimeoutMs,
-    greetingTimeout: smtpGreetingTimeoutMs,
-    socketTimeout: smtpSocketTimeoutMs,
-    auth: {
-      user: settings.user,
-      pass: settings.pass,
-    },
-  });
-  transporterKey = nextTransporterKey;
-
-  return transporter;
 }
 
 function toAbsoluteUrl(link: string | null | undefined, appUrl?: string) {
@@ -154,11 +104,15 @@ function escapeHtml(value: string) {
     .replaceAll("'", "&#39;");
 }
 
-function buildSubject(title: string) {
-  return `${appName} | ${title}`;
+function buildSubject(title: string, fromName: string) {
+  return `${fromName} | ${title}`;
 }
 
-function buildTextBody(input: NotificationEmailInput, actionUrl: string | null) {
+function buildTextBody(
+  input: NotificationEmailInput,
+  actionUrl: string | null,
+  fromName: string,
+) {
   return [
     input.name ? `สวัสดี ${input.name},` : "สวัสดี,",
     "",
@@ -166,13 +120,17 @@ function buildTextBody(input: NotificationEmailInput, actionUrl: string | null) 
     input.message,
     actionUrl ? `เปิดรายการ: ${actionUrl}` : null,
     "",
-    `ข้อความนี้ส่งจาก ${appName}`,
+    `ข้อความนี้ส่งจาก ${fromName}`,
   ]
     .filter(Boolean)
     .join("\n");
 }
 
-function buildHtmlBody(input: NotificationEmailInput, actionUrl: string | null) {
+function buildHtmlBody(
+  input: NotificationEmailInput,
+  actionUrl: string | null,
+  fromName: string,
+) {
   const safeTitle = escapeHtml(input.title);
   const safeMessage = escapeHtml(input.message);
   const safeName = input.name ? escapeHtml(input.name) : null;
@@ -182,7 +140,7 @@ function buildHtmlBody(input: NotificationEmailInput, actionUrl: string | null) 
     <div style="margin:0;background:#f5f7fb;padding:32px 16px;font-family:'Noto Sans Thai',system-ui,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#0f172a;">
       <div style="margin:0 auto;max-width:560px;overflow:hidden;border-radius:20px;background:#ffffff;box-shadow:0 18px 50px rgba(15,23,42,0.08);">
         <div style="background:linear-gradient(135deg,#0f766e,#155e75);padding:24px 28px;color:#ffffff;">
-          <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.82;">${escapeHtml(appName)}</p>
+          <p style="margin:0 0 8px;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;opacity:0.82;">${escapeHtml(fromName)}</p>
           <h1 style="margin:0;font-size:22px;line-height:1.4;">${safeTitle}</h1>
         </div>
         <div style="padding:28px;">
@@ -199,26 +157,121 @@ function buildHtmlBody(input: NotificationEmailInput, actionUrl: string | null) 
   `;
 }
 
+function redactWebhookSecret(value: string, secret: string) {
+  return value.replaceAll(secret, "[redacted]");
+}
+
+function getGatewayErrorDetail(payload: unknown, secret: string) {
+  if (!payload || typeof payload !== "object") {
+    return null;
+  }
+
+  const candidate = payload as { error?: unknown; message?: unknown };
+  const detail =
+    typeof candidate.error === "string"
+      ? candidate.error
+      : typeof candidate.message === "string"
+        ? candidate.message
+        : null;
+
+  return detail
+    ? redactWebhookSecret(detail, secret).slice(0, 500)
+    : null;
+}
+
+async function postToGoogleMailGateway(
+  settings: EmailSettings,
+  input: MailInput,
+): Promise<NotificationEmailDeliveryResult> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), emailGatewayTimeoutMs);
+
+  try {
+    let response: Response;
+
+    try {
+      response = await fetch(settings.webhookUrl, {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          secret: settings.webhookSecret,
+          to: input.to,
+          subject: input.subject,
+          text: input.text,
+          html: input.html ?? "",
+        }),
+        signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `Google Mail gateway timed out after ${emailGatewayTimeoutMs}ms`,
+        );
+      }
+
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Google Mail gateway request failed: ${redactWebhookSecret(message, settings.webhookSecret)}`,
+      );
+    }
+
+    let payload: unknown;
+
+    try {
+      payload = await response.json();
+    } catch {
+      if (controller.signal.aborted) {
+        throw new Error(
+          `Google Mail gateway timed out after ${emailGatewayTimeoutMs}ms`,
+        );
+      }
+
+      if (!response.ok) {
+        throw new Error(`Google Mail gateway returned HTTP ${response.status}`);
+      }
+
+      throw new Error("Google Mail gateway returned invalid JSON");
+    }
+
+    if (!response.ok) {
+      const detail = getGatewayErrorDetail(payload, settings.webhookSecret);
+      throw new Error(
+        `Google Mail gateway returned HTTP ${response.status}${detail ? `: ${detail}` : ""}`,
+      );
+    }
+
+    if (
+      !payload ||
+      typeof payload !== "object" ||
+      (payload as { ok?: unknown }).ok !== true
+    ) {
+      const detail = getGatewayErrorDetail(payload, settings.webhookSecret);
+      throw new Error(
+        `Google Mail gateway did not confirm delivery${detail ? `: ${detail}` : ""}`,
+      );
+    }
+
+    return {
+      messageId: `google-apps-script:${randomUUID()}`,
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 export async function sendMail(
   input: MailInput,
 ): Promise<NotificationEmailDeliveryResult> {
   const settings = getEmailSettings();
 
   if (!settings) {
-    return { messageId: null };
+    throw new Error("Email delivery is disabled");
   }
 
-  const result = await getTransporter(settings).sendMail({
-    from: settings.from,
-    to: input.to,
-    subject: input.subject,
-    text: input.text,
-    html: input.html,
-  });
-
-  return {
-    messageId: typeof result.messageId === "string" ? result.messageId : null,
-  };
+  return postToGoogleMailGateway(settings, input);
 }
 
 export async function sendNotificationEmail(
@@ -227,14 +280,14 @@ export async function sendNotificationEmail(
   const settings = getEmailSettings();
 
   if (!settings) {
-    return { messageId: null };
+    throw new Error("Email delivery is disabled");
   }
 
   const actionUrl = toAbsoluteUrl(input.link, settings.appUrl);
-  return sendMail({
+  return postToGoogleMailGateway(settings, {
     to: input.email,
-    subject: buildSubject(input.title),
-    text: buildTextBody(input, actionUrl),
-    html: buildHtmlBody(input, actionUrl),
+    subject: buildSubject(input.title, settings.fromName),
+    text: buildTextBody(input, actionUrl, settings.fromName),
+    html: buildHtmlBody(input, actionUrl, settings.fromName),
   });
 }

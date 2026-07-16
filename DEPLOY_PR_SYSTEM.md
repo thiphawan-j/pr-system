@@ -64,12 +64,10 @@ nano .env.prod
 APP_ENV="prod"
 APP_URL="https://pr-system.tangthong.com"
 JWT_SECRET="replace-with-a-long-random-production-secret"
-SMTP_HOST="smtp.gmail.com"
-SMTP_PORT="587"
-SMTP_SECURE="false"
-SMTP_USER="your-gmail-address@gmail.com"
-SMTP_PASS="your-gmail-app-password"
-SMTP_FROM="PR Flow <your-gmail-address@gmail.com>"
+EMAIL_PROVIDER="google_apps_script"
+GOOGLE_MAIL_WEBHOOK_URL="https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec"
+GOOGLE_MAIL_WEBHOOK_SECRET="replace-with-a-long-random-webhook-secret"
+EMAIL_FROM_NAME="PR Flow"
 
 POSTGRES_DB="pr_system"
 POSTGRES_USER="pr_system"
@@ -80,7 +78,8 @@ DATABASE_URL="postgresql://pr_system:replace-with-a-strong-database-password@pr-
 หมายเหตุ:
 
 - ถ้า database password มีอักขระพิเศษ เช่น `@`, `/`, `:`, `#` ให้ URL encode ค่า password ใน `DATABASE_URL`
-- ถ้าต้องการให้ notification ส่งอีเมลด้วย ต้องตั้งค่า SMTP ทั้งชุดและใช้ Gmail app password ใน `SMTP_PASS`
+- ถ้าต้องการให้ notification ส่งอีเมลด้วย ต้องตั้งค่า Google Apps Script HTTPS gateway ทั้ง 4 ค่าให้ครบ
+- `GOOGLE_MAIL_WEBHOOK_SECRET` ต้องตรงกับ secret ที่ตรวจสอบใน Apps Script และห้าม commit ลง Git
 - ระบบใช้ `APP_URL` เพื่อสร้างลิงก์กลับไปหน้า PR ในอีเมล
 - compose production นี้ไม่ต้องตั้งค่า frontend bind port เพราะไม่ได้ publish port ออก host
 - compose production นี้จะ join external network `ttt-rider_default` โดยตรง

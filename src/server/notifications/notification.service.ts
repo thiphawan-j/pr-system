@@ -44,9 +44,11 @@ function toNotificationDto(notification: {
 
 function toEmailStatusError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  const smtpPass = process.env.SMTP_PASS;
+  const webhookSecret = process.env.GOOGLE_MAIL_WEBHOOK_SECRET;
 
-  return smtpPass ? message.replaceAll(smtpPass, "[redacted]") : message;
+  return webhookSecret
+    ? message.replaceAll(webhookSecret, "[redacted]")
+    : message;
 }
 
 async function createNotificationRecords(notifications: NotificationDraft[]) {
@@ -106,7 +108,7 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
     notifications.map(async (notification) => {
       const recipient = recipientsById.get(notification.userId);
 
-      if (!recipient?.email) {
+      if (!recipient?.email?.trim()) {
         await db.notification.update({
           where: { id: notification.id },
           data: {
@@ -121,7 +123,7 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
 
       try {
         const result = await sendNotificationEmail({
-          email: recipient.email,
+          email: recipient.email.trim(),
           name: recipient.name,
           title: notification.title,
           message: notification.message,
