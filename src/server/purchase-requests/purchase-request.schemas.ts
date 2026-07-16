@@ -122,7 +122,7 @@ export const purchaseRequestFiltersSchema = z.object({
     z
       .enum(["pr_desc", "pr_asc", "updated_desc", "status_asc"])
       .optional()
-      .default("pr_desc"),
+      .default("updated_desc"),
   ),
 });
 

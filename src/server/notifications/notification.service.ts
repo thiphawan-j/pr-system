@@ -156,6 +156,42 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
   );
 }
 
+function queueNotificationEmailDelivery(
+  notifications: PersistedNotificationDraft[],
+) {
+  if (!notifications.length || !isEmailDeliveryEnabled()) {
+    return;
+  }
+
+  void deliverNotificationEmails(notifications).catch(async (error) => {
+    const emailError = toEmailStatusError(error);
+    const notificationIds = notifications.map((notification) => notification.id);
+
+    console.error("Failed to process notification emails", emailError);
+
+    try {
+      const db = getDb();
+      await db.notification.updateMany({
+        where: {
+          id: { in: notificationIds },
+          emailStatus: NotificationEmailStatus.PENDING,
+        },
+        data: {
+          emailStatus: NotificationEmailStatus.FAILED,
+          emailError,
+          emailSentAt: null,
+          emailMessageId: null,
+        },
+      });
+    } catch (statusError) {
+      console.error(
+        "Failed to update notification email statuses",
+        toEmailStatusError(statusError),
+      );
+    }
+  });
+}
+
 export async function listNotificationsForUser(userId: string, limit = 8) {
   const db = getDb();
   const notifications = await db.notification.findMany({
@@ -187,7 +223,7 @@ export async function createNotification(input: {
 }) {
   const [notification] = await createNotificationRecords([input]);
 
-  await deliverNotificationEmails([notification]);
+  queueNotificationEmailDelivery([notification]);
 
   return notification;
 }
@@ -199,7 +235,7 @@ export async function createNotifications(notifications: NotificationDraft[]) {
 
   const createdNotifications = await createNotificationRecords(notifications);
 
-  await deliverNotificationEmails(createdNotifications);
+  queueNotificationEmailDelivery(createdNotifications);
 }
 
 export async function markNotificationAsRead(id: string, userId: string) {

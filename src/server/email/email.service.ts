@@ -35,6 +35,10 @@ type EmailSettings = {
 let transporter: Transporter | null = null;
 let transporterKey: string | null = null;
 
+const smtpConnectionTimeoutMs = 10_000;
+const smtpGreetingTimeoutMs = 10_000;
+const smtpSocketTimeoutMs = 15_000;
+
 function parseSmtpPort(value: string | undefined) {
   if (!value) {
     return null;
@@ -108,6 +112,9 @@ function getTransporter(settings: EmailSettings): Transporter {
     host: settings.host,
     port: settings.port,
     secure: settings.secure,
+    connectionTimeout: smtpConnectionTimeoutMs,
+    greetingTimeout: smtpGreetingTimeoutMs,
+    socketTimeout: smtpSocketTimeoutMs,
     auth: {
       user: settings.user,
       pass: settings.pass,
