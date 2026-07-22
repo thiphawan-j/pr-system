@@ -101,9 +101,11 @@ jobs:
             pr-system-web sh -lc 'npx --yes prisma@7.8.0 db push --schema /tmp/prisma/schema.prisma --url "$DATABASE_URL"'
 
           echo "Start new web container..."
-          docker rm -f pr-system-web 2>/dev/null || true
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d --no-deps pr-system-web
-
+          docker compose --env-file .env.prod \
+            -f docker-compose.prod.yml \
+            -p pr-system \
+            up -d --force-recreate --no-deps pr-system-web
+            
           echo "Restart Caddy proxy..."
           docker restart ttt-rider-caddy || true
 
