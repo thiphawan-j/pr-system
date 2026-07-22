@@ -151,6 +151,18 @@ export default async function PurchaseRequestsPage({
               </select>
             </div>
 
+            <div className="grid grid-cols-2 gap-4 lg:col-span-2">
+              <div className="space-y-2">
+                <Label htmlFor="from">{dictionary.common.documentDateFrom}</Label>
+                <Input id="from" name="from" type="date" defaultValue={filters.from} />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="to">{dictionary.common.documentDateTo}</Label>
+                <Input id="to" name="to" type="date" defaultValue={filters.to} />
+              </div>
+            </div>
+
             <div className="space-y-2">
               <Label htmlFor="urgency">{dictionary.common.priority}</Label>
               <select
@@ -166,16 +178,6 @@ export default async function PurchaseRequestsPage({
                   </option>
                 ))}
               </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="from">{dictionary.common.documentDateFrom}</Label>
-              <Input id="from" name="from" type="date" defaultValue={filters.from} />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="to">{dictionary.common.documentDateTo}</Label>
-              <Input id="to" name="to" type="date" defaultValue={filters.to} />
             </div>
 
             <div className="space-y-2">

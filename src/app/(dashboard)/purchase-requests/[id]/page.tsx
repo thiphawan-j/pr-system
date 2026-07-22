@@ -12,6 +12,7 @@ import {
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
 import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
+import { PurchaseRequestCommentPanel } from "@/components/purchase-requests/purchase-request-comment-panel";
 import { PurchasingProgressPanel } from "@/components/purchase-requests/purchasing-progress-panel";
 import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt-confirmation-panel";
 import { ReceiptReferencePanel } from "@/components/purchase-requests/receipt-reference-panel";
@@ -479,6 +480,8 @@ export default async function PurchaseRequestDetailPage({
               )}
             </CardContent>
           </Card>
+
+          <PurchaseRequestCommentPanel requestId={request.id} />
 
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
           {canProgress ? (

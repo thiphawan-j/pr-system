@@ -209,6 +209,11 @@ export const dictionaries = {
         "แนบ PDF, เอกสาร Office, รูปภาพ หรือไฟล์ประกอบการขอซื้อก่อนบันทึกหรือส่งอนุมัติ",
       attachmentsInput: "อัปโหลดเอกสารหรือรูปภาพ",
       attachmentsHint: "รองรับสูงสุด 10 ไฟล์ ไฟล์ละไม่เกิน 10 MB",
+      attachmentPasteTitle: "ลากไฟล์มาวาง หรือวางภาพจาก Clipboard",
+      attachmentPasteHint:
+        "ลากไฟล์มาที่นี่ หรือคลิกแล้วกด Ctrl+V / Cmd+V หลังจับภาพหน้าจอ",
+      attachmentPasteSuccess: "เพิ่มภาพหน้าจอในไฟล์แนบแล้ว",
+      attachmentDropSuccess: "เพิ่มไฟล์แนบแล้ว",
       selectedAttachments: "ไฟล์ที่เลือก",
       existingAttachments: "ไฟล์ที่แนบไว้แล้ว",
       noAttachments: "ยังไม่มีไฟล์แนบ",
@@ -236,6 +241,13 @@ export const dictionaries = {
       reject: "ปฏิเสธ",
       saveError: "บันทึกการอนุมัติไม่สำเร็จ",
       saveSuccess: "บันทึกผลการอนุมัติเรียบร้อย",
+      commentTitle: "หมายเหตุเพิ่มเติม",
+      commentDescription:
+        "เพิ่มหมายเหตุได้ทุกสถานะโดยไม่เปลี่ยนสถานะเอกสาร",
+      commentPlaceholder: "ระบุข้อมูลเพิ่มเติมหรือบันทึกเกี่ยวกับ PR นี้",
+      addComment: "เพิ่มหมายเหตุ",
+      commentSaved: "เพิ่มหมายเหตุเรียบร้อย",
+      commentError: "เพิ่มหมายเหตุไม่สำเร็จ",
       purchasingTitle: "ฝ่ายจัดซื้อ",
       purchasingCommentPlaceholder:
         "ระบุเลข PO/ผู้ขาย หรือเหตุผล/คำถามเมื่อต้องส่งกลับ",
@@ -639,6 +651,11 @@ export const dictionaries = {
         "Attach PDFs, Office documents, images, or supporting files before saving or submitting.",
       attachmentsInput: "Upload documents or images",
       attachmentsHint: "Up to 10 files, 10 MB per file",
+      attachmentPasteTitle: "Drop files or paste a screenshot",
+      attachmentPasteHint:
+        "Drop files here, or click and press Ctrl+V / Cmd+V after taking a screenshot",
+      attachmentPasteSuccess: "Screenshot added to attachments",
+      attachmentDropSuccess: "Files added to attachments",
       selectedAttachments: "Selected files",
       existingAttachments: "Existing attachments",
       noAttachments: "No attachments yet",
@@ -666,6 +683,13 @@ export const dictionaries = {
       reject: "Reject",
       saveError: "Unable to save approval decision",
       saveSuccess: "Approval decision saved",
+      commentTitle: "Additional note",
+      commentDescription:
+        "Add a note at any status without changing the document status.",
+      commentPlaceholder: "Add information or a note about this PR",
+      addComment: "Add note",
+      commentSaved: "Note added",
+      commentError: "Unable to add note",
       purchasingTitle: "Purchasing",
       purchasingCommentPlaceholder:
         "Record PO/vendor details, or explain the reason/question when returning",

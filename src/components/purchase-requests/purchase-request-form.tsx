@@ -3,7 +3,14 @@
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, FileText, Paperclip, Plus, Trash2, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useMemo, useState } from "react";
+import {
+  startTransition,
+  type ClipboardEvent,
+  type DragEvent,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -34,6 +41,7 @@ import {
   translateMessage,
 } from "@/lib/i18n";
 import { priorities } from "@/lib/types";
+import { cn } from "@/lib/utils";
 import { purchaseRequestPayloadSchema } from "@/server/purchase-requests/purchase-request.schemas";
 import type { PurchaseRequestDetail, SessionUser } from "@/lib/types";
 
@@ -66,6 +74,7 @@ export function PurchaseRequestForm({
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
+  const [isDraggingAttachments, setIsDraggingAttachments] = useState(false);
   const [existingAttachments, setExistingAttachments] = useState(
     initialData?.attachments ?? [],
   );
@@ -142,15 +151,58 @@ export function PurchaseRequestForm({
     setExistingAttachments(initialData?.attachments ?? []);
   }, [initialData?.attachments]);
 
-  function addAttachmentFiles(fileList: FileList | null) {
-    if (!fileList?.length) {
+  function addAttachmentFiles(files: FileList | File[] | null) {
+    if (!files?.length) {
       return;
     }
 
     setAttachmentFiles((currentFiles) => [
       ...currentFiles,
-      ...Array.from(fileList),
+      ...Array.from(files),
     ]);
+  }
+
+  function handleAttachmentPaste(event: ClipboardEvent<HTMLDivElement>) {
+    const pastedImages = Array.from(event.clipboardData.files).filter((file) =>
+      file.type.startsWith("image/"),
+    );
+
+    if (!pastedImages.length) {
+      return;
+    }
+
+    event.preventDefault();
+    const timestamp = Date.now();
+    const namedImages = pastedImages.map((file, index) => {
+      const rawExtension = file.type.split("/")[1] || "png";
+      const extension = rawExtension === "jpeg" ? "jpg" : rawExtension;
+
+      return new File(
+        [file],
+        `screenshot-${timestamp}-${index + 1}.${extension}`,
+        {
+          type: file.type,
+          lastModified: timestamp,
+        },
+      );
+    });
+
+    addAttachmentFiles(namedImages);
+    toast.success(dictionary.purchaseRequests.attachmentPasteSuccess);
+  }
+
+  function handleAttachmentDrop(event: DragEvent<HTMLDivElement>) {
+    event.preventDefault();
+    setIsDraggingAttachments(false);
+
+    const droppedFiles = Array.from(event.dataTransfer.files);
+
+    if (!droppedFiles.length) {
+      return;
+    }
+
+    addAttachmentFiles(droppedFiles);
+    toast.success(dictionary.purchaseRequests.attachmentDropSuccess);
   }
 
   function removeAttachmentFile(index: number) {
@@ -502,6 +554,41 @@ export function PurchaseRequestForm({
             />
             <p className="text-xs text-muted-foreground">
               {dictionary.purchaseRequests.attachmentsHint}
+            </p>
+          </div>
+
+          <div
+            role="button"
+            tabIndex={0}
+            className={cn(
+              "rounded-2xl border border-dashed border-primary/30 bg-primary/5 px-4 py-5 text-center outline-none transition-colors hover:bg-primary/10 focus-visible:border-primary focus-visible:ring-3 focus-visible:ring-primary/20",
+              isDraggingAttachments &&
+                "border-primary bg-primary/15 ring-3 ring-primary/20",
+            )}
+            aria-label={dictionary.purchaseRequests.attachmentPasteTitle}
+            onClick={(event) => event.currentTarget.focus()}
+            onPaste={handleAttachmentPaste}
+            onDragEnter={(event) => {
+              event.preventDefault();
+              setIsDraggingAttachments(true);
+            }}
+            onDragOver={(event) => {
+              event.preventDefault();
+              event.dataTransfer.dropEffect = "copy";
+              setIsDraggingAttachments(true);
+            }}
+            onDragLeave={(event) => {
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                setIsDraggingAttachments(false);
+              }
+            }}
+            onDrop={handleAttachmentDrop}
+          >
+            <p className="text-sm font-medium">
+              {dictionary.purchaseRequests.attachmentPasteTitle}
+            </p>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {dictionary.purchaseRequests.attachmentPasteHint}
             </p>
           </div>
 

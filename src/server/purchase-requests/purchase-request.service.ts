@@ -724,6 +724,47 @@ export async function getPurchaseRequestById(id: string, session: SessionUser) {
   return toDetail(request);
 }
 
+export async function addPurchaseRequestComment(
+  id: string,
+  session: SessionUser,
+  input: { comment: string },
+) {
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+    select: {
+      requesterId: true,
+      department: true,
+      currentApproverId: true,
+    },
+  });
+
+  if (!request) {
+    throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  }
+
+  assertCanView(
+    session,
+    request.requesterId,
+    request.department,
+    request.currentApproverId,
+  );
+
+  await db.purchaseRequest.update({
+    where: { id },
+    data: {
+      updatedAt: new Date(),
+      approvals: {
+        create: {
+          approverId: session.id,
+          action: ApprovalAction.COMMENTED,
+          comment: input.comment,
+        },
+      },
+    },
+  });
+}
+
 export async function createPurchaseRequest(
   session: SessionUser,
   input: {

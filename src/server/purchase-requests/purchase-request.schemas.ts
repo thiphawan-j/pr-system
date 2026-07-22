@@ -153,6 +153,14 @@ export const approvalDecisionSchema = z
     }
   });
 
+export const purchaseRequestCommentSchema = z.object({
+  comment: z
+    .string()
+    .trim()
+    .min(1, "กรุณาระบุหมายเหตุ")
+    .max(2000, "หมายเหตุต้องไม่เกิน 2,000 ตัวอักษร"),
+});
+
 export const purchasingProgressSchema = z
   .object({
     action: z.enum([
