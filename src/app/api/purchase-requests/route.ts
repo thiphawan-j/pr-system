@@ -22,6 +22,7 @@ export async function GET(request: NextRequest) {
     const filters = purchaseRequestFiltersSchema.parse({
       query: request.nextUrl.searchParams.get("query") ?? undefined,
       status: request.nextUrl.searchParams.get("status") ?? undefined,
+      urgency: request.nextUrl.searchParams.get("urgency") ?? undefined,
       preset: request.nextUrl.searchParams.get("preset") ?? undefined,
       department: request.nextUrl.searchParams.get("department") ?? undefined,
       from: request.nextUrl.searchParams.get("from") ?? undefined,

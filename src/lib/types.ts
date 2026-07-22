@@ -195,6 +195,7 @@ export type NotificationItem = {
 export type PurchaseRequestFilters = {
   query?: string;
   status?: FilterablePurchaseRequestStatus | "ALL";
+  urgency?: Priority | "ALL";
   preset?: PurchaseRequestQuickFilter;
   department?: string | "ALL";
   from?: string;

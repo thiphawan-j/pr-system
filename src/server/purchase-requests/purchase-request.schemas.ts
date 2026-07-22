@@ -96,6 +96,10 @@ export const purchaseRequestFiltersSchema = z.object({
       .optional()
       .default("ALL"),
   ),
+  urgency: z
+    .enum(["ALL", ...priorities] as const)
+    .optional()
+    .default("ALL"),
   preset: z.enum(purchaseRequestQuickFilters).optional(),
   department: z
     .enum(["ALL", ...departments] as const)

@@ -219,6 +219,12 @@ function buildFilterWhere(
     });
   }
 
+  if (filters.urgency && filters.urgency !== "ALL") {
+    andConditions.push({
+      urgency: filters.urgency,
+    });
+  }
+
   if (filters.preset) {
     switch (filters.preset) {
       case "pending":
