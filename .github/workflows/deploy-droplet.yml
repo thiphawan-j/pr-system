@@ -28,17 +28,28 @@ jobs:
 
     steps:
       - name: Add SSH key
+        shell: bash
         run: |
+          set -euo pipefail
+
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          printf '%s\n' "${{ secrets.DROPLET_SSH_KEY }}" > ~/.ssh/droplet_key
+
+          printf '%s\n' "${{ secrets.DROPLET_SSH_KEY }}" \
+            > ~/.ssh/droplet_key
+
           chmod 600 ~/.ssh/droplet_key
 
       - name: Trust Droplet host key
+        shell: bash
         run: |
-          ssh-keyscan -H "${{ secrets.DROPLET_HOST }}" >> ~/.ssh/known_hosts
+          set -euo pipefail
+
+          ssh-keyscan -H "${{ secrets.DROPLET_HOST }}" \
+            >> ~/.ssh/known_hosts
 
       - name: Deploy on Droplet
+        shell: bash
         env:
           DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
           DROPLET_USER: ${{ secrets.DROPLET_USER }}
@@ -50,95 +61,315 @@ jobs:
             -o TCPKeepAlive=yes \
             -i ~/.ssh/droplet_key \
             "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'REMOTE'
-                    set -euo pipefail
+          set -euo pipefail
 
           APP_DIR="/opt/pr-system/pr-system"
+          DB_VOLUME="pr-system-postgres-data"
+          STORAGE_VOLUME="pr-system_pr-system-storage"
+          CADDY_NETWORK="ttt-rider_default"
+
+          compose() {
+            docker compose \
+              --env-file .env.prod \
+              -f docker-compose.prod.yml \
+              -p pr-system \
+              "$@"
+          }
+
           cd "$APP_DIR"
 
-          echo "Check production env file..."
-          test -f .env.prod || { echo ".env.prod is missing on the Droplet"; exit 1; }
+          echo "========================================"
+          echo "Check production environment"
+          echo "========================================"
 
-          echo "Check production database volume..."
-          docker volume inspect pr-system-postgres-data >/dev/null 2>&1 || {
-            echo "Missing volume: pr-system-postgres-data"
-            echo "Stop deploy to avoid creating an empty production database."
+          test -f .env.prod || {
+            echo "ERROR: .env.prod is missing on the Droplet"
             exit 1
           }
 
-          echo "Check storage volume..."
-          docker volume inspect pr-system_pr-system-storage >/dev/null 2>&1 || docker volume create pr-system_pr-system-storage
+          echo "========================================"
+          echo "Check production database volume"
+          echo "========================================"
 
-          echo "Pull latest code..."
+          docker volume inspect "$DB_VOLUME" >/dev/null 2>&1 || {
+            echo "ERROR: Missing production database volume: $DB_VOLUME"
+            echo "Deployment stopped to prevent an empty database from being created."
+            exit 1
+          }
+
+          echo "========================================"
+          echo "Check storage volume"
+          echo "========================================"
+
+          docker volume inspect "$STORAGE_VOLUME" >/dev/null 2>&1 \
+            || docker volume create "$STORAGE_VOLUME"
+
+          echo "========================================"
+          echo "Check Caddy network"
+          echo "========================================"
+
+          docker network inspect "$CADDY_NETWORK" >/dev/null 2>&1 || {
+            echo "ERROR: Missing Docker network: $CADDY_NETWORK"
+            exit 1
+          }
+
+          echo "========================================"
+          echo "Pull latest source code"
+          echo "========================================"
+
           git fetch origin main
           git reset --hard origin/main
 
-          echo "Compose services:"
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system config --services
+          echo "Deploying commit:"
+          git log -1 --oneline
 
-          echo "Start postgres..."
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system up -d postgres
+          echo "========================================"
+          echo "Validate Docker Compose"
+          echo "========================================"
 
-          echo "Prepare storage permissions..."
-          docker run --rm \
-            -v pr-system_pr-system-storage:/storage \
-            postgres:16-alpine \
-            sh -c 'mkdir -p /storage/pr-attachments && chown -R 1001:1001 /storage && chmod -R u+rwX /storage'
+          compose config --quiet
+          compose config --services
 
-          echo "Build new web image..."
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system build --no-cache pr-system-web
+          echo "========================================"
+          echo "Check Docker disk space"
+          echo "========================================"
 
-          echo "Backup production database before schema update..."
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system exec -T postgres \
-            sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
-            > "backup_pr_$(date +%F_%H%M).sql"
+          DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}')"
+          AVAILABLE_KB="$(df -Pk "$DOCKER_ROOT" | awk 'NR == 2 {print $4}')"
 
-          echo "Apply database schema to existing production DB..."
-          test -f prisma/schema.prisma || { echo "Missing prisma/schema.prisma"; exit 1; }
+          echo "Docker root: $DOCKER_ROOT"
+          echo "Available space: ${AVAILABLE_KB} KB"
 
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system run --rm \
-            -w /tmp \
-            -v "$PWD/prisma:/tmp/prisma:ro" \
-            pr-system-web sh -lc 'npx --yes prisma@7.8.0 db push --schema /tmp/prisma/schema.prisma --url "$DATABASE_URL"'
+          # ถ้ามีพื้นที่เหลือน้อยกว่า 4 GB ให้ล้างเฉพาะ cache/image/container
+          # ที่ไม่ได้ใช้งาน โดยไม่แตะ Docker volumes
+          if [ "$AVAILABLE_KB" -lt 4194304 ]; then
+            echo "Low disk space detected. Cleaning unused Docker data..."
 
-          echo "Start new web container..."
-          docker compose --env-file .env.prod \
-            -f docker-compose.prod.yml \
-            -p pr-system \
-            up -d --force-recreate --no-deps pr-system-web
-            
-          echo "Restart Caddy proxy..."
-          docker restart ttt-rider-caddy || true
+            docker builder prune -af || true
+            docker image prune -af || true
+            docker container prune -f || true
+          fi
 
-          echo "Check container status..."
-          docker ps --filter name=pr-system
+          echo "Disk usage after cleanup:"
+          df -h "$DOCKER_ROOT"
+          docker system df || true
 
-          echo "Health check web..."
-          sleep 5
+          echo "========================================"
+          echo "Start production PostgreSQL"
+          echo "========================================"
 
-          docker compose --env-file .env.prod -f docker-compose.prod.yml -p pr-system exec -T pr-system-web node -e '
-          fetch("http://127.0.0.1:3000/login")
-            .then((res) => {
-              console.log("Login page status:", res.status);
-              if (res.status >= 500) process.exit(1);
-            })
-            .catch((error) => {
-              console.error(error);
-              process.exit(1);
-            });
-          '
+          compose up -d postgres
 
-          echo "Check recent runtime errors..."
-          docker logs --since=2m pr-system-web | tee /tmp/pr-system-web-recent.log
+          echo "Waiting for PostgreSQL to become healthy..."
 
-          if grep -Ei "PrismaClientKnownRequestError|P2022|column .* does not exist|Internal Server Error|Unhandled|ReferenceError|TypeError" /tmp/pr-system-web-recent.log; then
-            echo "Runtime error found in web logs"
+          POSTGRES_READY=0
+
+          for attempt in $(seq 1 30); do
+            POSTGRES_STATUS="$(
+              docker inspect \
+                --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' \
+                pr-system-db 2>/dev/null || true
+            )"
+
+            echo "PostgreSQL status: ${POSTGRES_STATUS:-unknown}"
+
+            if [ "$POSTGRES_STATUS" = "healthy" ]; then
+              POSTGRES_READY=1
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ "$POSTGRES_READY" -ne 1 ]; then
+            echo "ERROR: PostgreSQL did not become healthy."
+            docker logs --tail=150 pr-system-db || true
             exit 1
           fi
 
-          echo "Recent web logs..."
+          echo "========================================"
+          echo "Prepare storage permissions"
+          echo "========================================"
+
+          docker run --rm \
+            -v "$STORAGE_VOLUME:/storage" \
+            postgres:16-alpine \
+            sh -c '
+              mkdir -p /storage/pr-attachments
+              chown -R 1001:1001 /storage
+              chmod -R u+rwX /storage
+            '
+
+          echo "========================================"
+          echo "Backup production database"
+          echo "========================================"
+
+          mkdir -p /root/pr-system-backups
+
+          # เก็บ backup ไว้ 14 วัน เพื่อป้องกันพื้นที่เต็ม
+          find /root/pr-system-backups \
+            -type f \
+            -name 'pr-system-before-deploy-*.dump' \
+            -mtime +14 \
+            -delete || true
+
+          BACKUP_FILE="/root/pr-system-backups/pr-system-before-deploy-$(date +%Y%m%d-%H%M%S).dump"
+
+          compose exec -T postgres \
+            sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+            > "$BACKUP_FILE"
+
+          test -s "$BACKUP_FILE" || {
+            echo "ERROR: Database backup is empty."
+            exit 1
+          }
+
+          echo "Database backup created:"
+          ls -lh "$BACKUP_FILE"
+
+          echo "========================================"
+          echo "Build migration image"
+          echo "========================================"
+
+          export COMPOSE_PARALLEL_LIMIT=1
+
+          compose build --pull migrate
+
+          echo "========================================"
+          echo "Build new production web image"
+          echo "========================================"
+
+          # ใช้ Docker cache เพื่อให้ deploy เร็วขึ้น
+          # เมื่อ source code เปลี่ยน Docker จะ rebuild layer ที่เกี่ยวข้องเอง
+          compose build pr-system-web
+
+          echo "New image:"
+          docker image inspect pr-system-web:prod \
+            --format 'Created={{.Created}} ID={{.Id}}'
+
+          echo "========================================"
+          echo "Apply Prisma migrations"
+          echo "========================================"
+
+          test -f prisma/schema.prisma || {
+            echo "ERROR: Missing prisma/schema.prisma"
+            exit 1
+          }
+
+          test -d prisma/migrations || {
+            echo "ERROR: Missing prisma/migrations"
+            exit 1
+          }
+
+          # Production ใช้ migrate deploy เท่านั้น
+          # ห้ามเปลี่ยนกลับไปใช้ prisma db push
+          compose run --rm migrate
+
+          echo "========================================"
+          echo "Force recreate PR System web container"
+          echo "========================================"
+
+          compose up \
+            -d \
+            --force-recreate \
+            --no-deps \
+            pr-system-web
+
+          echo "========================================"
+          echo "Restart Caddy proxy"
+          echo "========================================"
+
+          docker restart ttt-rider-caddy || true
+
+          echo "========================================"
+          echo "Wait for PR System web"
+          echo "========================================"
+
+          WEB_READY=0
+
+          for attempt in $(seq 1 30); do
+            echo "Web health-check attempt: $attempt"
+
+            if docker exec pr-system-web node -e '
+              fetch("http://127.0.0.1:3000/login", {
+                redirect: "manual"
+              })
+                .then((response) => {
+                  console.log("Login page status:", response.status);
+                  process.exit(response.status < 500 ? 0 : 1);
+                })
+                .catch((error) => {
+                  console.error(error.message);
+                  process.exit(1);
+                });
+            '; then
+              WEB_READY=1
+              break
+            fi
+
+            sleep 2
+          done
+
+          if [ "$WEB_READY" -ne 1 ]; then
+            echo "ERROR: PR System web did not become ready."
+            docker logs --tail=200 pr-system-web || true
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "Check production container image"
+          echo "========================================"
+
+          docker inspect pr-system-web \
+            --format 'ContainerCreated={{.Created}} ContainerImage={{.Image}}'
+
+          docker image inspect pr-system-web:prod \
+            --format 'ImageCreated={{.Created}} ImageID={{.Id}}'
+
+          echo "========================================"
+          echo "Check PR System network aliases"
+          echo "========================================"
+
+          docker inspect pr-system-web \
+            --format '{{range $network, $config := .NetworkSettings.Networks}}{{println $network ":" $config.Aliases}}{{end}}'
+
+          echo "========================================"
+          echo "Check recent runtime errors"
+          echo "========================================"
+
+          docker logs --since=3m pr-system-web 2>&1 \
+            | tee /tmp/pr-system-web-recent.log
+
+          if grep -Eiq \
+            'P2022|P3018|column .* does not exist|invalid input value.*enum|Cannot find module|Failed to start' \
+            /tmp/pr-system-web-recent.log; then
+            echo "ERROR: Runtime or database schema error found in web logs."
+            exit 1
+          fi
+
+          echo "========================================"
+          echo "Current container status"
+          echo "========================================"
+
+          docker ps \
+            --format 'table {{.Names}}\t{{.Status}}\t{{.Image}}' \
+            | grep -Ei 'pr-system|ttt-rider|caddy' || true
+
+          echo "========================================"
+          echo "Recent PR System web logs"
+          echo "========================================"
+
           docker logs --tail=120 pr-system-web
 
-          echo "Deploy finished successfully."
-          docker ps --filter name=pr-system
+          echo "========================================"
+          echo "Remove dangling Docker images"
+          echo "========================================"
+
+          docker image prune -f || true
+
+          echo "========================================"
+          echo "Deploy finished successfully"
+          echo "========================================"
+
+          git log -1 --oneline
           REMOTE
-          
