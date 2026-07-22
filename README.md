@@ -136,15 +136,13 @@ DATABASE_URL=...
 DATABASE_URL=...
 JWT_SECRET=...
 APP_URL=https://your-production-domain
-SMTP_HOST=smtp.gmail.com
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=your-gmail-address@gmail.com
-SMTP_PASS=your-gmail-app-password
-SMTP_FROM="PR Flow <your-gmail-address@gmail.com>"
+EMAIL_PROVIDER=google_apps_script
+GOOGLE_MAIL_WEBHOOK_URL=https://script.google.com/macros/s/YOUR_DEPLOYMENT_ID/exec
+GOOGLE_MAIL_WEBHOOK_SECRET=replace-with-a-long-random-secret
+EMAIL_FROM_NAME="PR Flow"
 ```
 
-ถ้าตั้งค่า `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`, `SMTP_FROM` และ `APP_URL` ระบบจะส่งอีเมลตาม notification ในแอปผ่าน Gmail SMTP ให้อัตโนมัติ หากยังไม่ตั้งค่าไว้ ระบบจะสร้าง notification ในแอปตามเดิมโดยไม่พยายามส่งอีเมล
+ถ้าตั้งค่า `EMAIL_PROVIDER`, `GOOGLE_MAIL_WEBHOOK_URL`, `GOOGLE_MAIL_WEBHOOK_SECRET` และ `EMAIL_FROM_NAME` ระบบจะส่งอีเมลตาม notification ผ่าน Google Apps Script HTTPS gateway ให้อัตโนมัติ หากยังตั้งค่าไม่ครบ ระบบจะสร้าง notification ในแอปตามเดิมโดยกำหนดสถานะอีเมลเป็น `DISABLED`
 
 ขั้นตอน deploy production ใน workflow คือ:
 

@@ -46,6 +46,7 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@fontsource/noto-sans-thai ./node_modules/@fontsource/noto-sans-thai
 
 USER nextjs
+USER nextjs
 
 EXPOSE 3000
 

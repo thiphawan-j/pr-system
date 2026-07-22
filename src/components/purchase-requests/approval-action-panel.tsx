@@ -21,12 +21,15 @@ type ApprovalActionPanelProps = {
 
 type ApprovalFormValues = z.input<typeof approvalDecisionSchema>;
 type ApprovalFormPayload = z.output<typeof approvalDecisionSchema>;
+type ApprovalAction = ApprovalFormValues["action"];
+
+const approvalRequestTimeoutMs = 20_000;
 
 export function ApprovalActionPanel({
   requestId,
 }: ApprovalActionPanelProps) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<ApprovalAction | null>(null);
   const { dictionary, locale } = useI18n();
   const form = useForm<ApprovalFormValues, undefined, ApprovalFormPayload>({
     resolver: zodResolver(approvalDecisionSchema),
@@ -36,30 +39,48 @@ export function ApprovalActionPanel({
     },
   });
 
-  function submit(action: ApprovalFormValues["action"]) {
+  function submit(action: ApprovalAction) {
     form.setValue("action", action);
     form.handleSubmit((values: ApprovalFormPayload) => {
-      setIsPending(true);
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(
+        () => controller.abort(),
+        approvalRequestTimeoutMs,
+      );
+
+      setPendingAction(action);
       startTransition(async () => {
-        const response = await fetch(`/api/purchase-requests/${requestId}/approval`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(values),
-        });
-        const payload = await response.json().catch(() => null);
-        setIsPending(false);
-
-        if (!response.ok) {
-          toast.error(
-            translateMessage(payload?.error, locale) ?? dictionary.approval.saveError,
+        try {
+          const response = await fetch(
+            `/api/purchase-requests/${requestId}/approval`,
+            {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify(values),
+              signal: controller.signal,
+            },
           );
-          return;
-        }
+          const payload = await response.json().catch(() => null);
 
-        toast.success(dictionary.approval.saveSuccess);
-        router.refresh();
+          if (!response.ok) {
+            toast.error(
+              translateMessage(payload?.error, locale) ?? dictionary.approval.saveError,
+            );
+            return;
+          }
+
+          toast.success(dictionary.approval.saveSuccess);
+          router.refresh();
+        } catch {
+          toast.error(
+            dictionary.approval.saveError,
+          );
+        } finally {
+          window.clearTimeout(timeoutId);
+          setPendingAction(null);
+        }
       });
     })();
   }
@@ -91,28 +112,34 @@ export function ApprovalActionPanel({
           <Button
             type="button"
             className="rounded-xl"
-            disabled={isPending}
+            disabled={pendingAction !== null}
             onClick={() => submit("APPROVED")}
           >
-            {dictionary.approval.approve}
+            {pendingAction === "APPROVED"
+              ? dictionary.common.saving
+              : dictionary.approval.approve}
           </Button>
           <Button
             type="button"
             variant="secondary"
             className="rounded-xl"
-            disabled={isPending}
+            disabled={pendingAction !== null}
             onClick={() => submit("RETURNED")}
           >
-            {dictionary.approval.return}
+            {pendingAction === "RETURNED"
+              ? dictionary.common.saving
+              : dictionary.approval.return}
           </Button>
           <Button
             type="button"
             variant="destructive"
             className="rounded-xl"
-            disabled={isPending}
+            disabled={pendingAction !== null}
             onClick={() => submit("REJECTED")}
           >
-            {dictionary.approval.reject}
+            {pendingAction === "REJECTED"
+              ? dictionary.common.saving
+              : dictionary.approval.reject}
           </Button>
         </div>
       </CardContent>

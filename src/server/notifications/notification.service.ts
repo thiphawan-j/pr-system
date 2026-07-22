@@ -44,9 +44,11 @@ function toNotificationDto(notification: {
 
 function toEmailStatusError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  const smtpPass = process.env.SMTP_PASS;
+  const webhookSecret = process.env.GOOGLE_MAIL_WEBHOOK_SECRET;
 
-  return smtpPass ? message.replaceAll(smtpPass, "[redacted]") : message;
+  return webhookSecret
+    ? message.replaceAll(webhookSecret, "[redacted]")
+    : message;
 }
 
 async function createNotificationRecords(notifications: NotificationDraft[]) {
@@ -106,7 +108,7 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
     notifications.map(async (notification) => {
       const recipient = recipientsById.get(notification.userId);
 
-      if (!recipient?.email) {
+      if (!recipient?.email?.trim()) {
         await db.notification.update({
           where: { id: notification.id },
           data: {
@@ -121,7 +123,7 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
 
       try {
         const result = await sendNotificationEmail({
-          email: recipient.email,
+          email: recipient.email.trim(),
           name: recipient.name,
           title: notification.title,
           message: notification.message,
@@ -156,6 +158,42 @@ async function deliverNotificationEmails(notifications: PersistedNotificationDra
   );
 }
 
+function queueNotificationEmailDelivery(
+  notifications: PersistedNotificationDraft[],
+) {
+  if (!notifications.length || !isEmailDeliveryEnabled()) {
+    return;
+  }
+
+  void deliverNotificationEmails(notifications).catch(async (error) => {
+    const emailError = toEmailStatusError(error);
+    const notificationIds = notifications.map((notification) => notification.id);
+
+    console.error("Failed to process notification emails", emailError);
+
+    try {
+      const db = getDb();
+      await db.notification.updateMany({
+        where: {
+          id: { in: notificationIds },
+          emailStatus: NotificationEmailStatus.PENDING,
+        },
+        data: {
+          emailStatus: NotificationEmailStatus.FAILED,
+          emailError,
+          emailSentAt: null,
+          emailMessageId: null,
+        },
+      });
+    } catch (statusError) {
+      console.error(
+        "Failed to update notification email statuses",
+        toEmailStatusError(statusError),
+      );
+    }
+  });
+}
+
 export async function listNotificationsForUser(userId: string, limit = 8) {
   const db = getDb();
   const notifications = await db.notification.findMany({
@@ -187,7 +225,7 @@ export async function createNotification(input: {
 }) {
   const [notification] = await createNotificationRecords([input]);
 
-  await deliverNotificationEmails([notification]);
+  queueNotificationEmailDelivery([notification]);
 
   return notification;
 }
@@ -199,7 +237,7 @@ export async function createNotifications(notifications: NotificationDraft[]) {
 
   const createdNotifications = await createNotificationRecords(notifications);
 
-  await deliverNotificationEmails(createdNotifications);
+  queueNotificationEmailDelivery(createdNotifications);
 }
 
 export async function markNotificationAsRead(id: string, userId: string) {
