@@ -63,6 +63,22 @@ jobs:
             "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'REMOTE'
           set -euo pipefail
 
+          DEPLOY_COMPLETED=0
+
+          verify_deploy_completed() {
+            local exit_code=$?
+            trap - EXIT
+
+            if [ "$DEPLOY_COMPLETED" -ne 1 ]; then
+              echo "ERROR: Remote deploy script ended before completion."
+              exit 1
+            fi
+
+            exit "$exit_code"
+          }
+
+          trap verify_deploy_completed EXIT
+
           APP_DIR="/opt/pr-system/pr-system"
           DB_VOLUME="pr-system-postgres-data"
           STORAGE_VOLUME="pr-system_pr-system-storage"
@@ -215,8 +231,9 @@ jobs:
 
           BACKUP_FILE="/root/pr-system-backups/pr-system-before-deploy-$(date +%Y%m%d-%H%M%S).dump"
 
-          compose exec -T postgres \
+          compose exec -T --interactive=false postgres \
             sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
+            < /dev/null \
             > "$BACKUP_FILE"
 
           test -s "$BACKUP_FILE" || {
@@ -372,4 +389,5 @@ jobs:
           echo "========================================"
 
           git log -1 --oneline
+          DEPLOY_COMPLETED=1
           REMOTE
