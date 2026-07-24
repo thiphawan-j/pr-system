@@ -280,7 +280,12 @@ jobs:
 
           # Production ใช้ migrate deploy เท่านั้น
           # ห้ามเปลี่ยนกลับไปใช้ prisma db push
-          compose run --rm migrate
+          compose run \
+            --rm \
+            --interactive=false \
+            --no-tty \
+            migrate \
+            < /dev/null
 
           echo "========================================"
           echo "Force recreate PR System web container"
