@@ -32,12 +32,28 @@ function isSchemaMismatchError(error: Prisma.PrismaClientKnownRequestError) {
   return JSON.stringify(error.meta ?? {}).includes("unitPrice");
 }
 
+function isEnumSchemaMismatchError(error: unknown) {
+  return (
+    error instanceof Error &&
+    /invalid input value for enum|value .* does not exist in enum/i.test(
+      error.message,
+    )
+  );
+}
+
+function databaseMigrationRequiredResponse() {
+  return NextResponse.json(
+    {
+      error:
+        "ฐานข้อมูลของระบบยังไม่อัปเดต กรุณาแจ้งผู้ดูแลระบบให้รัน migration ล่าสุด",
+    },
+    { status: 500 },
+  );
+}
+
 function toPrismaErrorResponse(error: Prisma.PrismaClientKnownRequestError) {
   if (isSchemaMismatchError(error)) {
-    return NextResponse.json(
-      { error: "ฐานข้อมูลของระบบยังไม่อัปเดต กรุณาแจ้งผู้ดูแลระบบให้รัน migration ล่าสุด" },
-      { status: 500 },
-    );
+    return databaseMigrationRequiredResponse();
   }
 
   if (error.code === "P2002") {
@@ -95,6 +111,11 @@ export function toErrorResponse(error: unknown) {
 
   if (error instanceof ZodError) {
     return NextResponse.json({ error: getFirstZodMessage(error) }, { status: 400 });
+  }
+
+  if (isEnumSchemaMismatchError(error)) {
+    console.error("[api-error]", toErrorLogPayload(error));
+    return databaseMigrationRequiredResponse();
   }
 
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
