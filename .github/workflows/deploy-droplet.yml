@@ -283,7 +283,7 @@ jobs:
           compose run \
             --rm \
             --interactive=false \
-            --no-tty \
+            -T \
             migrate \
             < /dev/null
 
