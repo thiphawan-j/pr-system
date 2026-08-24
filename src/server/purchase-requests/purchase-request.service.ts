@@ -84,6 +84,7 @@ const purchaseRequestListSelect = {
   id: true,
   prNumber: true,
   requestDate: true,
+  receivedAt: true,
   updatedAt: true,
   requesterId: true,
   department: true,
@@ -214,9 +215,21 @@ function buildFilterWhere(
   }
 
   if (filters.status && filters.status !== "ALL") {
-    andConditions.push({
-      status: filters.status as PurchaseRequestStatus,
-    });
+    if (filters.status === "AWAITING_RECEIPT_REFERENCES") {
+      andConditions.push({
+        status: PurchaseRequestStatus.ORDERED,
+        receivedAt: { not: null },
+      });
+    } else if (filters.status === "ORDERED") {
+      andConditions.push({
+        status: PurchaseRequestStatus.ORDERED,
+        receivedAt: null,
+      });
+    } else {
+      andConditions.push({
+        status: filters.status as PurchaseRequestStatus,
+      });
+    }
   }
 
   if (filters.urgency && filters.urgency !== "ALL") {
@@ -308,6 +321,7 @@ function toListItem(
     id: request.id,
     prNumber: request.prNumber,
     requestDate: toBangkokDateValue(request.requestDate),
+    receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
     updatedAt: toBangkokIsoString(request.updatedAt),
     requesterId: request.requesterId,
     requesterName: request.requester.name,

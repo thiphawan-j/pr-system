@@ -192,7 +192,11 @@ export function PurchaseRequestList({
                     {getDepartmentLabel(request.requesterDepartment, locale)}
                   </p>
                 </div>
-                <StatusBadge status={request.status} locale={locale} />
+                <StatusBadge
+                  status={request.status}
+                  receivedAt={request.receivedAt}
+                  locale={locale}
+                />
               </div>
               <div className="flex flex-wrap gap-2">
                 <PriorityBadge priority={request.urgency} locale={locale} />
@@ -271,7 +275,11 @@ export function PurchaseRequestList({
                     </TableCell>
                     <TableCell>{formatDate(request.requestDate, locale)}</TableCell>
                     <TableCell>
-                      <StatusBadge status={request.status} locale={locale} />
+                      <StatusBadge
+                        status={request.status}
+                        receivedAt={request.receivedAt}
+                        locale={locale}
+                      />
                     </TableCell>
                     <TableCell>
                       <PriorityBadge priority={request.urgency} locale={locale} />

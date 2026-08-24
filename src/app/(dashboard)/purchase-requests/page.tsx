@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { departments, purchaseRequestListPageSize } from "@/lib/constants";
 import { getDepartmentLabel } from "@/lib/i18n";
-import { filterablePurchaseRequestStatuses, priorities } from "@/lib/types";
+import { priorities, purchaseRequestListStatusFilters } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { purchaseRequestFiltersSchema } from "@/server/purchase-requests/purchase-request.schemas";
@@ -126,9 +126,11 @@ export default async function PurchaseRequestsPage({
                 className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
               >
                 <option value="ALL">{dictionary.common.all}</option>
-                {filterablePurchaseRequestStatuses.map((status) => (
+                {purchaseRequestListStatusFilters.map((status) => (
                   <option key={status} value={status}>
-                    {dictionary.statuses[status]}
+                    {status === "AWAITING_RECEIPT_REFERENCES"
+                      ? dictionary.approval.awaitingReceiptReferences
+                      : dictionary.statuses[status]}
                   </option>
                 ))}
               </select>

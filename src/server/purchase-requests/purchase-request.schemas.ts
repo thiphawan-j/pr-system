@@ -2,8 +2,8 @@ import { z } from "zod";
 
 import { departments } from "@/lib/constants";
 import {
-  filterablePurchaseRequestStatuses,
   priorities,
+  purchaseRequestListStatusFilters,
   purchaseRequestQuickFilters,
 } from "@/lib/types";
 
@@ -92,7 +92,7 @@ export const purchaseRequestFiltersSchema = z.object({
   status: z.preprocess(
     (value) => (value === "SUBMITTED" ? "ALL" : value),
     z
-      .enum(["ALL", ...filterablePurchaseRequestStatuses] as const)
+      .enum(["ALL", ...purchaseRequestListStatusFilters] as const)
       .optional()
       .default("ALL"),
   ),

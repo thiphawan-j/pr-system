@@ -87,12 +87,6 @@ export default async function PurchaseRequestDetailPage({
     request.status === "COMPLETED" ? "COMPLETED" : "ORDERED";
   const isAwaitingReceiptReferences =
     request.status === "ORDERED" && Boolean(request.receivedAt);
-  const statusLabel = isAwaitingReceiptReferences
-    ? dictionary.approval.awaitingReceiptReferences
-    : undefined;
-  const statusClassName = isAwaitingReceiptReferences
-    ? "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300"
-    : undefined;
 
   return (
     <div className="space-y-6">
@@ -102,9 +96,8 @@ export default async function PurchaseRequestDetailPage({
             <div className="flex flex-wrap items-center gap-3">
               <StatusBadge
                 status={request.status}
+                receivedAt={request.receivedAt}
                 locale={locale}
-                label={statusLabel}
-                className={statusClassName}
               />
               <PriorityBadge priority={request.urgency} locale={locale} />
             </div>

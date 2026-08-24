@@ -30,6 +30,13 @@ export const filterablePurchaseRequestStatuses = [
 export type FilterablePurchaseRequestStatus =
   (typeof filterablePurchaseRequestStatuses)[number];
 
+export const purchaseRequestListStatusFilters = [
+  ...filterablePurchaseRequestStatuses,
+  "AWAITING_RECEIPT_REFERENCES",
+] as const;
+export type PurchaseRequestListStatusFilter =
+  (typeof purchaseRequestListStatusFilters)[number];
+
 export const purchaseRequestQuickFilters = [
   "pending",
   "approved",
@@ -110,6 +117,7 @@ export type PurchaseRequestListItem = {
   id: string;
   prNumber: string;
   requestDate: string;
+  receivedAt?: string | null;
   updatedAt: string;
   requesterId: string;
   requesterName: string;
@@ -194,7 +202,7 @@ export type NotificationItem = {
 
 export type PurchaseRequestFilters = {
   query?: string;
-  status?: FilterablePurchaseRequestStatus | "ALL";
+  status?: PurchaseRequestListStatusFilter | "ALL";
   urgency?: Priority | "ALL";
   preset?: PurchaseRequestQuickFilter;
   department?: string | "ALL";
