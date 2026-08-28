@@ -1,14 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Eye, FilePenLine, Loader2 } from "lucide-react";
-import {
-  startTransition,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
-import { toast } from "sonner";
+import { ChevronLeft, ChevronRight, Eye, FilePenLine } from "lucide-react";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
@@ -23,24 +16,56 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { purchaseRequestListPageSize } from "@/lib/constants";
 import { formatDate, formatDateTime } from "@/lib/format";
-import { ApiClientError, apiFetch } from "@/lib/http";
-import { getDepartmentLabel, translateMessage } from "@/lib/i18n";
+import { getDepartmentLabel, interpolate } from "@/lib/i18n";
 import type {
   PurchaseRequestListItem,
-  PurchaseRequestListPage,
   SessionUser,
 } from "@/lib/types";
 
 type PurchaseRequestListProps = {
   currentUserId: string;
   currentUserRole: SessionUser["role"];
-  initialItems: PurchaseRequestListItem[];
-  initialHasMore: boolean;
-  initialNextPage: number | null;
+  items: PurchaseRequestListItem[];
+  page: number;
+  totalCount: number;
+  totalPages: number;
   queryString: string;
 };
+
+type PaginationItem = number | "ellipsis";
+
+function getPaginationItems(page: number, totalPages: number): PaginationItem[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, index) => index + 1);
+  }
+
+  const pages = [...new Set([1, page - 1, page, page + 1, totalPages])]
+    .filter((item) => item >= 1 && item <= totalPages)
+    .sort((a, b) => a - b);
+
+  return pages.flatMap((item, index) => {
+    const previous = pages[index - 1];
+
+    return previous !== undefined && item - previous > 1
+      ? ["ellipsis" as const, item]
+      : [item];
+  });
+}
+
+function getPageHref(queryString: string, page: number) {
+  const params = new URLSearchParams(queryString);
+
+  if (page === 1) {
+    params.delete("page");
+  } else {
+    params.set("page", String(page));
+  }
+
+  const query = params.toString();
+
+  return `/purchase-requests${query ? `?${query}` : ""}`;
+}
 
 function canEditDraft(
   request: PurchaseRequestListItem,
@@ -56,119 +81,15 @@ function canEditDraft(
 export function PurchaseRequestList({
   currentUserId,
   currentUserRole,
-  initialItems,
-  initialHasMore,
-  initialNextPage,
+  items,
+  page,
+  totalCount,
+  totalPages,
   queryString,
 }: PurchaseRequestListProps) {
   const { dictionary, locale } = useI18n();
-  const [requests, setRequests] = useState(initialItems);
-  const [hasMore, setHasMore] = useState(initialHasMore);
-  const [nextPage, setNextPage] = useState(initialNextPage);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const sentinelRef = useRef<HTMLDivElement | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
-  const fetchMoreRequestsRef = useRef<() => Promise<void>>(async () => {});
 
-  useEffect(() => {
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    setRequests(initialItems);
-    setHasMore(initialHasMore);
-    setNextPage(initialNextPage);
-    setIsLoadingMore(false);
-    setLoadError(null);
-
-    return () => {
-      abortControllerRef.current?.abort();
-      abortControllerRef.current = null;
-    };
-  }, [initialHasMore, initialItems, initialNextPage, queryString]);
-
-  async function fetchMoreRequests() {
-    if (isLoadingMore || !hasMore || nextPage === null) {
-      return;
-    }
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
-    setIsLoadingMore(true);
-    setLoadError(null);
-
-    try {
-      const params = new URLSearchParams(queryString);
-      params.set("page", String(nextPage));
-      params.set("limit", String(purchaseRequestListPageSize));
-
-      const payload = await apiFetch<PurchaseRequestListPage>(
-        `/api/purchase-requests?${params.toString()}`,
-        {
-          method: "GET",
-          cache: "no-store",
-          signal: controller.signal,
-        },
-      );
-
-      startTransition(() => {
-        setRequests((current) => {
-          const seenIds = new Set(current.map((item) => item.id));
-          const appendedItems = payload.items.filter((item) => !seenIds.has(item.id));
-
-          return [...current, ...appendedItems];
-        });
-        setHasMore(payload.hasMore);
-        setNextPage(payload.nextPage);
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
-      }
-
-      const message =
-        error instanceof ApiClientError
-          ? translateMessage(error.message, locale) ??
-            dictionary.purchaseRequests.loadMoreError
-          : dictionary.purchaseRequests.loadMoreError;
-
-      setLoadError(message);
-      toast.error(message);
-    } finally {
-      if (abortControllerRef.current === controller) {
-        abortControllerRef.current = null;
-      }
-
-      setIsLoadingMore(false);
-    }
-  }
-  fetchMoreRequestsRef.current = fetchMoreRequests;
-
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-
-    if (!sentinel || !hasMore || nextPage === null || isLoadingMore || loadError) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          void fetchMoreRequestsRef.current();
-        }
-      },
-      {
-        rootMargin: "160px 0px",
-      },
-    );
-
-    observer.observe(sentinel);
-
-    return () => {
-      observer.disconnect();
-    };
-  }, [hasMore, isLoadingMore, loadError, nextPage, queryString, requests.length]);
-
-  if (!requests.length) {
+  if (!items.length) {
     return (
       <Card className="border-dashed border-border/80">
         <CardContent className="py-12 text-center text-muted-foreground">
@@ -181,7 +102,7 @@ export function PurchaseRequestList({
   return (
     <div className="space-y-4">
       <div className="grid gap-4 lg:hidden">
-        {requests.map((request) => (
+        {items.map((request) => (
           <Card key={request.id} className="border-border/70">
             <CardHeader className="space-y-3">
               <div className="flex items-start justify-between gap-3">
@@ -255,7 +176,7 @@ export function PurchaseRequestList({
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {requests.map((request) => (
+                {items.map((request) => (
                   <TableRow key={request.id}>
                     <TableCell>
                       <div>
@@ -313,22 +234,102 @@ export function PurchaseRequestList({
         </Card>
       </div>
 
-      <div ref={sentinelRef} className="h-1 w-full" aria-hidden="true" />
+      {totalPages > 1 ? (
+        <nav
+          aria-label={dictionary.purchaseRequests.paginationLabel}
+          className="flex flex-col items-center justify-between gap-3 rounded-2xl border border-border/70 bg-card px-4 py-3 sm:flex-row"
+        >
+          <p className="text-sm text-muted-foreground">
+            {interpolate(dictionary.purchaseRequests.paginationSummary, {
+              page,
+              totalPages,
+              totalCount,
+            })}
+          </p>
 
-      {isLoadingMore ? (
-        <div className="flex items-center justify-center gap-2 rounded-2xl border border-dashed border-border/70 py-4 text-sm text-muted-foreground">
-          <Loader2 className="size-4 animate-spin" />
-          <span>{dictionary.purchaseRequests.loadingMore}</span>
-        </div>
-      ) : null}
+          <div className="flex items-center gap-1">
+            {page > 1 ? (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  href={getPageHref(queryString, page - 1)}
+                  aria-label={dictionary.purchaseRequests.previousPage}
+                >
+                  <ChevronLeft />
+                  <span className="hidden sm:inline">
+                    {dictionary.purchaseRequests.previousPage}
+                  </span>
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={dictionary.purchaseRequests.previousPage}
+                disabled
+              >
+                <ChevronLeft />
+                <span className="hidden sm:inline">
+                  {dictionary.purchaseRequests.previousPage}
+                </span>
+              </Button>
+            )}
 
-      {loadError ? (
-        <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-destructive/40 bg-destructive/5 px-4 py-5 text-center">
-          <p className="text-sm text-destructive">{loadError}</p>
-          <Button type="button" variant="outline" onClick={() => void fetchMoreRequests()}>
-            {dictionary.common.retry}
-          </Button>
-        </div>
+            <div className="hidden items-center gap-1 sm:flex">
+              {getPaginationItems(page, totalPages).map((item, index) =>
+                item === "ellipsis" ? (
+                  <span
+                    key={`ellipsis-${index}`}
+                    className="flex size-7 items-center justify-center text-sm text-muted-foreground"
+                    aria-hidden="true"
+                  >
+                    ...
+                  </span>
+                ) : (
+                  <Button
+                    key={item}
+                    asChild
+                    variant={item === page ? "default" : "outline"}
+                    size="icon-sm"
+                  >
+                    <Link
+                      href={getPageHref(queryString, item)}
+                      aria-current={item === page ? "page" : undefined}
+                      aria-label={`${dictionary.purchaseRequests.paginationLabel}: ${item}`}
+                    >
+                      {item}
+                    </Link>
+                  </Button>
+                ),
+              )}
+            </div>
+
+            {page < totalPages ? (
+              <Button asChild variant="outline" size="sm">
+                <Link
+                  href={getPageHref(queryString, page + 1)}
+                  aria-label={dictionary.purchaseRequests.nextPage}
+                >
+                  <span className="hidden sm:inline">
+                    {dictionary.purchaseRequests.nextPage}
+                  </span>
+                  <ChevronRight />
+                </Link>
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={dictionary.purchaseRequests.nextPage}
+                disabled
+              >
+                <span className="hidden sm:inline">
+                  {dictionary.purchaseRequests.nextPage}
+                </span>
+                <ChevronRight />
+              </Button>
+            )}
+          </div>
+        </nav>
       ) : null}
     </div>
   );

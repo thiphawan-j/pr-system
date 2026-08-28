@@ -215,6 +215,8 @@ export type PurchaseRequestListPage = {
   items: PurchaseRequestListItem[];
   page: number;
   limit: number;
+  totalCount: number;
+  totalPages: number;
   hasMore: boolean;
   nextPage: number | null;
 };

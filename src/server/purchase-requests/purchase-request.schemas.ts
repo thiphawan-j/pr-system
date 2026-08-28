@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { departments } from "@/lib/constants";
+import { departments, purchaseRequestListPageSize } from "@/lib/constants";
 import {
   priorities,
   purchaseRequestListStatusFilters,
@@ -132,7 +132,7 @@ export const purchaseRequestFiltersSchema = z.object({
 
 export const purchaseRequestPaginationSchema = z.object({
   page: optionalPositiveInteger.default(1),
-  limit: optionalPageSizeInteger.default(20),
+  limit: optionalPageSizeInteger.default(purchaseRequestListPageSize),
 });
 
 export const approvalDecisionSchema = z

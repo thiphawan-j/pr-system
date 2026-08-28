@@ -11,7 +11,10 @@ import { getDepartmentLabel } from "@/lib/i18n";
 import { priorities, purchaseRequestListStatusFilters } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
-import { purchaseRequestFiltersSchema } from "@/server/purchase-requests/purchase-request.schemas";
+import {
+  purchaseRequestFiltersSchema,
+  purchaseRequestPaginationSchema,
+} from "@/server/purchase-requests/purchase-request.schemas";
 import { listPurchaseRequestsPage } from "@/server/purchase-requests/purchase-request.service";
 
 function firstOf(value: string | string[] | undefined) {
@@ -47,6 +50,11 @@ export default async function PurchaseRequestsPage({
     to: firstOf(rawSearchParams.to),
     sort: firstOf(rawSearchParams.sort),
   });
+  const paginationResult = purchaseRequestPaginationSchema.safeParse({
+    page: firstOf(rawSearchParams.page),
+    limit: purchaseRequestListPageSize,
+  });
+  const page = paginationResult.success ? paginationResult.data.page : 1;
   const quickFilterTitle =
     filters.preset === "pending"
       ? dictionary.dashboard.pendingTitle
@@ -59,7 +67,7 @@ export default async function PurchaseRequestsPage({
             : null;
 
   const initialPage = await listPurchaseRequestsPage(session, filters, {
-    page: 1,
+    page,
     limit: purchaseRequestListPageSize,
   });
   const filterQueryString = toFilterQueryString(filters);
@@ -218,9 +226,10 @@ export default async function PurchaseRequestsPage({
       <PurchaseRequestList
         currentUserId={session.id}
         currentUserRole={session.role}
-        initialItems={initialPage.items}
-        initialHasMore={initialPage.hasMore}
-        initialNextPage={initialPage.nextPage}
+        items={initialPage.items}
+        page={initialPage.page}
+        totalCount={initialPage.totalCount}
+        totalPages={initialPage.totalPages}
         queryString={filterQueryString}
       />
     </div>

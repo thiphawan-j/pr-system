@@ -6,7 +6,7 @@ import type {
 } from "@/lib/types";
 
 export const appName = "PR Flow";
-export const purchaseRequestListPageSize = 20;
+export const purchaseRequestListPageSize = 10;
 export const adminUserListPageSize = 10;
 
 export const managementDepartment = "บริหาร/จัดการ" as const;

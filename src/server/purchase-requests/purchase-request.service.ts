@@ -694,24 +694,28 @@ export async function listPurchaseRequestsPage(
   const db = getDb();
   const where = buildFilterWhere(session, filters);
   const orderBy = buildSortOrder(filters.sort);
-  const page = pagination.page;
   const limit = pagination.limit;
+  const totalCount = await db.purchaseRequest.count({ where });
+  const totalPages = Math.ceil(totalCount / limit);
+  const page = totalPages > 0 ? Math.min(pagination.page, totalPages) : 1;
 
   const requests = await db.purchaseRequest.findMany({
     where,
     select: purchaseRequestListSelect,
     orderBy,
     skip: (page - 1) * limit,
-    take: limit + 1,
+    take: limit,
   });
 
-  const hasMore = requests.length > limit;
-  const items = requests.slice(0, limit).map(toListItem);
+  const hasMore = page < totalPages;
+  const items = requests.map(toListItem);
 
   return {
     items,
     page,
     limit,
+    totalCount,
+    totalPages,
     hasMore,
     nextPage: hasMore ? page + 1 : null,
   } satisfies PurchaseRequestListPage;
