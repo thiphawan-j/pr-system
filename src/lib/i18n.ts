@@ -151,7 +151,7 @@ export const dictionaries = {
       clearQuickFilter: "ล้างตัวกรองด่วน",
       clearFilters: "ล้างตัวกรอง",
       searchLabel: "ค้นหาเอกสาร",
-      searchPlaceholder: "เลขที่ PR หรือเหตุผลการขอซื้อ",
+      searchPlaceholder: "เลขที่ PR เหตุผล ชื่อผู้ขอ หรือชื่อสินค้า",
       createTitle: "สร้าง Purchase Request",
       createDescription:
         "กรอกข้อมูลหัวเอกสารและรายการสินค้า จากนั้นบันทึกร่างหรือส่งขออนุมัติได้ทันที",
@@ -597,7 +597,7 @@ export const dictionaries = {
       clearQuickFilter: "Clear quick filter",
       clearFilters: "Clear filters",
       searchLabel: "Search documents",
-      searchPlaceholder: "PR number or purchase reason",
+      searchPlaceholder: "PR number, reason, requester, or product name",
       createTitle: "Create Purchase Request",
       createDescription:
         "Fill in document details and item lines, then save as draft or submit for approval.",

@@ -90,8 +90,7 @@ export function NotificationBell({
             <DropdownMenuItem
               key={notification.id}
               className="flex items-start gap-3 rounded-xl px-3 py-3"
-              onSelect={(event) => {
-                event.preventDefault();
+              onSelect={() => {
                 handleOpenNotification(notification);
               }}
             >

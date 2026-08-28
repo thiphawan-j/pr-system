@@ -209,7 +209,17 @@ function buildFilterWhere(
         { prNumber: { contains: filters.query, mode: "insensitive" } },
         { reason: { contains: filters.query, mode: "insensitive" } },
         { requester: { name: { contains: filters.query, mode: "insensitive" } } },
-        { items: { some: { supplierName: { contains: filters.query, mode: "insensitive" } } } },
+        {
+          items: {
+            some: {
+              OR: [
+                { itemName: { contains: filters.query, mode: "insensitive" } },
+                { description: { contains: filters.query, mode: "insensitive" } },
+                { supplierName: { contains: filters.query, mode: "insensitive" } },
+              ],
+            },
+          },
+        },
       ],
     });
   }
