@@ -12,7 +12,7 @@ permissions:
 
 env:
   APP_URL: http://127.0.0.1:3100
-  DATABASE_URL: postgresql://postgres:postgres@localhost:5433/pr_management?schema=public
+  DATABASE_URL: postgresql://postgres:postgres@localhost:5433/pr_management_e2e?schema=public
   JWT_SECRET: ci-only-change-me-in-production
   NEXT_TELEMETRY_DISABLED: "1"
 
@@ -25,13 +25,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: pr_management
+          POSTGRES_DB: pr_management_e2e
           POSTGRES_PASSWORD: postgres
           POSTGRES_USER: postgres
         ports:
           - 5433:5432
         options: >-
-          --health-cmd "pg_isready -U postgres -d pr_management"
+          --health-cmd "pg_isready -U postgres -d pr_management_e2e"
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
@@ -72,4 +72,3 @@ jobs:
 
       - name: E2E tests
         run: npm run test:e2e
-        
