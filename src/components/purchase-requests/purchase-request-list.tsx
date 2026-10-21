@@ -116,6 +116,8 @@ export function PurchaseRequestList({
                 <StatusBadge
                   status={request.status}
                   receivedAt={request.receivedAt}
+                  hasPartialReceipt={request.hasPartialReceipt}
+                  hasClosedRemainder={request.hasClosedRemainder}
                   locale={locale}
                 />
               </div>
@@ -199,6 +201,8 @@ export function PurchaseRequestList({
                       <StatusBadge
                         status={request.status}
                         receivedAt={request.receivedAt}
+                        hasPartialReceipt={request.hasPartialReceipt}
+                        hasClosedRemainder={request.hasClosedRemainder}
                         locale={locale}
                       />
                     </TableCell>

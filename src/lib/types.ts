@@ -14,6 +14,8 @@ export const purchaseRequestStatuses = [
   "REJECTED",
   "ORDERED",
   "COMPLETED",
+  "CANCEL_REQUESTED",
+  "CANCELLED",
 ] as const;
 export type PurchaseRequestStatus = (typeof purchaseRequestStatuses)[number];
 
@@ -26,6 +28,8 @@ export const filterablePurchaseRequestStatuses = [
   "REJECTED",
   "ORDERED",
   "COMPLETED",
+  "CANCEL_REQUESTED",
+  "CANCELLED",
 ] as const;
 export type FilterablePurchaseRequestStatus =
   (typeof filterablePurchaseRequestStatuses)[number];
@@ -57,6 +61,9 @@ export const approvalActions = [
   "ORDERED",
   "COMPLETED",
   "COMMENTED",
+  "CANCELLATION_REQUESTED",
+  "CANCELLATION_DECLINED",
+  "CANCELLED",
 ] as const;
 export type ApprovalAction =
   (typeof approvalActions)[number];
@@ -118,6 +125,8 @@ export type PurchaseRequestListItem = {
   prNumber: string;
   requestDate: string;
   receivedAt?: string | null;
+  hasPartialReceipt: boolean;
+  hasClosedRemainder: boolean;
   updatedAt: string;
   requesterId: string;
   requesterName: string;
@@ -129,6 +138,19 @@ export type PurchaseRequestListItem = {
   itemCount: number;
   currentApproverName?: string | null;
   latestComment?: string | null;
+};
+
+export type PurchaseRequestReceipt = {
+  id: string;
+  action: "RECEIVED" | "CLOSE_REMAINDER";
+  receivedDate: string;
+  comment: string | null;
+  overReceiptReason: string | null;
+  receiptNumber: string | null;
+  taxInvoiceNumber: string | null;
+  createdAt: string;
+  recordedBy: { id: string; name: string };
+  items: Array<{ itemId: string; itemName: string; quantity: number }>;
 };
 
 export type PurchaseRequestDetail = {
@@ -146,7 +168,15 @@ export type PurchaseRequestDetail = {
   approvedAt?: string | null;
   orderedAt?: string | null;
   receivedAt?: string | null;
+  receiptVersion: number;
+  hasPartialReceipt: boolean;
+  receipts: PurchaseRequestReceipt[];
   completedAt?: string | null;
+  cancellationRequestedAt?: string | null;
+  cancelledAt?: string | null;
+  cancellationReason?: string | null;
+  cancellationReference?: string | null;
+  cancelledBy?: Pick<SessionUser, "id" | "name" | "email" | "role"> | null;
   receiptNumber?: string | null;
   taxInvoiceNumber?: string | null;
   receiptReferenceNote?: string | null;
@@ -155,6 +185,10 @@ export type PurchaseRequestDetail = {
   items: Array<
     PurchaseRequestItemInput & {
       id: string;
+      receivedQuantity: number;
+      closedQuantity: number;
+      remainingQuantity: number;
+      overReceivedQuantity: number;
     }
   >;
   attachments: PurchaseRequestAttachmentItem[];

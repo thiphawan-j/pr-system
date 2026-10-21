@@ -13,6 +13,19 @@ const optionalTrimmedString = z
   .optional()
   .transform((value) => value || undefined);
 
+const cancellationReasonSchema = z
+  .string()
+  .trim()
+  .min(5, "กรุณาระบุเหตุผลการยกเลิกอย่างน้อย 5 ตัวอักษร")
+  .max(2000, "เหตุผลการยกเลิกต้องไม่เกิน 2,000 ตัวอักษร");
+
+const optionalCancellationCommentSchema = z
+  .string()
+  .trim()
+  .max(2000, "หมายเหตุต้องไม่เกิน 2,000 ตัวอักษร")
+  .optional()
+  .transform((value) => value || undefined);
+
 const positiveInteger = z.coerce.number().int().positive();
 
 const optionalPositiveInteger = z.preprocess(
@@ -194,11 +207,37 @@ export const purchasingProgressSchema = z
     }
   });
 
+export const purchaseRequestCancellationSchema = z.discriminatedUnion("action", [
+  z.object({
+    action: z.literal("CANCEL"),
+    reason: cancellationReasonSchema,
+    cancellationReference: z
+      .string()
+      .trim()
+      .max(200, "เลขอ้างอิงการยกเลิกต้องไม่เกิน 200 ตัวอักษร")
+      .optional()
+      .transform((value) => value || undefined),
+  }),
+  z.object({
+    action: z.literal("REQUEST"),
+    reason: cancellationReasonSchema,
+  }),
+  z.object({
+    action: z.literal("CONFIRM"),
+    reason: optionalCancellationCommentSchema,
+  }),
+  z.object({
+    action: z.literal("REJECT"),
+    reason: cancellationReasonSchema,
+  }),
+]);
+
 export const receiptReferenceSchema = z
   .object({
     receiptNumber: optionalTrimmedString,
     taxInvoiceNumber: optionalTrimmedString,
     note: optionalTrimmedString,
+    expectedVersion: z.number().int().nonnegative().optional(),
   })
   .superRefine((value, ctx) => {
     if (!value.receiptNumber && !value.taxInvoiceNumber) {
@@ -209,3 +248,33 @@ export const receiptReferenceSchema = z
       });
     }
   });
+
+const receiptNoteSchema = z.string().trim().max(2000, "หมายเหตุต้องไม่เกิน 2,000 ตัวอักษร").optional();
+
+export const receiptEntrySchema = z
+  .object({
+    action: z.enum(["RECEIVED", "CLOSE_REMAINDER"]),
+    expectedVersion: z.number().int().nonnegative(),
+    receivedDate: z.iso.date("กรุณาระบุวันที่รับของ").optional(),
+    items: z.array(z.object({
+      itemId: z.string().min(1),
+      quantity: z.number().int().positive("จำนวนต้องมากกว่า 0").max(2147483647),
+    })).min(1, "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ").max(500),
+    comment: receiptNoteSchema,
+    overReceiptReason: receiptNoteSchema,
+    receiptNumber: z.string().trim().max(200).optional(),
+    taxInvoiceNumber: z.string().trim().max(200).optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (value.action === "RECEIVED" && !value.receivedDate) {
+      ctx.addIssue({ code: "custom", path: ["receivedDate"], message: "กรุณาระบุวันที่รับของ" });
+    }
+    if (value.action === "CLOSE_REMAINDER" && (!value.comment || value.comment.length < 5)) {
+      ctx.addIssue({ code: "custom", path: ["comment"], message: "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร" });
+    }
+    if (new Set(value.items.map((item) => item.itemId)).size !== value.items.length) {
+      ctx.addIssue({ code: "custom", path: ["items"], message: "รายการสินค้าซ้ำกัน" });
+    }
+  });
+
+export type ReceiptEntryInput = z.infer<typeof receiptEntrySchema>;

@@ -20,6 +20,7 @@ import { translateMessage } from "@/lib/i18n";
 
 type ReceiptReferencePanelProps = {
   requestId: string;
+  expectedVersion: number;
   status: "ORDERED" | "COMPLETED";
   receiptNumber?: string | null;
   taxInvoiceNumber?: string | null;
@@ -28,6 +29,7 @@ type ReceiptReferencePanelProps = {
 
 export function ReceiptReferencePanel({
   requestId,
+  expectedVersion,
   status,
   receiptNumber,
   taxInvoiceNumber,
@@ -59,6 +61,7 @@ export function ReceiptReferencePanel({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
+            expectedVersion,
             receiptNumber: currentReceiptNumber,
             taxInvoiceNumber: currentTaxInvoiceNumber,
             note: currentNote,
@@ -72,6 +75,7 @@ export function ReceiptReferencePanel({
         toast.error(
           translateMessage(payload?.error, locale) ?? dictionary.approval.updateError,
         );
+        if (response.status === 409) router.refresh();
         return;
       }
 
@@ -91,6 +95,8 @@ export function ReceiptReferencePanel({
         {status === "ORDERED" ? (
           <CardDescription>
             {dictionary.approval.receiptReferenceDescription}
+            {" "}
+            {dictionary.receiptWorkflow.previousDocumentsRequired}
           </CardDescription>
         ) : null}
       </CardHeader>

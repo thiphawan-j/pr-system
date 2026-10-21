@@ -30,6 +30,7 @@ const demoPassword = hashSync("Passw0rd!", 10);
 async function main() {
   await prisma.notification.deleteMany();
   await prisma.approval.deleteMany();
+  await prisma.purchaseRequestReceipt.deleteMany();
   await prisma.purchaseRequestItem.deleteMany();
   await prisma.purchaseRequest.deleteMany();
   await prisma.user.deleteMany();
@@ -99,6 +100,19 @@ async function main() {
           department: "Projects",
           role: Role.EMPLOYEE,
           title: "วิศวกรโครงการ",
+        },
+      }),
+      prisma.user.create({
+        data: {
+          employeeCode: "MGT001",
+          name: "ผู้บริหาร อนุมัติ",
+          username: "management",
+          phone: "0811111116",
+          email: "management@demo.local",
+          passwordHash: demoPassword,
+          department: "บริหาร/จัดการ",
+          role: Role.APPROVER,
+          title: "ผู้บริหาร",
         },
       }),
     ]);

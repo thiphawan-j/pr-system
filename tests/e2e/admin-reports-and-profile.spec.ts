@@ -154,11 +154,30 @@ test("user can change password only after providing the current password", async
   await page.getByRole("button", {
     name: /บันทึกรหัสผ่านใหม่|save new password/i,
   }).click();
-  expect((await acceptedChange).status()).toBe(200);
-
-  await signOut(page);
-  await signIn(page, {
-    identifier: credentials.employee2.identifier,
-    password: updatedPassword,
-  });
+  const changeResponse = await acceptedChange;
+  try {
+    expect(changeResponse.status()).toBe(200);
+    await signOut(page);
+    await signIn(page, {
+      identifier: credentials.employee2.identifier,
+      password: updatedPassword,
+    });
+  } finally {
+    if (changeResponse.ok()) {
+      // Restore the shared seed account so later access tests use its original
+      // credentials even if the UI assertion or sign-out above fails.
+      const login = await page.request.post("/api/auth/login", {
+        data: { identifier: credentials.employee2.identifier, password: updatedPassword },
+      });
+      expect(login.status()).toBe(200);
+      const restore = await page.request.post("/api/users/me/password", {
+        data: {
+          currentPassword: updatedPassword,
+          newPassword: credentials.employee2.password,
+          confirmPassword: credentials.employee2.password,
+        },
+      });
+      expect(restore.status()).toBe(200);
+    }
+  }
 });

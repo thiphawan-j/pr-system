@@ -132,7 +132,7 @@ export const dictionaries = {
       rejectedTitle: "PR ถูกปฏิเสธ",
       rejectedSubtitle: "รายการที่ถูกปฏิเสธหรือรอแก้ไข",
       awaitingReceiptTitle: "PR รอรับสินค้า",
-      awaitingReceiptSubtitle: "รายการที่สั่งซื้อแล้วและยังไม่ได้ยืนยันรับของ",
+      awaitingReceiptSubtitle: "รายการที่สั่งซื้อแล้วและยังมียอดค้างรับ",
       urgentTitle: "รายการเร่งด่วน",
       viewAll: "ดูทั้งหมด",
       emptyPending: "ไม่มีรายการค้างอนุมัติในตอนนี้",
@@ -289,6 +289,102 @@ export const dictionaries = {
       updateReceiptReferencesSuccess: "อัปเดตเลขเอกสารเรียบร้อย",
       updateError: "อัปเดตสถานะไม่สำเร็จ",
       updateSuccess: "อัปเดตสถานะเอกสารเรียบร้อย",
+    },
+    receiptWorkflow: {
+      description: "ระบุจำนวนรับจริงของรอบนี้ รับหลายรอบหรือรับเกินได้ โดยจำนวนสั่งซื้อเดิมจะไม่เปลี่ยน",
+      ordered: "จำนวนสั่ง",
+      received: "รับสะสม",
+      cancelled: "ปิดยอดไม่รับ",
+      remaining: "ค้างรับ",
+      overReceived: "รับเกิน",
+      receiveNow: "จำนวนรับรอบนี้",
+      overReceiptWarning: "จำนวนรับรอบนี้เกินยอดค้างรับ กรุณาระบุเหตุผลก่อนบันทึก",
+      overReceiptReason: "เหตุผลที่รับเกิน",
+      overReceiptReasonPlaceholder: "เช่น ผู้ขายส่งเกินและตกลงรับไว้ใช้งาน",
+      overReceiptReasonRequired: "กรุณาระบุเหตุผลที่รับเกินอย่างน้อย 5 ตัวอักษร",
+      quantityRequired: "กรุณาระบุจำนวนรับมากกว่า 0 อย่างน้อย 1 รายการ",
+      invalidQuantity: "จำนวนต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป",
+      quantityLimit: "จำนวนรับสะสมต้องไม่เกิน 2,147,483,647",
+      closedQuantityLocked: "รายการที่ปิดยอดแล้วรับเพิ่มได้ไม่เกินยอดค้างรับ",
+      receiptSaved: "บันทึกรับของรอบนี้เรียบร้อย",
+      historyTitle: "ประวัติรับของและปิดยอดค้างรับ",
+      receiptRound: "รับของ",
+      closureRound: "ปิดยอดค้างรับ",
+      recordedBy: "บันทึกโดย",
+      closeTitle: "ปิดยอดส่วนที่ไม่รับแล้ว",
+      closeDescription: "สำหรับส่วนที่ยืนยันว่าจะไม่รับต่อ ระบุจำนวนแยกรายการและเหตุผล ระบบจะเก็บประวัติการปิดยอดไว้",
+      closeQuantity: "จำนวนที่ไม่รับต่อ",
+      closeReason: "เหตุผลที่ไม่รับต่อ",
+      closeReasonPlaceholder: "เช่น ผู้ขายยกเลิกสินค้าส่วนที่เหลือ หรือไม่ต้องการใช้งานแล้ว",
+      closeReasonRequired: "กรุณาระบุเหตุผลที่ไม่รับต่ออย่างน้อย 5 ตัวอักษร",
+      closeQuantityRequired: "กรุณาระบุจำนวนที่จะปิดยอดมากกว่า 0 อย่างน้อย 1 รายการ",
+      closeQuantityExceeded: "จำนวนที่จะปิดยอดต้องไม่เกินยอดค้างรับ",
+      closeOutstanding: "บันทึกปิดยอดค้างรับ",
+      closeSaved: "ปิดยอดค้างรับเรียบร้อย",
+      partiallyReceived: "รับบางส่วน / รอรับเพิ่ม",
+      completedWithClosure: "รับบางส่วนและปิดงาน",
+      settledWithClosureTitle: "รับบางส่วนและปิดยอดค้างแล้ว รอกรอกเลขเอกสาร",
+      settledWithClosureDescription: "ยอดค้างรับทุกรายการได้รับการจัดการแล้ว กรุณากรอกเลขเอกสารรับของทุกรอบก่อนปิดงาน PR นี้",
+      referencesWhilePending: "บันทึกเลขเอกสารระหว่างทยอยรับได้ ระบบจะปิดงานเมื่อรับครบหรือปิดยอดค้างรับทุกรายการแล้ว",
+      saveReferences: "บันทึกเลขเอกสาร",
+      saveReferencesSuccess: "บันทึกเลขเอกสารเรียบร้อย",
+      documentNote: "หมายเหตุเอกสาร",
+      previousDocumentsRequired: "ก่อนปิดงาน ต้องมีหมายเลขรับของหรือเลขที่ใบกำกับภาษีในประวัติรับของทุกรอบ",
+      editRoundReferences: "แก้ไขเลขเอกสารรอบนี้",
+      optionalRoundReferences: "เลขเอกสารรอบนี้ (กรอกภายหลังได้)",
+      reason: "เหตุผล",
+    },
+    cancellation: {
+      title: "การยกเลิก PR",
+      deleteDraft: "ลบร่าง",
+      deleteDraftTitle: "ลบร่างเอกสารนี้?",
+      deleteDraftDescription:
+        "ร่างนี้ยังไม่เคยส่งอนุมัติ เมื่อลบแล้วจะไม่สามารถกู้คืนได้",
+      deleteDraftSuccess: "ลบร่างเรียบร้อย",
+      deleteDraftError: "ลบร่างไม่สำเร็จ",
+      cancelPr: "ยกเลิก PR",
+      requestCancellation: "ขอยกเลิก PR",
+      directTitle: "ยกเลิกเอกสารนี้",
+      directDescription:
+        "เอกสารจะถูกปิดเป็นสถานะยกเลิกและไม่สามารถแก้ไขหรือดำเนินการต่อได้",
+      requestTitle: "ส่งคำขอยกเลิก",
+      requestDescription:
+        "PR นี้อนุมัติแล้ว คำขอจะถูกส่งให้ฝ่ายจัดซื้อยืนยันก่อนยกเลิก",
+      orderedTitle: "ยกเลิก PR ที่เปิด PO แล้ว",
+      orderedDescription:
+        "ดำเนินการหลังยกเลิก PO กับผู้ขายแล้ว และบันทึกเลขอ้างอิงไว้ตรวจสอบ",
+      reviewTitle: "พิจารณาคำขอยกเลิก",
+      reviewDescription:
+        "ตรวจสอบเหตุผลของผู้ขอซื้อก่อนอนุมัติหรือไม่อนุมัติการยกเลิก",
+      pendingTitle: "รอฝ่ายจัดซื้อยืนยันการยกเลิก",
+      pendingDescription: "PR นี้หยุดรอดำเนินการจนกว่าจะมีผลพิจารณาคำขอยกเลิก",
+      cancelledTitle: "PR นี้ถูกยกเลิกแล้ว",
+      cancelledDescription:
+        "เอกสารนี้เป็นข้อมูลประวัติและไม่สามารถแก้ไขหรือส่งต่อได้",
+      reasonLabel: "เหตุผลการยกเลิก",
+      reasonPlaceholder: "ระบุสาเหตุและข้อมูลที่จำเป็นสำหรับการตรวจสอบย้อนหลัง",
+      reasonRequired: "กรุณาระบุเหตุผลอย่างน้อย 5 ตัวอักษร",
+      reviewCommentLabel: "หมายเหตุการอนุมัติ (ไม่บังคับ)",
+      reviewCommentPlaceholder: "เพิ่มรายละเอียดประกอบการอนุมัติการยกเลิก",
+      declineReasonLabel: "เหตุผลที่ไม่อนุมัติ",
+      declineReasonPlaceholder: "ระบุเหตุผลที่ต้องดำเนินการ PR นี้ต่อ",
+      referenceLabel: "เลขอ้างอิงการยกเลิก PO",
+      referencePlaceholder: "เช่น PO-CANCEL-2026-001",
+      referenceRequired: "กรุณาระบุเลขอ้างอิงการยกเลิก PO",
+      back: "กลับ",
+      keepPr: "เก็บ PR ไว้",
+      confirmCancellation: "อนุมัติการยกเลิก",
+      declineCancellation: "ไม่อนุมัติการยกเลิก",
+      requestSuccess: "ส่งคำขอยกเลิกเรียบร้อย",
+      cancelSuccess: "ยกเลิก PR เรียบร้อย",
+      confirmSuccess: "อนุมัติการยกเลิกเรียบร้อย",
+      declineSuccess: "ไม่อนุมัติการยกเลิกเรียบร้อย",
+      updateError: "ดำเนินการยกเลิกไม่สำเร็จ",
+      requestedBy: "ขอยกเลิกโดย",
+      requestedAt: "ขอยกเลิกเมื่อ",
+      cancelledBy: "ยกเลิกโดย",
+      cancelledAt: "ยกเลิกเมื่อ",
+      cancellationReference: "เลขอ้างอิงการยกเลิก",
     },
     notifications: {
       ariaLabel: "การแจ้งเตือน",
@@ -450,6 +546,8 @@ export const dictionaries = {
       REJECTED: "ถูกปฏิเสธ",
       ORDERED: "สั่งซื้อแล้ว",
       COMPLETED: "เสร็จสมบูรณ์",
+      CANCEL_REQUESTED: "รออนุมัติยกเลิก",
+      CANCELLED: "ยกเลิกแล้ว",
     } satisfies Record<PurchaseRequestStatus, string>,
     approvalActions: {
       DRAFT_SAVED: "บันทึกร่าง",
@@ -462,6 +560,9 @@ export const dictionaries = {
       ORDERED: "สั่งซื้อแล้ว",
       COMPLETED: "ปิดงาน",
       COMMENTED: "เพิ่มหมายเหตุ",
+      CANCELLATION_REQUESTED: "ขอยกเลิก",
+      CANCELLATION_DECLINED: "ไม่อนุมัติการยกเลิก",
+      CANCELLED: "ยกเลิก",
     } satisfies Record<ApprovalAction, string>,
     units: {
       "ชิ้น": "ชิ้น",
@@ -578,7 +679,7 @@ export const dictionaries = {
       rejectedTitle: "Rejected PRs",
       rejectedSubtitle: "Requests rejected or returned for changes",
       awaitingReceiptTitle: "PRs awaiting receipt",
-      awaitingReceiptSubtitle: "Requests already ordered but not yet marked as received",
+      awaitingReceiptSubtitle: "Ordered requests with quantities still outstanding",
       urgentTitle: "Urgent queue",
       viewAll: "View all",
       emptyPending: "No pending approvals right now",
@@ -736,6 +837,103 @@ export const dictionaries = {
       updateReceiptReferencesSuccess: "Document numbers updated",
       updateError: "Unable to update status",
       updateSuccess: "Document status updated",
+    },
+    receiptWorkflow: {
+      description: "Enter quantities received in this round. Multiple receipts and overreceipts are allowed; ordered quantities stay unchanged.",
+      ordered: "Ordered",
+      received: "Received to date",
+      cancelled: "Closed without receipt",
+      remaining: "Outstanding",
+      overReceived: "Overreceived",
+      receiveNow: "Receive this round",
+      overReceiptWarning: "This receipt exceeds the outstanding quantity. Please provide a reason before saving.",
+      overReceiptReason: "Overreceipt reason",
+      overReceiptReasonPlaceholder: "For example: the vendor supplied extra units and we agreed to keep them",
+      overReceiptReasonRequired: "Please provide an overreceipt reason with at least 5 characters",
+      quantityRequired: "Enter a positive receipt quantity for at least one item",
+      invalidQuantity: "Quantities must be nonnegative whole numbers",
+      quantityLimit: "The total received quantity cannot exceed 2,147,483,647",
+      closedQuantityLocked: "An item with closed quantities can only be received up to its outstanding quantity",
+      receiptSaved: "Receipt round saved",
+      historyTitle: "Receipt and outstanding closure history",
+      receiptRound: "Receipt",
+      closureRound: "Outstanding closure",
+      recordedBy: "Recorded by",
+      closeTitle: "Close quantities that will not be received",
+      closeDescription: "Enter quantities confirmed as no longer expected and explain why. The closure will be kept in the audit history.",
+      closeQuantity: "Quantity no longer expected",
+      closeReason: "Reason for closing",
+      closeReasonPlaceholder: "For example: the vendor cancelled the remaining supply or it is no longer needed",
+      closeReasonRequired: "Please provide a closure reason with at least 5 characters",
+      closeQuantityRequired: "Enter a positive closure quantity for at least one item",
+      closeQuantityExceeded: "Closure quantities cannot exceed outstanding quantities",
+      closeOutstanding: "Save outstanding closure",
+      closeSaved: "Outstanding quantities closed",
+      partiallyReceived: "Partially received / awaiting more",
+      completedWithClosure: "Partially received and closed",
+      settledWithClosureTitle: "Partial receipt settled, document numbers pending",
+      settledWithClosureDescription: "All outstanding quantities have been received or closed. Add document numbers for every receipt round before closing this PR.",
+      referencesWhilePending: "Document numbers can be saved during partial receipt. The PR closes after all quantities are received or closed.",
+      saveReferences: "Save document numbers",
+      saveReferencesSuccess: "Document numbers saved",
+      documentNote: "Document note",
+      previousDocumentsRequired: "Every receipt round needs a receipt number or tax invoice number before this PR can close.",
+      editRoundReferences: "Edit document numbers for this round",
+      optionalRoundReferences: "This round's document numbers (can be added later)",
+      reason: "Reason",
+    },
+    cancellation: {
+      title: "PR cancellation",
+      deleteDraft: "Delete draft",
+      deleteDraftTitle: "Delete this draft?",
+      deleteDraftDescription:
+        "This draft has never been submitted. It cannot be recovered after deletion.",
+      deleteDraftSuccess: "Draft deleted",
+      deleteDraftError: "Unable to delete draft",
+      cancelPr: "Cancel PR",
+      requestCancellation: "Request cancellation",
+      directTitle: "Cancel this document",
+      directDescription:
+        "The document will be closed as cancelled and cannot be edited or processed further.",
+      requestTitle: "Submit cancellation request",
+      requestDescription:
+        "This PR is approved. Purchasing must confirm the request before it is cancelled.",
+      orderedTitle: "Cancel an ordered PR",
+      orderedDescription:
+        "Continue only after cancelling the PO with the vendor and record its reference for audit.",
+      reviewTitle: "Review cancellation request",
+      reviewDescription:
+        "Review the requester's reason before approving or declining the cancellation.",
+      pendingTitle: "Awaiting cancellation approval",
+      pendingDescription:
+        "This PR is paused until Purchasing decides the cancellation request.",
+      cancelledTitle: "This PR has been cancelled",
+      cancelledDescription:
+        "This document is retained for audit and cannot be edited or processed further.",
+      reasonLabel: "Cancellation reason",
+      reasonPlaceholder: "Explain the reason and include details needed for audit",
+      reasonRequired: "Please enter at least 5 characters",
+      reviewCommentLabel: "Approval note (optional)",
+      reviewCommentPlaceholder: "Add details about approving the cancellation",
+      declineReasonLabel: "Reason for declining",
+      declineReasonPlaceholder: "Explain why this PR must continue",
+      referenceLabel: "PO cancellation reference",
+      referencePlaceholder: "For example: PO-CANCEL-2026-001",
+      referenceRequired: "Please enter the PO cancellation reference",
+      back: "Back",
+      keepPr: "Keep PR",
+      confirmCancellation: "Approve cancellation",
+      declineCancellation: "Decline cancellation",
+      requestSuccess: "Cancellation request submitted",
+      cancelSuccess: "PR cancelled",
+      confirmSuccess: "Cancellation approved",
+      declineSuccess: "Cancellation declined",
+      updateError: "Unable to process the cancellation",
+      requestedBy: "Requested by",
+      requestedAt: "Requested at",
+      cancelledBy: "Cancelled by",
+      cancelledAt: "Cancelled at",
+      cancellationReference: "Cancellation reference",
     },
     notifications: {
       ariaLabel: "Notifications",
@@ -897,6 +1095,8 @@ export const dictionaries = {
       REJECTED: "Rejected",
       ORDERED: "Ordered",
       COMPLETED: "Completed",
+      CANCEL_REQUESTED: "Cancellation Requested",
+      CANCELLED: "Cancelled",
     } satisfies Record<PurchaseRequestStatus, string>,
     approvalActions: {
       DRAFT_SAVED: "Draft saved",
@@ -909,6 +1109,9 @@ export const dictionaries = {
       ORDERED: "Ordered",
       COMPLETED: "Closed",
       COMMENTED: "Commented",
+      CANCELLATION_REQUESTED: "Cancellation requested",
+      CANCELLATION_DECLINED: "Cancellation declined",
+      CANCELLED: "Cancelled",
     } satisfies Record<ApprovalAction, string>,
     units: {
       "ชิ้น": "piece",
@@ -1049,10 +1252,79 @@ const translatedMessages: Record<string, string> = {
   "PR ต้องถูกสั่งซื้อแล้วก่อนจึงจะยืนยันรับของได้":
     "The PR must be ordered before receipt can be confirmed",
   "กรุณาระบุวันที่รับของ": "Please provide the received date",
+  "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้":
+    "The PR must be ordered and still open before goods can be received",
+  "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่":
+    "Receipt data has changed. Please reload and try again.",
+  "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดยอดค้างรับได้":
+    "Only Purchasing or an administrator can close outstanding quantities",
+  "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร":
+    "Please provide a closure reason with at least 5 characters",
+  "กรุณาบันทึกรับสินค้าบางส่วนก่อนปิดยอดค้างรับ":
+    "Record a partial receipt before closing outstanding quantities",
+  "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ":
+    "Enter a quantity for at least one item",
+  "รายการสินค้าซ้ำกัน": "Duplicate items are not allowed",
+  "ไม่พบรายการสินค้าใน PR นี้": "Item not found in this PR",
+  "จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0":
+    "Quantities must be positive whole numbers",
+  "จำนวนปิดยอดต้องไม่เกินยอดค้างรับ":
+    "Closure quantities cannot exceed outstanding quantities",
+  "ไม่สามารถรับสินค้าในส่วนที่ปิดยอดแล้วได้":
+    "Quantities already closed cannot be received",
+  "จำนวนรับสินค้ามากเกินขอบเขตที่รองรับ":
+    "The receipt quantity exceeds the supported limit",
+  "กรุณาระบุเหตุผลการรับเกินอย่างน้อย 5 ตัวอักษร":
+    "Please provide an overreceipt reason with at least 5 characters",
+  "PR สถานะนี้ไม่สามารถแก้ไขเอกสารรับของได้":
+    "Receipt documents cannot be edited in this PR status",
+  "ไม่พบรายการรับสินค้าใน PR นี้": "Receipt round not found in this PR",
+  "ไม่มีจำนวนค้างรับ กรุณาใช้หน้ารับสินค้าเพื่อบันทึกรับเกิน":
+    "No quantity remains outstanding. Use the receipt form to record an overreceipt.",
+  "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน":
+    "Receive or close all outstanding quantities before closing this PR",
+  "กรุณาบันทึกเลขเอกสารของการรับสินค้าแต่ละรอบให้ครบก่อนปิดงาน":
+    "Add document numbers for every receipt round before closing this PR",
   "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้":
     "The PR receipt must be confirmed before document numbers can be recorded",
   "กรุณาระบุหมายเลขรับของหรือเลขที่ใบกำกับภาษี":
     "Please provide a receipt number or tax invoice number",
+  "กรุณาระบุเหตุผลการยกเลิกอย่างน้อย 5 ตัวอักษร":
+    "Please provide a cancellation reason with at least 5 characters",
+  "เหตุผลการยกเลิกต้องไม่เกิน 2,000 ตัวอักษร":
+    "The cancellation reason must be 2,000 characters or fewer",
+  "เลขอ้างอิงการยกเลิกต้องไม่เกิน 200 ตัวอักษร":
+    "The cancellation reference must be 200 characters or fewer",
+  "หมายเหตุต้องไม่เกิน 2,000 ตัวอักษร":
+    "The comment must be 2,000 characters or fewer",
+  "คุณไม่มีสิทธิ์ลบร่างเอกสารนี้":
+    "You do not have permission to delete this draft",
+  "ลบได้เฉพาะร่างที่ยังไม่เคยส่งอนุมัติ":
+    "Only a draft that has never been submitted can be deleted",
+  "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง":
+    "The document status changed. Please try again.",
+  "เฉพาะผู้ขอซื้อเท่านั้นที่ขอยกเลิก PR ที่อนุมัติแล้วได้":
+    "Only the requester can request cancellation of an approved PR",
+  "ขอยกเลิกได้เฉพาะ PR ที่อนุมัติแล้วและยังไม่เปิด PO":
+    "Cancellation can only be requested for an approved PR before a PO is opened",
+  "เฉพาะฝ่ายจัดซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่พิจารณาคำขอยกเลิกได้":
+    "Only Purchasing, an administrator, or Management can review a cancellation request",
+  "ผู้ขอซื้อไม่สามารถพิจารณาคำขอยกเลิกของตนเองได้":
+    "The requester cannot review their own cancellation request",
+  "เอกสารนี้ไม่ได้อยู่ในขั้นตอนรออนุมัติการยกเลิก":
+    "This document is not awaiting cancellation approval",
+  "เฉพาะฝ่ายจัดซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่ยกเลิก PR ที่เปิด PO แล้วได้":
+    "Only Purchasing, an administrator, or Management can cancel an ordered PR",
+  "PR ที่รับของแล้วไม่สามารถยกเลิกได้":
+    "A PR cannot be cancelled after goods have been received",
+  "กรุณาระบุเลขอ้างอิงการยกเลิก PO":
+    "Please provide the PO cancellation reference",
+  "PR สถานะนี้ไม่สามารถยกเลิกได้":
+    "A PR in this status cannot be cancelled",
+  "เฉพาะผู้ขอซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่ยกเลิก PR นี้ได้":
+    "Only the requester, an administrator, or Management can cancel this PR",
+  "คุณไม่มีสิทธิ์ดำเนินการยกเลิก PR นี้":
+    "You do not have permission to manage cancellation for this PR",
 };
 
 export function translateMessage(message: unknown, locale: Locale) {
@@ -1067,7 +1339,11 @@ const translatedWorkflowText: Record<string, string> = {
   "ผู้ขอซื้อ": "Requester",
   "หัวหน้าแผนก": "Department head",
   "ฝ่ายจัดซื้อ": "Purchasing",
+  "ผู้ดูแลระบบ": "Administrator",
+  "บริหาร/จัดการ": "Management",
   "ยืนยันรับของ": "Receipt confirmed",
+  "ปิดยอดค้างรับ": "Outstanding quantities closed",
+  "อัปเดตเอกสารรับสินค้า": "Receipt document numbers updated",
   "อัปเดตเลขเอกสาร": "Document numbers updated",
   "สร้างและส่งเอกสารเข้าระบบ": "Created and submitted the document",
   "บันทึกร่างเอกสาร": "Saved document draft",
@@ -1078,6 +1354,7 @@ const translatedWorkflowText: Record<string, string> = {
     "Edited and sent back to Purchasing for review",
   "ส่งเอกสารเข้าระบบเพื่ออนุมัติ": "Submitted the document for approval",
   "ความเห็นจากผู้ขอซื้อ": "Requester comment",
+  "การยกเลิก PR": "PR cancellation",
 };
 
 const translatedNotificationTitles: Record<string, string> = {
@@ -1092,6 +1369,9 @@ const translatedNotificationTitles: Record<string, string> = {
   "PR อยู่ระหว่างจัดซื้อ": "PR is being purchased",
   "PR รอกรอกเลขเอกสาร": "PR awaiting document numbers",
   "PR ดำเนินการเสร็จสมบูรณ์": "PR completed",
+  "มีคำขอยกเลิก PR": "PR cancellation requested",
+  "PR ถูกยกเลิกแล้ว": "PR cancelled",
+  "คำขอยกเลิก PR ไม่ได้รับอนุมัติ": "PR cancellation declined",
 };
 
 const translatedNotificationMessages: Array<{
@@ -1148,11 +1428,34 @@ const translatedNotificationMessages: Array<{
     pattern: /^(.+) ถูกปิดงานเรียบร้อยแล้ว$/,
     render: ([, prNumber]) => `${prNumber} has been completed`,
   },
+  {
+    pattern: /^(.+) รอฝ่ายจัดซื้อยืนยันการยกเลิก$/,
+    render: ([, prNumber]) =>
+      `${prNumber} is awaiting cancellation confirmation from Purchasing`,
+  },
+  {
+    pattern: /^(.+) ถูกยกเลิกแล้ว กรุณาตรวจสอบเหตุผล$/,
+    render: ([, prNumber]) =>
+      `${prNumber} was cancelled. Please review the reason.`,
+  },
+  {
+    pattern: /^(.+) ดำเนินการจัดซื้อต่อตามเดิม กรุณาตรวจสอบเหตุผล$/,
+    render: ([, prNumber]) =>
+      `${prNumber} will continue through Purchasing. Please review the reason.`,
+  },
 ];
 
 export function translateWorkflowText(text: string | null | undefined, locale: Locale) {
   if (!text || locale === "th") {
     return text;
+  }
+
+  const cancellationReference = text.match(
+    /^([\s\S]+) \| เลขอ้างอิงการยกเลิก PO: (.+)$/,
+  );
+
+  if (cancellationReference) {
+    return `${cancellationReference[1]} | PO cancellation reference: ${cancellationReference[2]}`;
   }
 
   return translatedWorkflowText[text] ?? text;

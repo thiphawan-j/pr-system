@@ -4,7 +4,11 @@ import {
   saveAttachmentFiles,
 } from "@/server/attachments/attachment.service";
 import { parsePurchaseRequestRequest } from "@/server/purchase-requests/purchase-request.request";
-import { getPurchaseRequestById, updatePurchaseRequest } from "@/server/purchase-requests/purchase-request.service";
+import {
+  deleteDraftPurchaseRequest,
+  getPurchaseRequestById,
+  updatePurchaseRequest,
+} from "@/server/purchase-requests/purchase-request.service";
 import { toErrorResponse } from "@/server/shared/errors";
 
 export async function GET(
@@ -46,6 +50,22 @@ export async function PATCH(
       await deleteSavedAttachmentFiles(savedAttachments);
     }
 
+    return toErrorResponse(error);
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  context: { params: Promise<{ id: string }> },
+) {
+  try {
+    const session = await requireSession();
+    const { id } = await context.params;
+
+    await deleteDraftPurchaseRequest(id, session);
+
+    return Response.json({ ok: true });
+  } catch (error) {
     return toErrorResponse(error);
   }
 }

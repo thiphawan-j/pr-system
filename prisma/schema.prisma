@@ -35,6 +35,8 @@ enum PurchaseRequestStatus {
   REJECTED
   ORDERED
   COMPLETED
+  CANCEL_REQUESTED
+  CANCELLED
 }
 
 enum ApprovalAction {
@@ -48,6 +50,9 @@ enum ApprovalAction {
   ORDERED
   COMPLETED
   COMMENTED
+  CANCELLATION_REQUESTED
+  CANCELLATION_DECLINED
+  CANCELLED
 }
 
 enum NotificationType {
@@ -65,57 +70,73 @@ enum NotificationEmailStatus {
   SKIPPED
 }
 
+enum ReceiptAction {
+  RECEIVED
+  CLOSE_REMAINDER
+}
+
 model User {
-  id               String            @id @default(cuid())
-  employeeCode     String            @unique
-  name             String
-  username         String?           @unique
-  phone            String?           @unique
-  email            String            @unique
-  passwordHash     String
-  isActive         Boolean           @default(true)
-  department       String
-  role             Role
-  title            String?
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  purchaseRequests PurchaseRequest[] @relation("RequesterPurchaseRequests")
-  approvals        Approval[]
-  notifications    Notification[]
-  assignedRequests PurchaseRequest[] @relation("CurrentApproverPurchaseRequests")
-  uploadedAttachments PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
+  id                        String                      @id @default(cuid())
+  employeeCode              String                      @unique
+  name                      String
+  username                  String?                     @unique
+  phone                     String?                     @unique
+  email                     String                      @unique
+  passwordHash              String
+  isActive                  Boolean                     @default(true)
+  department                String
+  role                      Role
+  title                     String?
+  createdAt                 DateTime                    @default(now())
+  updatedAt                 DateTime                    @updatedAt
+  purchaseRequests          PurchaseRequest[]           @relation("RequesterPurchaseRequests")
+  approvals                 Approval[]
+  notifications             Notification[]
+  assignedRequests          PurchaseRequest[]           @relation("CurrentApproverPurchaseRequests")
+  cancelledPurchaseRequests PurchaseRequest[]           @relation("CancelledPurchaseRequests")
+  uploadedAttachments       PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
+  recordedReceipts          PurchaseRequestReceipt[]
 }
 
 model PurchaseRequest {
-  id                String                @id @default(cuid())
-  prNumber          String                @unique
-  requestDate       DateTime              @default(now())
-  requesterId       String
-  requester         User                  @relation("RequesterPurchaseRequests", fields: [requesterId], references: [id], onDelete: Cascade)
-  currentApproverId String?
-  currentApprover   User?                 @relation("CurrentApproverPurchaseRequests", fields: [currentApproverId], references: [id], onDelete: SetNull)
-  department        String
-  reason            String
-  urgency           Priority              @default(NORMAL)
-  status            PurchaseRequestStatus @default(DRAFT)
-  totalAmount       Decimal               @db.Decimal(12, 2)
-  submittedAt       DateTime?
-  approvedAt        DateTime?
-  orderedAt         DateTime?
-  receivedAt        DateTime?
-  completedAt       DateTime?
-  receiptNumber     String?
-  taxInvoiceNumber  String?
-  receiptReferenceNote String?
-  createdAt         DateTime              @default(now())
-  updatedAt         DateTime              @updatedAt
-  items             PurchaseRequestItem[]
-  approvals         Approval[]
-  attachments       PurchaseRequestAttachment[]
+  id                      String                      @id @default(cuid())
+  prNumber                String                      @unique
+  requestDate             DateTime                    @default(now())
+  requesterId             String
+  requester               User                        @relation("RequesterPurchaseRequests", fields: [requesterId], references: [id], onDelete: Cascade)
+  currentApproverId       String?
+  currentApprover         User?                       @relation("CurrentApproverPurchaseRequests", fields: [currentApproverId], references: [id], onDelete: SetNull)
+  cancelledById           String?
+  cancelledBy             User?                       @relation("CancelledPurchaseRequests", fields: [cancelledById], references: [id], onDelete: SetNull)
+  department              String
+  reason                  String
+  urgency                 Priority                    @default(NORMAL)
+  status                  PurchaseRequestStatus       @default(DRAFT)
+  totalAmount             Decimal                     @db.Decimal(12, 2)
+  submittedAt             DateTime?
+  approvedAt              DateTime?
+  orderedAt               DateTime?
+  receivedAt              DateTime?
+  completedAt             DateTime?
+  cancellationRequestedAt DateTime?
+  cancelledAt             DateTime?
+  cancellationReason      String?
+  cancellationReference   String?
+  receiptNumber           String?
+  taxInvoiceNumber        String?
+  receiptReferenceNote    String?
+  receiptVersion          Int                         @default(0)
+  createdAt               DateTime                    @default(now())
+  updatedAt               DateTime                    @updatedAt
+  items                   PurchaseRequestItem[]
+  approvals               Approval[]
+  attachments             PurchaseRequestAttachment[]
+  receipts                PurchaseRequestReceipt[]
 
   @@index([requesterId, status])
   @@index([department, status])
   @@index([requestDate])
+  @@index([cancelledById])
 }
 
 model PurchaseRequestAttachment {
@@ -136,20 +157,53 @@ model PurchaseRequestAttachment {
 }
 
 model PurchaseRequestItem {
-  id                String          @id @default(cuid())
+  id                String                       @id @default(cuid())
   purchaseRequestId String
-  purchaseRequest   PurchaseRequest @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  purchaseRequest   PurchaseRequest              @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
   itemName          String
   description       String?
   supplierName      String?
   quantity          Int
+  receivedQuantity  Int                          @default(0)
+  closedQuantity    Int                          @default(0)
   unit              String?
-  unitPrice         Decimal?        @db.Decimal(12, 2)
-  amount            Decimal         @db.Decimal(12, 2)
-  createdAt         DateTime        @default(now())
-  updatedAt         DateTime        @updatedAt
+  unitPrice         Decimal?                     @db.Decimal(12, 2)
+  amount            Decimal                      @db.Decimal(12, 2)
+  createdAt         DateTime                     @default(now())
+  updatedAt         DateTime                     @updatedAt
+  receiptItems      PurchaseRequestReceiptItem[]
 
   @@index([purchaseRequestId])
+}
+
+model PurchaseRequestReceipt {
+  id                String                       @id @default(cuid())
+  purchaseRequestId String
+  purchaseRequest   PurchaseRequest              @relation(fields: [purchaseRequestId], references: [id], onDelete: Cascade)
+  recordedById      String
+  recordedBy        User                         @relation(fields: [recordedById], references: [id], onDelete: Restrict)
+  action            ReceiptAction
+  receivedDate      DateTime
+  comment           String?
+  overReceiptReason String?
+  receiptNumber     String?
+  taxInvoiceNumber  String?
+  createdAt         DateTime                     @default(now())
+  items             PurchaseRequestReceiptItem[]
+
+  @@index([purchaseRequestId, createdAt])
+}
+
+model PurchaseRequestReceiptItem {
+  id        String                 @id @default(cuid())
+  receiptId String
+  receipt   PurchaseRequestReceipt @relation(fields: [receiptId], references: [id], onDelete: Cascade)
+  itemId    String
+  item      PurchaseRequestItem    @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  quantity  Int
+
+  @@unique([receiptId, itemId])
+  @@index([itemId])
 }
 
 model Approval {

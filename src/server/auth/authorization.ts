@@ -26,6 +26,21 @@ export function isManagementApprover(user: SessionUser) {
   return user.role === "APPROVER" && user.department === managementDepartment;
 }
 
+export function hasCancellationAdminRights(user: SessionUser) {
+  return isAdmin(user) || isManagementApprover(user);
+}
+
+export function canHandlePurchaseRequestCancellation(user: SessionUser) {
+  return isPurchasing(user) || isManagementApprover(user);
+}
+
+export function canCancelPurchaseRequestAsOwner(
+  user: SessionUser,
+  requesterId: string,
+) {
+  return user.id === requesterId || hasCancellationAdminRights(user);
+}
+
 export function hasGlobalPurchaseRequestVisibility(user: SessionUser) {
   return (
     isAdmin(user) ||

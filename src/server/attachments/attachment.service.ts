@@ -141,9 +141,30 @@ export async function saveAttachmentFiles(files: File[]) {
 export async function deleteSavedAttachmentFiles(
   attachments: Array<Pick<PurchaseRequestAttachmentInput, "storagePath">>,
 ) {
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     attachments.map((attachment) => unlink(getAbsoluteAttachmentPath(attachment.storagePath))),
   );
+
+  results.forEach((result, index) => {
+    if (result.status !== "rejected") {
+      return;
+    }
+
+    const reason = result.reason;
+    if (
+      reason &&
+      typeof reason === "object" &&
+      "code" in reason &&
+      reason.code === "ENOENT"
+    ) {
+      return;
+    }
+
+    console.error("[attachments] failed to delete attachment file", {
+      storagePath: attachments[index]?.storagePath,
+      error: reason,
+    });
+  });
 }
 
 export function toAttachmentCreateManyInput(
@@ -226,6 +247,7 @@ export async function deleteAttachmentFromPurchaseRequest(
           id: true,
           requesterId: true,
           status: true,
+          updatedAt: true,
         },
       },
     },
@@ -249,8 +271,28 @@ export async function deleteAttachmentFromPurchaseRequest(
     throw new AppError("เอกสารที่ส่งอนุมัติแล้วไม่สามารถแก้ไขได้", 400);
   }
 
-  await db.purchaseRequestAttachment.delete({
-    where: { id: attachment.id },
+  await db.$transaction(async (transaction) => {
+    const claimed = await transaction.purchaseRequest.updateMany({
+      where: {
+        id: purchaseRequestId,
+        status: attachment.purchaseRequest.status,
+        updatedAt: attachment.purchaseRequest.updatedAt,
+      },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
+
+    if (claimed.count !== 1) {
+      throw new AppError(
+        "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+        409,
+      );
+    }
+
+    await transaction.purchaseRequestAttachment.delete({
+      where: { id: attachment.id },
+    });
   });
 
   await deleteSavedAttachmentFiles([{ storagePath: attachment.storagePath }]);

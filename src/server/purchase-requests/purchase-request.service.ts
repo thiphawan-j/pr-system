@@ -5,6 +5,7 @@ import {
   NotificationType,
   Prisma,
   PurchaseRequestStatus,
+  Role,
 } from "@prisma/client";
 import {
   toBangkokDateValue,
@@ -24,12 +25,18 @@ import type {
   ReportsSummary,
   SessionUser,
 } from "@/lib/types";
-import { toAttachmentCreateManyInput } from "@/server/attachments/attachment.service";
+import {
+  deleteSavedAttachmentFiles,
+  toAttachmentCreateManyInput,
+} from "@/server/attachments/attachment.service";
 import {
   canApprovePurchaseRequest,
+  canCancelPurchaseRequestAsOwner,
+  canHandlePurchaseRequestCancellation,
   canManageRequestAsOwner,
   hasGlobalPurchaseRequestVisibility,
   isApprover,
+  isManagementApprover,
   isPurchasing,
 } from "@/server/auth/authorization";
 import {
@@ -39,6 +46,7 @@ import {
 } from "@/server/notifications/notification.service";
 import { getDb } from "@/server/db";
 import { AppError, invariant } from "@/server/shared/errors";
+import type { ReceiptEntryInput } from "@/server/purchase-requests/purchase-request.schemas";
 import {
   findApproverForDepartment,
   findPrimaryPurchasingUser,
@@ -57,10 +65,18 @@ type PersistedItem = {
 const purchaseRequestInclude = {
   requester: true,
   currentApprover: true,
+  cancelledBy: true,
   items: {
     orderBy: {
       createdAt: "asc",
     },
+  },
+  receipts: {
+    include: {
+      recordedBy: { select: { id: true, name: true } },
+      items: { include: { item: { select: { itemName: true } } } },
+    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
   approvals: {
     include: {
@@ -85,6 +101,7 @@ const purchaseRequestListSelect = {
   prNumber: true,
   requestDate: true,
   receivedAt: true,
+  receipts: { where: { action: "CLOSE_REMAINDER" }, select: { id: true }, take: 1 },
   updatedAt: true,
   requesterId: true,
   department: true,
@@ -114,6 +131,7 @@ const purchaseRequestListSelect = {
   _count: {
     select: {
       items: true,
+      receipts: true,
     },
   },
 } satisfies Prisma.PurchaseRequestSelect;
@@ -260,6 +278,7 @@ function buildFilterWhere(
           status: {
             in: [
               PurchaseRequestStatus.APPROVED,
+              PurchaseRequestStatus.CANCEL_REQUESTED,
               PurchaseRequestStatus.ORDERED,
               PurchaseRequestStatus.COMPLETED,
             ],
@@ -332,6 +351,8 @@ function toListItem(
     prNumber: request.prNumber,
     requestDate: toBangkokDateValue(request.requestDate),
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
+    hasPartialReceipt: request._count.receipts > 0 && !request.receivedAt,
+    hasClosedRemainder: request.receipts.length > 0,
     updatedAt: toBangkokIsoString(request.updatedAt),
     requesterId: request.requesterId,
     requesterName: request.requester.name,
@@ -381,7 +402,41 @@ function toDetail(
     approvedAt: request.approvedAt ? toBangkokIsoString(request.approvedAt) : null,
     orderedAt: request.orderedAt ? toBangkokIsoString(request.orderedAt) : null,
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
+    receiptVersion: request.receiptVersion,
+    hasPartialReceipt: request.items.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
+    receipts: request.receipts.map((receipt) => ({
+      id: receipt.id,
+      action: receipt.action,
+      receivedDate: toBangkokDateValue(receipt.receivedDate),
+      comment: receipt.comment,
+      overReceiptReason: receipt.overReceiptReason,
+      receiptNumber: receipt.receiptNumber,
+      taxInvoiceNumber: receipt.taxInvoiceNumber,
+      createdAt: toBangkokIsoString(receipt.createdAt),
+      recordedBy: receipt.recordedBy,
+      items: receipt.items.map((item) => ({
+        itemId: item.itemId,
+        itemName: item.item.itemName,
+        quantity: item.quantity,
+      })),
+    })),
     completedAt: request.completedAt ? toBangkokIsoString(request.completedAt) : null,
+    cancellationRequestedAt: request.cancellationRequestedAt
+      ? toBangkokIsoString(request.cancellationRequestedAt)
+      : null,
+    cancelledAt: request.cancelledAt
+      ? toBangkokIsoString(request.cancelledAt)
+      : null,
+    cancellationReason: request.cancellationReason ?? null,
+    cancellationReference: request.cancellationReference ?? null,
+    cancelledBy: request.cancelledBy
+      ? {
+          id: request.cancelledBy.id,
+          name: request.cancelledBy.name,
+          email: request.cancelledBy.email,
+          role: request.cancelledBy.role,
+        }
+      : null,
     receiptNumber: request.receiptNumber ?? null,
     taxInvoiceNumber: request.taxInvoiceNumber ?? null,
     receiptReferenceNote: request.receiptReferenceNote ?? null,
@@ -393,6 +448,10 @@ function toDetail(
       description: item.description ?? undefined,
       supplierName: item.supplierName ?? undefined,
       quantity: item.quantity,
+      receivedQuantity: item.receivedQuantity,
+      closedQuantity: item.closedQuantity,
+      remainingQuantity: Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity),
+      overReceivedQuantity: Math.max(0, item.receivedQuantity - item.quantity),
       unit: item.unit ?? undefined,
       unitPrice:
         item.unitPrice === null
@@ -676,6 +735,95 @@ async function notifyReceiptReferencesPending(input: {
   ]);
 }
 
+async function notifyCancellationRequested(input: {
+  requestId: string;
+  prNumber: string;
+  requesterId: string;
+  purchasingUserId: string;
+  actorId: string;
+}) {
+  const recipientIds = new Set<string>();
+
+  if (input.purchasingUserId !== input.actorId) {
+    recipientIds.add(input.purchasingUserId);
+  }
+
+  if (input.requesterId !== input.actorId) {
+    recipientIds.add(input.requesterId);
+  }
+
+  await createNotifications(
+    Array.from(recipientIds).map((userId) => ({
+      userId,
+      title: "มีคำขอยกเลิก PR",
+      message: `${input.prNumber} รอฝ่ายจัดซื้อยืนยันการยกเลิก`,
+      link: `/purchase-requests/${input.requestId}`,
+      type: NotificationType.WARNING,
+    })),
+  );
+}
+
+async function notifyCancellationCompleted(input: {
+  requestId: string;
+  prNumber: string;
+  requesterId: string;
+  currentApproverId?: string | null;
+  actorId: string;
+}) {
+  const recipientIds = new Set<string>();
+
+  if (input.requesterId !== input.actorId) {
+    recipientIds.add(input.requesterId);
+  }
+
+  if (input.currentApproverId && input.currentApproverId !== input.actorId) {
+    recipientIds.add(input.currentApproverId);
+  }
+
+  await createNotifications(
+    Array.from(recipientIds).map((userId) => ({
+      userId,
+      title: "PR ถูกยกเลิกแล้ว",
+      message: `${input.prNumber} ถูกยกเลิกแล้ว กรุณาตรวจสอบเหตุผล`,
+      link: `/purchase-requests/${input.requestId}`,
+      type: NotificationType.ERROR,
+    })),
+  );
+}
+
+async function notifyCancellationDeclined(input: {
+  requestId: string;
+  prNumber: string;
+  requesterId: string;
+  actorId: string;
+}) {
+  if (input.requesterId === input.actorId) {
+    return;
+  }
+
+  await createNotifications([
+    {
+      userId: input.requesterId,
+      title: "คำขอยกเลิก PR ไม่ได้รับอนุมัติ",
+      message: `${input.prNumber} ดำเนินการจัดซื้อต่อตามเดิม กรุณาตรวจสอบเหตุผล`,
+      link: `/purchase-requests/${input.requestId}`,
+      type: NotificationType.WARNING,
+    },
+  ]);
+}
+
+async function sendCancellationNotification(
+  notification: () => Promise<void>,
+) {
+  try {
+    await notification();
+  } catch (error) {
+    // The state transition and its audit entry are already committed. A
+    // notification outage must not make a successful cancellation look failed.
+    console.error("[purchase-requests] failed to create cancellation notification", error);
+  }
+}
+
 export async function listPurchaseRequests(
   session: SessionUser,
   filters: PurchaseRequestFilters,
@@ -946,6 +1094,23 @@ export async function updatePurchaseRequest(
   ];
 
   await db.$transaction(async (transaction) => {
+    const claimed = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: existing.status,
+        updatedAt: existing.updatedAt,
+      },
+      data: {
+        updatedAt: new Date(),
+      },
+    });
+
+    invariant(
+      claimed.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
     await transaction.purchaseRequestItem.deleteMany({
       where: { purchaseRequestId: id },
     });
@@ -999,6 +1164,369 @@ export async function updatePurchaseRequest(
   return existing.id;
 }
 
+export async function deleteDraftPurchaseRequest(
+  id: string,
+  session: SessionUser,
+) {
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+    select: {
+      requesterId: true,
+      status: true,
+      submittedAt: true,
+      updatedAt: true,
+      attachments: {
+        select: {
+          storagePath: true,
+        },
+      },
+    },
+  });
+
+  if (!request) {
+    throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  }
+
+  invariant(
+    canCancelPurchaseRequestAsOwner(session, request.requesterId),
+    "คุณไม่มีสิทธิ์ลบร่างเอกสารนี้",
+    403,
+  );
+  invariant(
+    request.status === PurchaseRequestStatus.DRAFT && !request.submittedAt,
+    "ลบได้เฉพาะร่างที่ยังไม่เคยส่งอนุมัติ",
+    400,
+  );
+
+  const deleted = await db.purchaseRequest.deleteMany({
+    where: {
+      id,
+      status: PurchaseRequestStatus.DRAFT,
+      submittedAt: null,
+      updatedAt: request.updatedAt,
+    },
+  });
+
+  invariant(
+    deleted.count === 1,
+    "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+    409,
+  );
+
+  await deleteSavedAttachmentFiles(request.attachments);
+}
+
+type PurchaseRequestCancellationInput =
+  | {
+      action: "CANCEL";
+      reason: string;
+      cancellationReference?: string;
+    }
+  | {
+      action: "REQUEST";
+      reason: string;
+    }
+  | {
+      action: "CONFIRM";
+      reason?: string;
+    }
+  | {
+      action: "REJECT";
+      reason: string;
+    };
+
+function buildCancellationComment(
+  reason: string,
+  cancellationReference?: string,
+) {
+  return cancellationReference
+    ? `${reason} | เลขอ้างอิงการยกเลิก PO: ${cancellationReference}`
+    : reason;
+}
+
+function getCancellationDecisionStepLabel(session: SessionUser) {
+  if (session.role === "ADMIN") {
+    return "ผู้ดูแลระบบ";
+  }
+
+  if (isManagementApprover(session)) {
+    return "บริหาร/จัดการ";
+  }
+
+  return "ฝ่ายจัดซื้อ";
+}
+
+export async function updatePurchaseRequestCancellation(
+  id: string,
+  session: SessionUser,
+  input: PurchaseRequestCancellationInput,
+) {
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+    include: { _count: { select: { receipts: true } } },
+  });
+
+  if (!request) {
+    throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  }
+
+  invariant(
+    session.id === request.requesterId ||
+      canHandlePurchaseRequestCancellation(session),
+    "คุณไม่มีสิทธิ์ดำเนินการยกเลิก PR นี้",
+    403,
+  );
+
+  if (input.action === "REQUEST") {
+    invariant(
+      session.id === request.requesterId,
+      "เฉพาะผู้ขอซื้อเท่านั้นที่ขอยกเลิก PR ที่อนุมัติแล้วได้",
+      403,
+    );
+    invariant(
+      request.status === PurchaseRequestStatus.APPROVED,
+      "ขอยกเลิกได้เฉพาะ PR ที่อนุมัติแล้วและยังไม่เปิด PO",
+      400,
+    );
+
+    const activeCurrentPurchasingUser = request.currentApproverId
+      ? await db.user.findFirst({
+          where: {
+            id: request.currentApproverId,
+            isActive: true,
+            role: {
+              in: [Role.PURCHASING, Role.ADMIN],
+            },
+          },
+          select: {
+            id: true,
+          },
+        })
+      : null;
+    const purchasingUserId =
+      activeCurrentPurchasingUser?.id ??
+      (await findPrimaryPurchasingUser())?.id ??
+      null;
+
+    invariant(purchasingUserId, "ไม่พบผู้รับผิดชอบฝ่ายจัดซื้อ", 400);
+
+    await db.$transaction(async (transaction) => {
+      const updated = await transaction.purchaseRequest.updateMany({
+        where: {
+          id,
+          status: PurchaseRequestStatus.APPROVED,
+        },
+        data: {
+          status: PurchaseRequestStatus.CANCEL_REQUESTED,
+          currentApproverId: purchasingUserId,
+          cancellationRequestedAt: new Date(),
+          cancellationReason: input.reason,
+          cancellationReference: null,
+          cancelledAt: null,
+          cancelledById: null,
+        },
+      });
+
+      invariant(
+        updated.count === 1,
+        "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+        409,
+      );
+
+      await transaction.approval.create({
+        data: {
+          purchaseRequestId: id,
+          approverId: session.id,
+          action: ApprovalAction.CANCELLATION_REQUESTED,
+          stepLabel: "การยกเลิก PR",
+          comment: input.reason,
+        },
+      });
+    });
+
+    await sendCancellationNotification(() =>
+      notifyCancellationRequested({
+        requestId: id,
+        prNumber: request.prNumber,
+        requesterId: request.requesterId,
+        purchasingUserId,
+        actorId: session.id,
+      }),
+    );
+    return;
+  }
+
+  if (input.action === "CONFIRM" || input.action === "REJECT") {
+    invariant(
+      canHandlePurchaseRequestCancellation(session),
+      "เฉพาะฝ่ายจัดซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่พิจารณาคำขอยกเลิกได้",
+      403,
+    );
+    invariant(
+      session.id !== request.requesterId,
+      "ผู้ขอซื้อไม่สามารถพิจารณาคำขอยกเลิกของตนเองได้",
+      403,
+    );
+    invariant(
+      request.status === PurchaseRequestStatus.CANCEL_REQUESTED,
+      "เอกสารนี้ไม่ได้อยู่ในขั้นตอนรออนุมัติการยกเลิก",
+      400,
+    );
+
+    const isConfirmed = input.action === "CONFIRM";
+
+    await db.$transaction(async (transaction) => {
+      const updated = await transaction.purchaseRequest.updateMany({
+        where: {
+          id,
+          status: PurchaseRequestStatus.CANCEL_REQUESTED,
+        },
+        data: isConfirmed
+          ? {
+              status: PurchaseRequestStatus.CANCELLED,
+              currentApproverId: null,
+              cancelledAt: new Date(),
+              cancelledById: session.id,
+            }
+          : {
+              status: PurchaseRequestStatus.APPROVED,
+              cancellationRequestedAt: null,
+              cancellationReason: null,
+              cancellationReference: null,
+              cancelledAt: null,
+              cancelledById: null,
+            },
+      });
+
+      invariant(
+        updated.count === 1,
+        "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+        409,
+      );
+
+      await transaction.approval.create({
+        data: {
+          purchaseRequestId: id,
+          approverId: session.id,
+          action: isConfirmed
+            ? ApprovalAction.CANCELLED
+            : ApprovalAction.CANCELLATION_DECLINED,
+          stepLabel: getCancellationDecisionStepLabel(session),
+          comment: input.reason,
+        },
+      });
+    });
+
+    if (isConfirmed) {
+      await sendCancellationNotification(() =>
+        notifyCancellationCompleted({
+          requestId: id,
+          prNumber: request.prNumber,
+          requesterId: request.requesterId,
+          currentApproverId: request.currentApproverId,
+          actorId: session.id,
+        }),
+      );
+    } else {
+      await sendCancellationNotification(() =>
+        notifyCancellationDeclined({
+          requestId: id,
+          prNumber: request.prNumber,
+          requesterId: request.requesterId,
+          actorId: session.id,
+        }),
+      );
+    }
+    return;
+  }
+
+  const isOrderedCancellation = request.status === PurchaseRequestStatus.ORDERED;
+  const isOwnerCancellation =
+    request.status === PurchaseRequestStatus.PENDING_APPROVAL ||
+    request.status === PurchaseRequestStatus.NEED_REVISION ||
+    request.status === PurchaseRequestStatus.NEED_CLARIFICATION ||
+    (request.status === PurchaseRequestStatus.DRAFT && Boolean(request.submittedAt));
+
+  if (isOrderedCancellation) {
+    invariant(
+      canHandlePurchaseRequestCancellation(session),
+      "เฉพาะฝ่ายจัดซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่ยกเลิก PR ที่เปิด PO แล้วได้",
+      403,
+    );
+    invariant(
+      !request.receivedAt && request._count.receipts === 0,
+      "PR ที่รับของแล้วไม่สามารถยกเลิกได้",
+      400,
+    );
+    invariant(
+      input.cancellationReference,
+      "กรุณาระบุเลขอ้างอิงการยกเลิก PO",
+      400,
+    );
+  } else {
+    invariant(isOwnerCancellation, "PR สถานะนี้ไม่สามารถยกเลิกได้", 400);
+    invariant(
+      canCancelPurchaseRequestAsOwner(session, request.requesterId),
+      "เฉพาะผู้ขอซื้อ ผู้ดูแลระบบ หรือฝ่ายบริหาร/จัดการเท่านั้นที่ยกเลิก PR นี้ได้",
+      403,
+    );
+  }
+
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: request.status,
+        ...(isOrderedCancellation ? { receivedAt: null, receiptVersion: request.receiptVersion, receipts: { none: {} } } : {}),
+      },
+      data: {
+        status: PurchaseRequestStatus.CANCELLED,
+        currentApproverId: null,
+        cancellationRequestedAt: null,
+        cancelledAt: new Date(),
+        cancelledById: session.id,
+        cancellationReason: input.reason,
+        cancellationReference: isOrderedCancellation
+          ? input.cancellationReference ?? null
+          : null,
+      },
+    });
+
+    invariant(
+      updated.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action: ApprovalAction.CANCELLED,
+        stepLabel: isOrderedCancellation
+          ? getCancellationDecisionStepLabel(session)
+          : "การยกเลิก PR",
+        comment: buildCancellationComment(
+          input.reason,
+          isOrderedCancellation ? input.cancellationReference : undefined,
+        ),
+      },
+    });
+  });
+
+  await sendCancellationNotification(() =>
+    notifyCancellationCompleted({
+      requestId: id,
+      prNumber: request.prNumber,
+      requesterId: request.requesterId,
+      currentApproverId: request.currentApproverId,
+      actorId: session.id,
+    }),
+  );
+}
+
 export async function submitPurchaseRequest(id: string, session: SessionUser) {
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
@@ -1019,21 +1547,35 @@ export async function submitPurchaseRequest(id: string, session: SessionUser) {
   const approver = await findApproverForDepartment(request.department);
   invariant(approver, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
 
-  await db.purchaseRequest.update({
-    where: { id },
-    data: {
-      status: PurchaseRequestStatus.PENDING_APPROVAL,
-      submittedAt: new Date(),
-      currentApproverId: approver.id,
-      approvals: {
-        create: {
-          approverId: session.id,
-          action: ApprovalAction.SUBMITTED,
-          stepLabel: "ผู้ขอซื้อ",
-          comment: "ส่งเอกสารเข้าระบบเพื่ออนุมัติ",
-        },
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: PurchaseRequestStatus.DRAFT,
+        updatedAt: request.updatedAt,
       },
-    },
+      data: {
+        status: PurchaseRequestStatus.PENDING_APPROVAL,
+        submittedAt: new Date(),
+        currentApproverId: approver.id,
+      },
+    });
+
+    invariant(
+      updated.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action: ApprovalAction.SUBMITTED,
+        stepLabel: "ผู้ขอซื้อ",
+        comment: "ส่งเอกสารเข้าระบบเพื่ออนุมัติ",
+      },
+    });
   });
 
   await notifySubmission(id, request.prNumber, session.name, approver.id);
@@ -1078,27 +1620,41 @@ export async function reviewPurchaseRequest(
         ? PurchaseRequestStatus.REJECTED
         : PurchaseRequestStatus.DRAFT;
 
-  await db.purchaseRequest.update({
-    where: { id },
-    data: {
-      status: nextStatus,
-      approvedAt: input.action === "APPROVED" ? new Date() : null,
-      currentApproverId:
-        input.action === "APPROVED" ? purchasingUser?.id ?? null : null,
-      approvals: {
-        create: {
-          approverId: session.id,
-          action:
-            input.action === "APPROVED"
-              ? ApprovalAction.APPROVED
-              : input.action === "REJECTED"
-                ? ApprovalAction.REJECTED
-                : ApprovalAction.RETURNED,
-          stepLabel: "หัวหน้าแผนก",
-          comment: input.comment,
-        },
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: PurchaseRequestStatus.PENDING_APPROVAL,
+        currentApproverId: request.currentApproverId,
       },
-    },
+      data: {
+        status: nextStatus,
+        approvedAt: input.action === "APPROVED" ? new Date() : null,
+        currentApproverId:
+          input.action === "APPROVED" ? purchasingUser?.id ?? null : null,
+      },
+    });
+
+    invariant(
+      updated.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action:
+          input.action === "APPROVED"
+            ? ApprovalAction.APPROVED
+            : input.action === "REJECTED"
+              ? ApprovalAction.REJECTED
+              : ApprovalAction.RETURNED,
+        stepLabel: "หัวหน้าแผนก",
+        comment: input.comment,
+      },
+    });
   });
 
   await notifyApprovalResult({
@@ -1107,6 +1663,146 @@ export async function reviewPurchaseRequest(
     requesterId: request.requesterId,
     action: input.action,
     purchasingUserId: purchasingUser?.id ?? null,
+  });
+}
+
+export async function recordPurchaseRequestReceipt(
+  id: string,
+  session: SessionUser,
+  input: ReceiptEntryInput,
+) {
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+    include: {
+      items: true,
+      receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+    },
+  });
+  invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  assertCanView(session, request.requesterId, request.department, request.currentApproverId);
+  invariant(request.status === PurchaseRequestStatus.ORDERED, "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้", 400);
+  invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+
+  const isClosing = input.action === "CLOSE_REMAINDER";
+  if (isClosing) {
+    invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดยอดค้างรับได้", 403);
+    invariant(input.comment && input.comment.trim().length >= 5, "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร", 400);
+    invariant(request.items.some((item) => item.receivedQuantity > 0), "กรุณาบันทึกรับสินค้าบางส่วนก่อนปิดยอดค้างรับ", 400);
+  } else {
+    invariant(input.receivedDate, "กรุณาระบุวันที่รับของ", 400);
+  }
+  invariant(input.items.length > 0, "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ", 400);
+  invariant(new Set(input.items.map((item) => item.itemId)).size === input.items.length, "รายการสินค้าซ้ำกัน", 400);
+  const itemById = new Map(request.items.map((item) => [item.id, item]));
+  let hasOverReceipt = false;
+  for (const entry of input.items) {
+    const item = itemById.get(entry.itemId);
+    invariant(item, "ไม่พบรายการสินค้าใน PR นี้", 400);
+    invariant(Number.isInteger(entry.quantity) && entry.quantity > 0, "จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0", 400);
+    const remaining = Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity);
+    if (isClosing) {
+      invariant(entry.quantity <= remaining, "จำนวนปิดยอดต้องไม่เกินยอดค้างรับ", 400);
+      item.closedQuantity += entry.quantity;
+    } else {
+      invariant(item.closedQuantity === 0 || entry.quantity <= remaining, "ไม่สามารถรับสินค้าในส่วนที่ปิดยอดแล้วได้", 400);
+      invariant(item.receivedQuantity + entry.quantity <= 2147483647, "จำนวนรับสินค้ามากเกินขอบเขตที่รองรับ", 400);
+      item.receivedQuantity += entry.quantity;
+      hasOverReceipt ||= item.receivedQuantity > item.quantity;
+    }
+  }
+  if (hasOverReceipt) {
+    invariant(input.overReceiptReason && input.overReceiptReason.trim().length >= 5, "กรุณาระบุเหตุผลการรับเกินอย่างน้อย 5 ตัวอักษร", 400);
+  }
+  const allSettled = request.items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
+  const eventDate = toUtcStartOfDayFromDateValue(input.receivedDate ?? toBangkokDateValue(new Date()));
+  // Closing an undelivered balance must not change the actual goods-received
+  // date to the day Purchasing closed that balance.
+  const settledReceivedAt = isClosing ? request.receipts[0]?.receivedDate ?? eventDate : eventDate;
+  const receipt = await db.$transaction(async (transaction) => {
+    // Serialize all quantity changes, cancellation and completion on the PR.
+    // A stale form or repeated submission cannot append another receipt.
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: { id, status: PurchaseRequestStatus.ORDERED, receiptVersion: input.expectedVersion },
+      data: {
+        receiptVersion: { increment: 1 },
+        receivedAt: allSettled ? settledReceivedAt : null,
+        ...(!isClosing ? { receiptNumber: input.receiptNumber?.trim() || null, taxInvoiceNumber: input.taxInvoiceNumber?.trim() || null } : {}),
+      },
+    });
+    invariant(updated.count === 1, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    for (const entry of input.items) {
+      await transaction.purchaseRequestItem.update({
+        where: { id: entry.itemId },
+        data: isClosing
+          ? { closedQuantity: { increment: entry.quantity } }
+          : { receivedQuantity: { increment: entry.quantity } },
+      });
+    }
+    const created = await transaction.purchaseRequestReceipt.create({
+      data: {
+        purchaseRequestId: id,
+        recordedById: session.id,
+        action: input.action,
+        receivedDate: eventDate,
+        comment: input.comment?.trim() || null,
+        overReceiptReason: hasOverReceipt ? input.overReceiptReason?.trim() : null,
+        receiptNumber: !isClosing ? input.receiptNumber?.trim() || null : null,
+        taxInvoiceNumber: !isClosing ? input.taxInvoiceNumber?.trim() || null : null,
+        items: { create: input.items.map((entry) => ({ itemId: entry.itemId, quantity: entry.quantity })) },
+      },
+    });
+    const quantities = input.items.map((entry) => `${itemById.get(entry.itemId)!.itemName}: ${entry.quantity}`).join(", ");
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action: ApprovalAction.COMMENTED,
+        stepLabel: isClosing ? "ปิดยอดค้างรับ" : "ยืนยันรับของ",
+        comment: [quantities, input.comment, hasOverReceipt ? `เหตุผลรับเกิน: ${input.overReceiptReason}` : null].filter(Boolean).join(" | "),
+      },
+    });
+    return created;
+  });
+  if (allSettled && !request.receivedAt && request.currentApproverId && request.currentApproverId !== session.id) {
+    try {
+      await notifyReceiptReferencesPending({ requestId: id, prNumber: request.prNumber, purchasingUserId: request.currentApproverId });
+    } catch (error) {
+      console.error("[receipt-notification]", error);
+    }
+  }
+  return { id: receipt.id };
+}
+
+export async function updatePurchaseRequestReceiptReferences(
+  id: string,
+  receiptId: string,
+  session: SessionUser,
+  input: { receiptNumber?: string; taxInvoiceNumber?: string; note?: string; expectedVersion?: number },
+) {
+  invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
+  const db = getDb();
+  const request = await db.purchaseRequest.findUnique({
+    where: { id },
+    include: { receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 } },
+  });
+  invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  invariant(input.expectedVersion === undefined || request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+  invariant(request.status === PurchaseRequestStatus.ORDERED || request.status === PurchaseRequestStatus.COMPLETED, "PR สถานะนี้ไม่สามารถแก้ไขเอกสารรับของได้", 400);
+  const receipt = await db.purchaseRequestReceipt.findFirst({ where: { id: receiptId, purchaseRequestId: id, action: "RECEIVED" } });
+  invariant(receipt, "ไม่พบรายการรับสินค้าใน PR นี้", 404);
+  invariant(input.receiptNumber || input.taxInvoiceNumber, "กรุณาระบุหมายเลขรับของหรือเลขที่ใบกำกับภาษี", 400);
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: { id, status: request.status, receiptVersion: request.receiptVersion },
+      data: {
+        receiptVersion: { increment: 1 },
+        ...(request.receipts[0]?.id === receiptId ? { receiptNumber: input.receiptNumber || null, taxInvoiceNumber: input.taxInvoiceNumber || null } : {}),
+      },
+    });
+    invariant(updated.count === 1, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    await transaction.purchaseRequestReceipt.update({ where: { id: receiptId }, data: { receiptNumber: input.receiptNumber || null, taxInvoiceNumber: input.taxInvoiceNumber || null } });
+    await transaction.approval.create({ data: { purchaseRequestId: id, approverId: session.id, action: ApprovalAction.COMMENTED, stepLabel: "อัปเดตเอกสารรับสินค้า", comment: buildReceiptReferenceComment(input) } });
   });
 }
 
@@ -1122,10 +1818,28 @@ export async function progressPurchaseRequest(
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
+    include: { items: true },
   });
 
   if (!request) {
     throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
+  }
+
+  // Preserve the original all-at-once API for existing clients. New clients
+  // submit explicit item quantities and a version through the receipts route.
+  if (input.action === "RECEIVED") {
+    const items = request.items
+      .map((item) => ({ itemId: item.id, quantity: Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity) }))
+      .filter((item) => item.quantity > 0);
+    invariant(items.length > 0, "ไม่มีจำนวนค้างรับ กรุณาใช้หน้ารับสินค้าเพื่อบันทึกรับเกิน", 400);
+    await recordPurchaseRequestReceipt(id, session, {
+      action: "RECEIVED",
+      expectedVersion: request.receiptVersion,
+      receivedDate: input.receivedDate,
+      comment: input.comment,
+      items,
+    });
+    return;
   }
 
   if (
@@ -1149,21 +1863,6 @@ export async function progressPurchaseRequest(
     throw new AppError("กรุณาระบุเหตุผลหรือคำถามประกอบการดำเนินการ", 400);
   }
 
-  if (input.action === "RECEIVED") {
-    assertCanView(
-      session,
-      request.requesterId,
-      request.department,
-      request.currentApproverId,
-    );
-    invariant(input.receivedDate, "กรุณาระบุวันที่รับของ", 400);
-    invariant(
-      request.status === PurchaseRequestStatus.ORDERED,
-      "PR ต้องถูกสั่งซื้อแล้วก่อนจึงจะยืนยันรับของได้",
-      400,
-    );
-  }
-
   const nextStatus =
     input.action === "REQUEST_REVISION"
       ? PurchaseRequestStatus.NEED_REVISION
@@ -1178,27 +1877,35 @@ export async function progressPurchaseRequest(
         : input.action === "REQUEST_CLARIFICATION"
           ? ApprovalAction.REQUESTED_CLARIFICATION
           : ApprovalAction.COMMENTED;
-  const nextStepLabel =
-    input.action === "RECEIVED" ? "ยืนยันรับของ" : "ฝ่ายจัดซื้อ";
+  const nextStepLabel = "ฝ่ายจัดซื้อ";
 
-  await db.purchaseRequest.update({
-    where: { id },
-    data: {
-      status: nextStatus,
-      orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
-      receivedAt:
-        input.action === "RECEIVED" && input.receivedDate
-          ? toUtcStartOfDayFromDateValue(input.receivedDate)
-          : request.receivedAt,
-      approvals: {
-        create: {
-          approverId: session.id,
-          action: nextApprovalAction,
-          stepLabel: nextStepLabel,
-          comment: input.comment,
-        },
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: PurchaseRequestStatus.APPROVED,
       },
-    },
+      data: {
+        status: nextStatus,
+        orderedAt: input.action === "ORDERED" ? new Date() : request.orderedAt,
+      },
+    });
+
+    invariant(
+      updated.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action: nextApprovalAction,
+        stepLabel: nextStepLabel,
+        comment: input.comment,
+      },
+    });
   });
 
   if (input.action === "ORDERED") {
@@ -1222,17 +1929,6 @@ export async function progressPurchaseRequest(
     });
   }
 
-  if (
-    input.action === "RECEIVED" &&
-    request.currentApproverId &&
-    request.currentApproverId !== session.id
-  ) {
-    await notifyReceiptReferencesPending({
-      requestId: id,
-      prNumber: request.prNumber,
-      purchasingUserId: request.currentApproverId,
-    });
-  }
 }
 
 function buildReceiptReferenceComment(input: {
@@ -1258,11 +1954,13 @@ export async function updateReceiptReferences(
     receiptNumber?: string;
     taxInvoiceNumber?: string;
     note?: string;
+    expectedVersion?: number;
   },
 ) {
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
+    include: { items: true, receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },
   });
 
   if (!request) {
@@ -1270,6 +1968,7 @@ export async function updateReceiptReferences(
   }
 
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
+  invariant(input.expectedVersion === undefined || request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
   invariant(
     request.status === PurchaseRequestStatus.ORDERED ||
       request.status === PurchaseRequestStatus.COMPLETED,
@@ -1281,6 +1980,8 @@ export async function updateReceiptReferences(
     "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้",
     400,
   );
+  invariant(request.items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity), "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน", 400);
+  invariant(request.receipts.slice(0, -1).every((receipt) => receipt.receiptNumber || receipt.taxInvoiceNumber), "กรุณาบันทึกเลขเอกสารของการรับสินค้าแต่ละรอบให้ครบก่อนปิดงาน", 400);
   invariant(
     input.receiptNumber || input.taxInvoiceNumber,
     "กรุณาระบุหมายเลขรับของหรือเลขที่ใบกำกับภาษี",
@@ -1295,39 +1996,64 @@ export async function updateReceiptReferences(
     request.taxInvoiceNumber !== nextTaxInvoiceNumber ||
     request.receiptReferenceNote !== nextReceiptReferenceNote;
 
-  if (!hasChanges) {
+  if (!hasChanges && request.status === PurchaseRequestStatus.COMPLETED) {
     return;
   }
 
-  await db.purchaseRequest.update({
-    where: { id },
-    data: {
-      status:
-        request.status === PurchaseRequestStatus.ORDERED
-          ? PurchaseRequestStatus.COMPLETED
-          : request.status,
-      completedAt:
-        request.status === PurchaseRequestStatus.ORDERED
-          ? new Date()
-          : request.completedAt,
-      receiptNumber: nextReceiptNumber,
-      taxInvoiceNumber: nextTaxInvoiceNumber,
-      receiptReferenceNote: nextReceiptReferenceNote,
-      approvals: {
-        create: {
-          approverId: session.id,
-          action:
-            request.status === PurchaseRequestStatus.ORDERED
-              ? ApprovalAction.COMPLETED
-              : ApprovalAction.COMMENTED,
-          stepLabel:
-            request.status === PurchaseRequestStatus.ORDERED
-              ? "ฝ่ายจัดซื้อ"
-              : "อัปเดตเลขเอกสาร",
-          comment: buildReceiptReferenceComment(input),
-        },
+  await db.$transaction(async (transaction) => {
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: request.status,
+        receivedAt: request.receivedAt,
+        updatedAt: request.updatedAt,
+        receiptVersion: request.receiptVersion,
       },
-    },
+      data: {
+        status:
+          request.status === PurchaseRequestStatus.ORDERED
+            ? PurchaseRequestStatus.COMPLETED
+            : request.status,
+        completedAt:
+          request.status === PurchaseRequestStatus.ORDERED
+            ? new Date()
+            : request.completedAt,
+        receiptNumber: nextReceiptNumber,
+        taxInvoiceNumber: nextTaxInvoiceNumber,
+        receiptReferenceNote: nextReceiptReferenceNote,
+        receiptVersion: { increment: 1 },
+      },
+    });
+
+    invariant(
+      updated.count === 1,
+      "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
+      409,
+    );
+
+    const lastReceipt = request.receipts.at(-1);
+    if (lastReceipt) {
+      await transaction.purchaseRequestReceipt.update({
+        where: { id: lastReceipt.id },
+        data: { receiptNumber: nextReceiptNumber, taxInvoiceNumber: nextTaxInvoiceNumber },
+      });
+    }
+
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action:
+          request.status === PurchaseRequestStatus.ORDERED
+            ? ApprovalAction.COMPLETED
+            : ApprovalAction.COMMENTED,
+        stepLabel:
+          request.status === PurchaseRequestStatus.ORDERED
+            ? "ฝ่ายจัดซื้อ"
+            : "อัปเดตเลขเอกสาร",
+        comment: buildReceiptReferenceComment(input),
+      },
+    });
   });
 
   if (request.status === PurchaseRequestStatus.ORDERED) {
@@ -1364,6 +2090,7 @@ export async function getDashboardSummary(session: SessionUser) {
           status: {
             in: [
               PurchaseRequestStatus.APPROVED,
+              PurchaseRequestStatus.CANCEL_REQUESTED,
               PurchaseRequestStatus.ORDERED,
               PurchaseRequestStatus.COMPLETED,
             ],

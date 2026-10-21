@@ -16,6 +16,7 @@ export const credentials = {
   approver: { identifier: "0811111112", password: "Passw0rd!" },
   purchasing: { identifier: "kitti", password: "Passw0rd!" },
   admin: { identifier: "admin", password: "Passw0rd!" },
+  management: { identifier: "management", password: "Passw0rd!" },
 } satisfies Record<string, Credentials>;
 
 export const statusText = {
@@ -26,6 +27,8 @@ export const statusText = {
   rejected: /ถูกปฏิเสธ|rejected/i,
   ordered: /สั่งซื้อแล้ว|ordered/i,
   completed: /เสร็จสมบูรณ์|completed/i,
+  cancelRequested: /รออนุมัติยกเลิก|cancellation requested/i,
+  cancelled: /ยกเลิกแล้ว|cancelled/i,
 };
 
 let uniqueCounter = 0;
@@ -187,7 +190,13 @@ export async function createRequestViaUi(
 export async function postRequestAction(
   page: Page,
   requestId: string,
-  endpoint: "approval" | "status" | "receipt-references" | "comments" | "submit",
+  endpoint:
+    | "approval"
+    | "status"
+    | "receipt-references"
+    | "comments"
+    | "submit"
+    | "cancellation",
   data?: Record<string, unknown>,
 ) {
   return page.request.post(`/api/purchase-requests/${requestId}/${endpoint}`, {

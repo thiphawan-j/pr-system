@@ -48,6 +48,8 @@ export const statusLabels: Record<PurchaseRequestStatus, string> = {
   REJECTED: "ถูกปฏิเสธ",
   ORDERED: "สั่งซื้อแล้ว",
   COMPLETED: "เสร็จสมบูรณ์",
+  CANCEL_REQUESTED: "รออนุมัติยกเลิก",
+  CANCELLED: "ยกเลิกแล้ว",
 };
 
 export const approvalActionLabels: Record<ApprovalAction, string> = {
@@ -61,6 +63,9 @@ export const approvalActionLabels: Record<ApprovalAction, string> = {
   ORDERED: "สั่งซื้อแล้ว",
   COMPLETED: "ปิดงาน",
   COMMENTED: "เพิ่มหมายเหตุ",
+  CANCELLATION_REQUESTED: "ขอยกเลิก",
+  CANCELLATION_DECLINED: "ไม่อนุมัติการยกเลิก",
+  CANCELLED: "ยกเลิก",
 };
 
 export const statusToneClassNames: Record<PurchaseRequestStatus, string> = {
@@ -79,6 +84,10 @@ export const statusToneClassNames: Record<PurchaseRequestStatus, string> = {
     "bg-cyan-500/15 text-cyan-700 ring-cyan-500/20 dark:text-cyan-300",
   COMPLETED:
     "bg-violet-500/15 text-violet-700 ring-violet-500/20 dark:text-violet-300",
+  CANCEL_REQUESTED:
+    "bg-amber-500/15 text-amber-700 ring-amber-500/20 dark:text-amber-300",
+  CANCELLED:
+    "bg-slate-500/15 text-slate-700 ring-slate-400/30 dark:text-slate-100",
 };
 
 export const priorityToneClassNames: Record<Priority, string> = {

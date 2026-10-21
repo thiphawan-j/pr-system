@@ -1,5 +1,6 @@
 import Link from "next/link";
 import {
+  Ban,
   CircleAlert,
   Download,
   FilePenLine,
@@ -12,9 +13,14 @@ import {
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
 import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
+import {
+  PurchaseRequestCancellationPanel,
+  type PurchaseRequestCancellationMode,
+} from "@/components/purchase-requests/purchase-request-cancellation-panel";
 import { PurchaseRequestCommentPanel } from "@/components/purchase-requests/purchase-request-comment-panel";
 import { PurchasingProgressPanel } from "@/components/purchase-requests/purchasing-progress-panel";
 import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt-confirmation-panel";
+import { ReceiptHistoryPanel } from "@/components/purchase-requests/receipt-history-panel";
 import { ReceiptReferencePanel } from "@/components/purchase-requests/receipt-reference-panel";
 import { StatusBadge } from "@/components/purchase-requests/status-badge";
 import { SubmitPurchaseRequestButton } from "@/components/purchase-requests/submit-purchase-request-button";
@@ -39,7 +45,11 @@ import {
   getUnitLabel,
   translateWorkflowText,
 } from "@/lib/i18n";
-import { canApprovePurchaseRequest } from "@/server/auth/authorization";
+import {
+  canApprovePurchaseRequest,
+  canHandlePurchaseRequestCancellation,
+  hasCancellationAdminRights,
+} from "@/server/auth/authorization";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import { getPurchaseRequestById } from "@/server/purchase-requests/purchase-request.service";
@@ -67,6 +77,39 @@ export default async function PurchaseRequestDetailPage({
         approval.action === "REQUESTED_REVISION" ||
         approval.action === "REQUESTED_CLARIFICATION",
     );
+  const latestCancellationRequest = request.approvals
+    .slice()
+    .reverse()
+    .find((approval) => approval.action === "CANCELLATION_REQUESTED");
+  const isOwner = request.requester.id === session.id;
+  const canManageAsOwner = isOwner || hasCancellationAdminRights(session);
+  const canHandleCancellation = canHandlePurchaseRequestCancellation(session);
+  const canReviewCancellation = !isOwner && canHandleCancellation;
+
+  let cancellationMode: PurchaseRequestCancellationMode | null = null;
+
+  if (request.status === "DRAFT" && !request.submittedAt && canManageAsOwner) {
+    cancellationMode = "DELETE_DRAFT";
+  } else if (
+    canManageAsOwner &&
+    (request.status === "PENDING_APPROVAL" ||
+      request.status === "NEED_REVISION" ||
+      request.status === "NEED_CLARIFICATION" ||
+      (request.status === "DRAFT" && Boolean(request.submittedAt)))
+  ) {
+    cancellationMode = "CANCEL_DIRECT";
+  } else if (request.status === "APPROVED" && isOwner) {
+    cancellationMode = "REQUEST";
+  } else if (request.status === "CANCEL_REQUESTED" && canReviewCancellation) {
+    cancellationMode = "REVIEW";
+  } else if (
+    request.status === "ORDERED" &&
+    !request.receivedAt &&
+    request.receipts.length === 0 &&
+    canHandleCancellation
+  ) {
+    cancellationMode = "CANCEL_ORDERED";
+  }
 
   const canEdit =
     (request.status === "DRAFT" || isPurchasingReturnStatus) &&
@@ -77,8 +120,10 @@ export default async function PurchaseRequestDetailPage({
   const canProgress =
     request.status === "APPROVED" &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
-  const canConfirmReceipt =
-    request.status === "ORDERED" && !request.receivedAt;
+  const canConfirmReceipt = request.status === "ORDERED";
+  const isPurchasing = session.role === "PURCHASING" || session.role === "ADMIN";
+  const canCloseOutstanding =
+    isPurchasing && request.items.some((item) => item.receivedQuantity > 0);
   const canEditReceiptReferences =
     ((request.status === "ORDERED" && request.receivedAt) ||
       request.status === "COMPLETED") &&
@@ -87,6 +132,7 @@ export default async function PurchaseRequestDetailPage({
     request.status === "COMPLETED" ? "COMPLETED" : "ORDERED";
   const isAwaitingReceiptReferences =
     request.status === "ORDERED" && Boolean(request.receivedAt);
+  const hasClosedRemainder = request.items.some((item) => item.closedQuantity > 0);
 
   return (
     <div className="space-y-6">
@@ -97,6 +143,8 @@ export default async function PurchaseRequestDetailPage({
               <StatusBadge
                 status={request.status}
                 receivedAt={request.receivedAt}
+                hasPartialReceipt={request.hasPartialReceipt}
+                hasClosedRemainder={hasClosedRemainder}
                 locale={locale}
               />
               <PriorityBadge priority={request.urgency} locale={locale} />
@@ -124,6 +172,66 @@ export default async function PurchaseRequestDetailPage({
           </div>
         </div>
       </section>
+
+      {request.status === "CANCEL_REQUESTED" ? (
+        <Alert className="border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100">
+          <CircleAlert className="size-4" />
+          <AlertTitle>{dictionary.cancellation.pendingTitle}</AlertTitle>
+          <AlertDescription className="space-y-2 text-amber-900/80 dark:text-amber-100/80">
+            <p>{dictionary.cancellation.pendingDescription}</p>
+            {latestCancellationRequest ? (
+              <div className="space-y-1">
+                <p>
+                  {dictionary.cancellation.requestedBy}: {latestCancellationRequest.approver.name}
+                </p>
+                <p>
+                  {dictionary.cancellation.requestedAt}:{" "}
+                  {formatDateTime(latestCancellationRequest.createdAt, locale)}
+                </p>
+                {latestCancellationRequest.comment ? (
+                  <p className="whitespace-pre-wrap font-medium">
+                    {latestCancellationRequest.comment}
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+          </AlertDescription>
+        </Alert>
+      ) : null}
+
+      {request.status === "CANCELLED" ? (
+        <Alert className="border-slate-500/25 bg-slate-500/10">
+          <Ban className="size-4" />
+          <AlertTitle>{dictionary.cancellation.cancelledTitle}</AlertTitle>
+          <AlertDescription className="space-y-2">
+            <p>{dictionary.cancellation.cancelledDescription}</p>
+            <div className="space-y-1">
+              {request.cancellationReason ? (
+                <p className="whitespace-pre-wrap font-medium">
+                  {dictionary.cancellation.reasonLabel}: {request.cancellationReason}
+                </p>
+              ) : null}
+              {request.cancellationReference ? (
+                <p>
+                  {dictionary.cancellation.cancellationReference}:{" "}
+                  {request.cancellationReference}
+                </p>
+              ) : null}
+              {request.cancelledBy ? (
+                <p>
+                  {dictionary.cancellation.cancelledBy}: {request.cancelledBy.name}
+                </p>
+              ) : null}
+              {request.cancelledAt ? (
+                <p>
+                  {dictionary.cancellation.cancelledAt}:{" "}
+                  {formatDateTime(request.cancelledAt, locale)}
+                </p>
+              ) : null}
+            </div>
+          </AlertDescription>
+        </Alert>
+      ) : null}
 
       {isPurchasingReturnStatus ? (
         <Alert
@@ -165,9 +273,9 @@ export default async function PurchaseRequestDetailPage({
       {isAwaitingReceiptReferences && canEditReceiptReferences ? (
         <Alert className="border-amber-500/25 bg-amber-500/10 text-amber-950 dark:text-amber-100">
           <CircleAlert className="size-4" />
-          <AlertTitle>{dictionary.approval.receiptReferencesPendingTitle}</AlertTitle>
+          <AlertTitle>{hasClosedRemainder ? dictionary.receiptWorkflow.settledWithClosureTitle : dictionary.approval.receiptReferencesPendingTitle}</AlertTitle>
           <AlertDescription className="text-amber-900/80 dark:text-amber-100/80">
-            {dictionary.approval.receiptReferencesPendingDescription}
+            {hasClosedRemainder ? dictionary.receiptWorkflow.settledWithClosureDescription : dictionary.approval.receiptReferencesPendingDescription}
           </AlertDescription>
           <AlertAction>
             <Button
@@ -335,10 +443,37 @@ export default async function PurchaseRequestDetailPage({
                     </p>
                     <p className="font-semibold">{formatCurrency(item.amount, locale)}</p>
                   </div>
+                  {request.receipts.length > 0 ? (
+                    <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-3 text-sm sm:col-span-4 sm:grid-cols-4">
+                      <div>
+                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.received}</p>
+                        <p className="font-medium">{formatNumber(item.receivedQuantity, locale)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.cancelled}</p>
+                        <p className="font-medium">{formatNumber(item.closedQuantity, locale)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.remaining}</p>
+                        <p className="font-medium">{formatNumber(item.remainingQuantity, locale)}</p>
+                      </div>
+                      <div>
+                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.overReceived}</p>
+                        <p className={item.overReceivedQuantity > 0 ? "font-medium text-amber-700 dark:text-amber-300" : "font-medium"}>{formatNumber(item.overReceivedQuantity, locale)}</p>
+                      </div>
+                    </div>
+                  ) : null}
                 </div>
               ))}
             </CardContent>
           </Card>
+
+          <ReceiptHistoryPanel
+            requestId={request.id}
+            expectedVersion={request.receiptVersion}
+            receipts={request.receipts}
+            canEditReferences={isPurchasing}
+          />
 
           <Card className="border-border/70">
             <CardHeader className="flex flex-row items-center gap-3">
@@ -476,16 +611,31 @@ export default async function PurchaseRequestDetailPage({
 
           <PurchaseRequestCommentPanel requestId={request.id} />
 
+          {cancellationMode ? (
+            <PurchaseRequestCancellationPanel
+              requestId={request.id}
+              mode={cancellationMode}
+              requestedReason={latestCancellationRequest?.comment}
+            />
+          ) : null}
+
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
           {canProgress ? (
             <PurchasingProgressPanel requestId={request.id} status={request.status} />
           ) : null}
           {canConfirmReceipt ? (
-            <ReceiptConfirmationPanel requestId={request.id} />
+            <ReceiptConfirmationPanel
+              key={request.receiptVersion}
+              requestId={request.id}
+              expectedVersion={request.receiptVersion}
+              items={request.items}
+              canCloseOutstanding={canCloseOutstanding}
+            />
           ) : null}
           {canEditReceiptReferences ? (
             <ReceiptReferencePanel
               requestId={request.id}
+              expectedVersion={request.receiptVersion}
               status={receiptReferenceStatus}
               receiptNumber={request.receiptNumber}
               taxInvoiceNumber={request.taxInvoiceNumber}

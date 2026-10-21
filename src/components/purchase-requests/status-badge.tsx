@@ -7,6 +7,8 @@ import { cn } from "@/lib/utils";
 type StatusBadgeProps = {
   status: PurchaseRequestStatus;
   receivedAt?: string | null;
+  hasPartialReceipt?: boolean;
+  hasClosedRemainder?: boolean;
   locale?: Locale;
   label?: string;
   className?: string;
@@ -15,6 +17,8 @@ type StatusBadgeProps = {
 export function StatusBadge({
   status,
   receivedAt,
+  hasPartialReceipt,
+  hasClosedRemainder,
   locale = defaultLocale,
   label,
   className,
@@ -37,7 +41,11 @@ export function StatusBadge({
       {label ??
         (isAwaitingReceiptReferences
           ? dictionary.approval.awaitingReceiptReferences
-          : dictionary.statuses[status])}
+          : status === "ORDERED" && hasPartialReceipt
+            ? dictionary.receiptWorkflow.partiallyReceived
+            : status === "COMPLETED" && hasClosedRemainder
+              ? dictionary.receiptWorkflow.completedWithClosure
+              : dictionary.statuses[status])}
     </Badge>
   );
 }
