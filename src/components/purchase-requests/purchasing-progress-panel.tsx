@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { startTransition, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -105,8 +106,21 @@ export function PurchasingProgressPanel({
           </div>
         </div>
         <div className="grid gap-2">
+          <Button asChild className="rounded-xl">
+            <Link
+              id="convert-pr-to-po"
+              href={`/purchase-requests/${requestId}/purchase-orders/new`}
+              aria-disabled={isPending}
+              tabIndex={isPending ? -1 : undefined}
+              onClick={(event) => { if (isPending) event.preventDefault(); }}
+            >
+              {dictionary.purchaseOrders.convert}
+            </Link>
+          </Button>
+          <p className="text-xs text-muted-foreground">{dictionary.purchaseOrders.externalPoHint}</p>
           <Button
             type="button"
+            variant="outline"
             className="rounded-xl"
             disabled={isPending}
             onClick={() => handleSubmit("ORDERED")}

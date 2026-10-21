@@ -15,6 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PasswordInput } from "@/components/ui/password-input";
 import { translateMessage } from "@/lib/i18n";
+import { getLoginDestination } from "@/lib/auth-redirect";
 import { loginSchema } from "@/server/purchase-requests/purchase-request.schemas";
 
 type LoginFormValues = z.infer<typeof loginSchema>;
@@ -26,9 +27,13 @@ const defaultValues: LoginFormValues = {
 
 type LoginFormProps = {
   showDemoAccounts?: boolean;
+  redirectTo?: string;
 };
 
-export function LoginForm({ showDemoAccounts = true }: LoginFormProps) {
+export function LoginForm({
+  showDemoAccounts = true,
+  redirectTo = "/dashboard",
+}: LoginFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
   const { dictionary, locale } = useI18n();
@@ -64,7 +69,7 @@ export function LoginForm({ showDemoAccounts = true }: LoginFormProps) {
       }
 
       toast.success(dictionary.auth.signInSuccess);
-      router.push("/dashboard");
+      router.replace(getLoginDestination(redirectTo));
       router.refresh();
     });
   }

@@ -2,7 +2,7 @@
 
 import { Languages } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { startTransition } from "react";
+import { startTransition, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,11 @@ import { useI18n } from "@/components/i18n/i18n-provider";
 export function LanguageToggle() {
   const router = useRouter();
   const { locale, dictionary, setLocale } = useI18n();
+  const mounted = useSyncExternalStore(
+    () => () => undefined,
+    () => true,
+    () => false,
+  );
   const nextLocale: Locale = locale === "th" ? "en" : "th";
 
   function handleToggle() {
@@ -44,6 +49,7 @@ export function LanguageToggle() {
       variant="outline"
       size="sm"
       className="rounded-full"
+      disabled={!mounted}
       aria-label={`${dictionary.languageToggle.label}: ${
         getDictionary(nextLocale).localeName
       }`}

@@ -1,11 +1,24 @@
 import { ShieldCheck, TimerReset, WalletCards } from "lucide-react";
+import { redirect } from "next/navigation";
 
 import { LanguageToggle } from "@/components/i18n/language-toggle";
 import { LoginForm } from "@/components/shared/login-form";
 import { getCurrentDictionary } from "@/server/i18n";
+import { getCurrentSession } from "@/server/auth/session";
+import { getLoginDestination } from "@/lib/auth-redirect";
 
-export default async function LoginPage() {
-  const dictionary = await getCurrentDictionary();
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ next?: string | string[] }>;
+}) {
+  const [query, session, dictionary] = await Promise.all([
+    searchParams,
+    getCurrentSession(),
+    getCurrentDictionary(),
+  ]);
+  const destination = getLoginDestination(query.next);
+  if (session) redirect(destination);
   const appEnv =
     process.env.APP_ENV ??
     (process.env.NODE_ENV === "production" ? "prod" : "dev");
@@ -59,7 +72,7 @@ export default async function LoginPage() {
         </section>
 
         <section className="mx-auto w-full max-w-md">
-          <LoginForm showDemoAccounts={showDemoAccounts} />
+          <LoginForm showDemoAccounts={showDemoAccounts} redirectTo={destination} />
         </section>
       </div>
     </main>

@@ -281,7 +281,9 @@ test("Thai and English show partial and closed-remainder statuses in detail and 
   request = await getRequest(page, request.id);
   await page.goto(`/purchase-requests/${request.id}`);
   await expect(page.getByText("รับบางส่วน / รอรับเพิ่ม", { exact: true })).toBeVisible();
+  const englishResponse = page.waitForResponse((response) => response.url().endsWith("/api/locale") && response.request().method() === "POST");
   await page.getByRole("button", { name: "ภาษา: English" }).click();
+  await expectStatus(await englishResponse, 200);
   await expect(page.getByText("Partially received / awaiting more", { exact: true })).toBeVisible();
   const query = encodeURIComponent(request.prNumber);
   await page.goto(`/purchase-requests?query=${query}`);
@@ -302,11 +304,15 @@ test("Thai and English show partial and closed-remainder statuses in detail and 
   }), 200);
   await page.goto(`/purchase-requests/${request.id}`);
   await expect(page.getByText("รับบางส่วนและปิดงาน", { exact: true })).toBeVisible();
+  const closedEnglishResponse = page.waitForResponse((response) => response.url().endsWith("/api/locale") && response.request().method() === "POST");
   await page.getByRole("button", { name: "ภาษา: English" }).click();
+  await expectStatus(await closedEnglishResponse, 200);
   await expect(page.getByText("Partially received and closed", { exact: true })).toBeVisible();
   await page.goto(`/purchase-requests?status=COMPLETED&query=${query}`);
   await expect(page.getByRole("row").filter({ hasText: request.prNumber })).toContainText("Partially received and closed");
+  const thaiResponse = page.waitForResponse((response) => response.url().endsWith("/api/locale") && response.request().method() === "POST");
   await page.getByRole("button", { name: "Language: ไทย" }).click();
+  await expectStatus(await thaiResponse, 200);
   await expect(page.getByRole("row").filter({ hasText: request.prNumber })).toContainText("รับบางส่วนและปิดงาน");
 });
 

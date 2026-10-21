@@ -12,7 +12,9 @@ export async function expectStatus(response: Pick<APIResponse, "status" | "text"
 export async function authenticate(page: Page, account: Credentials = credentials.employee) {
   await page.context().clearCookies();
   await expectStatus(
-    await page.request.post("/api/auth/login", { data: account }),
+    // Re-establish a reset test-server connection only during session setup.
+    // HTTP errors and the purchasing/receipt mutations still fail immediately.
+    await page.request.post("/api/auth/login", { data: account, maxRetries: 1 }),
     200,
   );
 }

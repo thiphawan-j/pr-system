@@ -1,0 +1,109 @@
+@media print {
+  @page {
+    margin: 12mm;
+  }
+
+  body:has(.purchase-order-document) {
+    background: white !important;
+    color: #111 !important;
+    color-scheme: light;
+  }
+
+  body:has(.purchase-order-document) header.sticky,
+  body:has(.purchase-order-document) [data-sonner-toaster],
+  body:has(.purchase-order-document) [data-slot="sheet-content"],
+  body:has(.purchase-order-document) [data-slot="sheet-overlay"],
+  .purchase-order-actions {
+    display: none !important;
+  }
+
+  body:has(.purchase-order-document) main {
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  .purchase-order-document {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    background: white !important;
+    color: #111 !important;
+    box-shadow: none !important;
+    font-size: 10pt;
+  }
+
+  .purchase-order-document .text-muted-foreground,
+  .purchase-order-document a,
+  .purchase-order-document th {
+    color: #333 !important;
+  }
+
+  .purchase-order-document [data-slot="table-container"] {
+    overflow: visible !important;
+  }
+
+  .purchase-order-document thead {
+    display: table-header-group;
+  }
+
+  .purchase-order-document table {
+    width: 100%;
+    table-layout: fixed;
+    font-size: 9pt;
+  }
+
+  .purchase-order-document th,
+  .purchase-order-document td {
+    min-width: 0 !important;
+    max-width: none !important;
+    padding: 6px;
+    overflow-wrap: anywhere;
+  }
+
+  .purchase-order-document th {
+    white-space: normal;
+  }
+
+  .purchase-order-document th:first-child {
+    width: 5%;
+  }
+
+  .purchase-order-document th:nth-child(2) {
+    width: 41%;
+  }
+
+  .purchase-order-document th:nth-child(n + 3) {
+    width: 18%;
+  }
+
+  .purchase-order-document [data-slot="badge"] {
+    border: 1px solid #555 !important;
+    background: white !important;
+    color: #111 !important;
+    box-shadow: none !important;
+  }
+
+  .purchase-order-document tr,
+  .purchase-order-document .purchase-order-notice {
+    break-inside: avoid;
+  }
+
+  .purchase-order-document .purchase-order-parties {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .purchase-order-document .purchase-order-notice {
+    border: 2px solid #555;
+    background: white !important;
+    color: #111 !important;
+  }
+
+  .purchase-order-document .purchase-order-notice * {
+    color: #111 !important;
+  }
+}

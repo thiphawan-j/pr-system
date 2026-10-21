@@ -115,7 +115,12 @@ test("purchasing can request revision and employee can resubmit", async ({ page 
   await page.goto(`${request.url}/edit`);
   const revisedReason = `Revised purchase request ${uniqueValue("E2E")}`;
   const requesterComment = uniqueValue("Requester-explanation");
-  await page.locator("#reason").fill(revisedReason);
+  const reasonInput = page.locator("#reason");
+  // Wait for streamed navigation to settle on one form for this PR. Persistent
+  // duplicate fields still fail, instead of arbitrarily editing the first one.
+  await expect(reasonInput).toHaveCount(1);
+  await expect(reasonInput).toHaveValue(request.reason);
+  await reasonInput.fill(revisedReason);
   await page.locator("#requesterComment").fill(requesterComment);
   await page.getByRole("button", {
     name: /ส่งกลับให้จัดซื้อตรวจอีกครั้ง|send back to purchasing/i,

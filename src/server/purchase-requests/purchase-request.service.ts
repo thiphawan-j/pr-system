@@ -64,12 +64,11 @@ type PersistedItem = {
 
 const purchaseRequestInclude = {
   requester: true,
+  purchaseOrders: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { _count: { select: { items: true } } } },
   currentApprover: true,
   cancelledBy: true,
   items: {
-    orderBy: {
-      createdAt: "asc",
-    },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
   receipts: {
     include: {
@@ -402,6 +401,7 @@ function toDetail(
     approvedAt: request.approvedAt ? toBangkokIsoString(request.approvedAt) : null,
     orderedAt: request.orderedAt ? toBangkokIsoString(request.orderedAt) : null,
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
+    purchaseOrders: request.purchaseOrders.map((order) => ({ id: order.id, poNumber: order.poNumber, supplierName: order.supplierName, issuedAt: toBangkokIsoString(order.issuedAt), totalAmount: Number(order.totalAmount), itemCount: order._count.items })),
     receiptVersion: request.receiptVersion,
     hasPartialReceipt: request.items.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
     receipts: request.receipts.map((receipt) => ({
@@ -501,7 +501,7 @@ function toDetail(
   } satisfies PurchaseRequestDetail;
 }
 
-function assertCanView(
+export function assertCanViewPurchaseRequest(
   session: SessionUser,
   requesterId: string,
   department: string,
@@ -890,7 +890,7 @@ export async function getPurchaseRequestById(id: string, session: SessionUser) {
     throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
   }
 
-  assertCanView(
+  assertCanViewPurchaseRequest(
     session,
     request.requesterId,
     request.department,
@@ -919,7 +919,7 @@ export async function addPurchaseRequestComment(
     throw new AppError("ไม่พบเอกสาร PR ที่ต้องการ", 404);
   }
 
-  assertCanView(
+  assertCanViewPurchaseRequest(
     session,
     request.requesterId,
     request.department,
@@ -1680,7 +1680,7 @@ export async function recordPurchaseRequestReceipt(
     },
   });
   invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
-  assertCanView(session, request.requesterId, request.department, request.currentApproverId);
+  assertCanViewPurchaseRequest(session, request.requesterId, request.department, request.currentApproverId);
   invariant(request.status === PurchaseRequestStatus.ORDERED, "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้", 400);
   invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
 

@@ -171,6 +171,7 @@ export type PurchaseRequestDetail = {
   receiptVersion: number;
   hasPartialReceipt: boolean;
   receipts: PurchaseRequestReceipt[];
+  purchaseOrders: PurchaseOrderSummary[];
   completedAt?: string | null;
   cancellationRequestedAt?: string | null;
   cancelledAt?: string | null;
@@ -200,6 +201,77 @@ export type PurchaseRequestDetail = {
     createdAt: string;
     approver: Pick<SessionUser, "id" | "name" | "email" | "role">;
   }>;
+};
+
+export type PurchaseOrderSummary = {
+  id: string;
+  poNumber: string;
+  supplierName: string;
+  issuedAt: string;
+  totalAmount: number;
+  itemCount: number;
+};
+
+export type PurchaseOrderDetail = PurchaseOrderSummary & {
+  supplierId: string | null;
+  supplierCode: string | null;
+  supplierTaxId: string | null;
+  supplierContactPerson: string | null;
+  supplierContacts: SupplierContact[];
+  supplierAddress: string | null;
+  supplierContact: string | null;
+  deliveryAddress: string | null;
+  paymentTerms: string | null;
+  expectedDeliveryDate: string | null;
+  note: string | null;
+  createdBy: { id: string; name: string };
+  purchaseRequest: {
+    id: string;
+    prNumber: string;
+    department: string;
+    requesterName: string;
+    status: PurchaseRequestStatus;
+  };
+  items: Array<{
+    id: string;
+    purchaseRequestItemId: string;
+    itemName: string;
+    description: string | null;
+    quantity: number;
+    unit: string | null;
+    unitPrice: number;
+    amount: number;
+    receivedQuantity: number;
+    closedQuantity: number;
+  }>;
+};
+
+export const supplierContactChannels = ["LINE", "PHONE", "ECOMMERCE", "EMAIL", "OTHER"] as const;
+export type SupplierContactChannel = (typeof supplierContactChannels)[number];
+export type SupplierContact = { channel: SupplierContactChannel; value: string };
+
+export type SupplierDetail = {
+  id: string;
+  code: string;
+  name: string;
+  taxId: string | null;
+  address: string | null;
+  contactPerson: string | null;
+  paymentTerms: string | null;
+  note: string | null;
+  isActive: boolean;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+  contacts: SupplierContact[];
+};
+
+export type SupplierListPage = {
+  items: SupplierDetail[];
+  page: number;
+  limit: number;
+  totalCount: number;
+  totalPages: number;
 };
 
 export type DashboardSummary = {

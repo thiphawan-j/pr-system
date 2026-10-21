@@ -22,6 +22,7 @@ import { PurchasingProgressPanel } from "@/components/purchase-requests/purchasi
 import { ReceiptConfirmationPanel } from "@/components/purchase-requests/receipt-confirmation-panel";
 import { ReceiptHistoryPanel } from "@/components/purchase-requests/receipt-history-panel";
 import { ReceiptReferencePanel } from "@/components/purchase-requests/receipt-reference-panel";
+import { SharePurchaseRequestButton } from "@/components/purchase-requests/share-purchase-request-button";
 import { StatusBadge } from "@/components/purchase-requests/status-badge";
 import { SubmitPurchaseRequestButton } from "@/components/purchase-requests/submit-purchase-request-button";
 import {
@@ -156,6 +157,11 @@ export default async function PurchaseRequestDetailPage({
           </div>
 
           <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
+            <SharePurchaseRequestButton
+              requestId={request.id}
+              prNumber={request.prNumber}
+              reason={request.reason}
+            />
             {canEdit ? (
               <Button asChild variant="outline" className="rounded-xl">
                 <Link href={`/purchase-requests/${request.id}/edit`}>
@@ -294,6 +300,22 @@ export default async function PurchaseRequestDetailPage({
 
       <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
         <div className="space-y-6">
+          {request.purchaseOrders.length > 0 ? (
+            <Card className="border-border/70">
+              <CardHeader><CardTitle>{dictionary.purchaseOrders.linkedTitle}</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                {request.purchaseOrders.map((order) => (
+                  <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4">
+                    <div>
+                      <Link href={`/purchase-orders/${order.id}`} className="font-semibold underline underline-offset-4">{order.poNumber}</Link>
+                      <p className="mt-1 text-sm text-muted-foreground">{order.supplierName} · {formatDate(order.issuedAt, locale)}</p>
+                    </div>
+                    <p className="font-medium">{formatCurrency(order.totalAmount, locale)}</p>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
           <Card className="border-border/70">
             <CardHeader>
               <CardTitle>{dictionary.purchaseRequests.detailTitle}</CardTitle>
