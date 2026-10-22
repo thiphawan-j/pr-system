@@ -2,8 +2,8 @@ import "server-only";
 
 import { ApprovalAction, NotificationType, Prisma, PurchaseRequestStatus } from "@prisma/client";
 import { toBangkokDateValue, toBangkokIsoString, toBangkokMonthValue } from "@/lib/format";
-import type { PurchaseOrderDetail, PurchaseOrderSummary, SessionUser } from "@/lib/types";
-import { isPurchasing } from "@/server/auth/authorization";
+import type { PurchaseOrderDetail, PurchaseOrderSnapshot, PurchaseOrderSummary, SessionUser } from "@/lib/types";
+import { canApprovePurchaseRequest, isPurchasing } from "@/server/auth/authorization";
 import { getDb } from "@/server/db";
 import { createNotifications } from "@/server/notifications/notification.service";
 import type { PurchaseOrderConversionInput } from "@/server/purchase-orders/purchase-order.schemas";
@@ -142,15 +142,38 @@ export async function getPurchaseOrderById(id: string, session: SessionUser): Pr
     where: { id },
     include: {
       createdBy: { select: { id: true, name: true } },
-      purchaseRequest: { select: { id: true, prNumber: true, requesterId: true, department: true, currentApproverId: true, status: true, requester: { select: { name: true } } } },
+      purchaseRequest: { select: { id: true, prNumber: true, requesterId: true, department: true, currentApproverId: true, status: true, receivedAt: true, requester: { select: { name: true } },
+        approvals: { where: { action: "APPROVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { approverId: true } } } },
       items: { orderBy: { position: "asc" }, include: { purchaseRequestItem: { select: { receivedQuantity: true, closedQuantity: true } } } },
+      changes: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], include: {
+        submittedBy: { select: { id: true, name: true } }, reviewedBy: { select: { id: true, name: true } },
+      } },
     },
   });
   if (!order) throw new AppError("ไม่พบเอกสาร PO ที่ต้องการ", 404);
   const source = order.purchaseRequest;
-  assertCanViewPurchaseRequest(session, source.requesterId, source.department, source.currentApproverId);
+  // The original PR approver still needs the PO and its revision history when
+  // reviewing an amendment, including after a department reassignment.
+  if (!canApprovePurchaseRequest(session, source.approvals[0]?.approverId)) {
+    assertCanViewPurchaseRequest(session, source.requesterId, source.department, source.currentApproverId);
+  }
   const contacts = z.array(supplierContactSchema).safeParse(order.supplierContacts);
+  const pending = order.changes.find((change) => change.status === "PENDING");
+  const active = source.status === "ORDERED" && !source.receivedAt;
+  const reviewable = source.status === "ORDERED";
   return {
+    version: order.version, revision: order.revision,
+    canEdit: active && isPurchasing(session) && !pending,
+    canReview: reviewable && Boolean(pending) && pending?.submittedById !== session.id && canApprovePurchaseRequest(session, source.approvals[0]?.approverId),
+    canWithdraw: reviewable && pending?.submittedById === session.id,
+    pendingChangeId: pending?.id ?? null,
+    changes: order.changes.map((change) => ({
+      id: change.id, status: change.status, baseVersion: change.baseVersion,
+      reason: change.reason, reviewComment: change.reviewComment,
+      createdAt: toBangkokIsoString(change.createdAt), reviewedAt: change.reviewedAt ? toBangkokIsoString(change.reviewedAt) : null,
+      submittedBy: change.submittedBy, reviewedBy: change.reviewedBy,
+      before: change.before as unknown as PurchaseOrderSnapshot, after: change.after as unknown as PurchaseOrderSnapshot,
+    })),
     supplierId: order.supplierId,
     supplierCode: order.supplierCode,
     supplierTaxId: order.supplierTaxId,

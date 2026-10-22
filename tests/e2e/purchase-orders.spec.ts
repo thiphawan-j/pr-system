@@ -1,4 +1,7 @@
+import { readFile } from "node:fs/promises";
+
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
+import { PDFDocument } from "pdf-lib";
 
 import type { PurchaseOrderDetail, PurchaseOrderSummary, PurchaseRequestDetail } from "../../src/lib/types";
 import { authenticate, expectStatus, getRequest, receive } from "./receipt-support";
@@ -342,13 +345,16 @@ test("cancellation is reflected on every issued PO while preserving its supplier
   for (const original of before) {
     const current = await getOrder(page, original.id);
     expect(current.purchaseRequest.status).toBe("CANCELLED");
-    expect({ ...current, purchaseRequest: { ...current.purchaseRequest, status: original.purchaseRequest.status } }).toEqual(original);
+    expect(current.canEdit).toBe(false);
+    expect({ ...current, canEdit: original.canEdit, purchaseRequest: { ...current.purchaseRequest, status: original.purchaseRequest.status } }).toEqual(original);
   }
   await page.goto(`/purchase-orders/${summaries[0]!.id}`);
   await expect(page.locator("main")).toContainText(/ยกเลิกแล้ว|cancelled/i);
   await page.emulateMedia({ media: "print" });
-  await expect(page.locator(".purchase-order-notice")).toBeVisible();
-  await expect(page.locator(".purchase-order-notice")).toContainText(/ยกเลิก|cancelled/i);
+  const printedDocument = page.locator(".purchase-order-document");
+  await expect(printedDocument).toBeVisible();
+  await expect(printedDocument.locator("svg text").filter({ hasText: /ยกเลิก|cancelled/i }).first()).toBeVisible();
+  await expect(printedDocument).toContainText(/PR ต้นทางถูกยกเลิกแล้ว|The source PR has been cancelled/i);
 });
 
 test("PO source links retain live partial receipt and closed balances without changing ordered snapshots", async ({ page }) => {
@@ -417,12 +423,51 @@ test("Purchasing converts supplier groups in the browser and opens a printable P
   await expect(page).toHaveURL(new RegExp(`/purchase-orders/${first.id}$`));
   await expect(page.locator("main")).toContainText(first.poNumber);
   await expect(page.locator("main")).toContainText("123 Alpha Supplier Road");
-  await expect(page.locator(".purchase-order-document").locator(`a[href="/purchase-requests/${request.id}"]`)).toBeVisible();
+  await expect(page.locator(`.purchase-order-actions dl a[href="/purchase-requests/${request.id}"]`)).toBeVisible();
+  const document = page.locator(".purchase-order-document");
+  await expect(document).toBeVisible();
+  const issued = await getOrder(page, first.id);
+  const locale = await page.locator("html").getAttribute("lang") === "en" ? "en-US" : "th-TH";
+  const number = new Intl.NumberFormat(locale);
+  const money = new Intl.NumberFormat(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const renderedText = (await document.locator("svg text").allTextContents()).join(" ").replace(/\s+/g, " ");
+  const numericColumns = (await document.locator('svg text[text-anchor="end"]').allTextContents()).join("|");
+  expect(renderedText).toContain(issued.supplierName);
+  expect(renderedText).toContain(request.prNumber);
+  expect(renderedText).toContain("Net 30 days");
+  for (const item of issued.items) {
+    expect(renderedText).toContain(item.itemName);
+    if (item.description) expect(renderedText).toContain(item.description);
+    if (item.unit) expect(renderedText).toContain(item.unit);
+    expect(numericColumns).toContain([number.format(item.quantity), money.format(item.unitPrice), money.format(item.amount)].join("|"));
+  }
+  expect(renderedText).toContain(money.format(issued.totalAmount));
+  const downloadLink = page.locator("#download-purchase-order-pdf");
+  await expect(downloadLink).toHaveAttribute("href", `/api/purchase-orders/${first.id}/pdf`);
+  const downloaded = page.waitForEvent("download");
+  const downloadedResponse = page.waitForResponse((response) => response.url().endsWith(`/api/purchase-orders/${first.id}/pdf`) && response.request().method() === "GET");
+  await downloadLink.click();
+  const [download, pdfResponse] = await Promise.all([downloaded, downloadedResponse]);
+  expect(pdfResponse.status()).toBe(200);
+  expect(await pdfResponse.headerValue("content-type")).toContain("application/pdf");
+  expect(await pdfResponse.headerValue("content-disposition")).toContain(`attachment; filename="${first.poNumber}.pdf"`);
+  expect(download.suggestedFilename()).toBe(`${first.poNumber}.pdf`);
+  const downloadedPath = await download.path();
+  expect(downloadedPath).not.toBeNull();
+  const pdf = await PDFDocument.load(await readFile(downloadedPath!));
+  expect(pdf.getPageCount()).toBe(await document.locator("svg.purchase-order-page").count());
+  for (const pdfPage of pdf.getPages()) {
+    expect(pdfPage.getWidth()).toBeCloseTo(595.28, 1);
+    expect(pdfPage.getHeight()).toBeCloseTo(841.89, 1);
+  }
   await page.locator("#print-purchase-order").click();
   await expect.poll(() => page.evaluate(() => window.__poPrintCalls)).toBe(1);
   await page.emulateMedia({ media: "print" });
   await expect(page.getByRole("banner")).toBeHidden();
-  await expect(page.locator(".purchase-order-actions")).toBeHidden();
+  const actionSections = page.locator(".purchase-order-actions");
+  expect(await actionSections.count()).toBeGreaterThan(0);
+  for (const section of await actionSections.all()) await expect(section).toBeHidden();
+  await expect(page.locator(".purchase-order-pr-status")).toBeHidden();
   await expect(page.locator(".purchase-order-document")).toBeVisible();
   await expect(page.locator(".purchase-order-document")).toContainText(first.poNumber);
 });

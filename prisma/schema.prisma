@@ -83,28 +83,36 @@ enum SupplierContactChannel {
   OTHER
 }
 
+enum PurchaseOrderChangeStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
 model User {
-  id                        String                      @id @default(cuid())
-  employeeCode              String                      @unique
-  name                      String
-  username                  String?                     @unique
-  phone                     String?                     @unique
-  email                     String                      @unique
-  passwordHash              String
-  isActive                  Boolean                     @default(true)
-  department                String
-  role                      Role
-  title                     String?
-  createdAt                 DateTime                    @default(now())
-  updatedAt                 DateTime                    @updatedAt
-  purchaseRequests          PurchaseRequest[]           @relation("RequesterPurchaseRequests")
-  approvals                 Approval[]
-  notifications             Notification[]
-  assignedRequests          PurchaseRequest[]           @relation("CurrentApproverPurchaseRequests")
-  cancelledPurchaseRequests PurchaseRequest[]           @relation("CancelledPurchaseRequests")
-  uploadedAttachments       PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
-  recordedReceipts          PurchaseRequestReceipt[]
-  createdPurchaseOrders     PurchaseOrder[]
+  id                            String                      @id @default(cuid())
+  employeeCode                  String                      @unique
+  name                          String
+  username                      String?                     @unique
+  phone                         String?                     @unique
+  email                         String                      @unique
+  passwordHash                  String
+  isActive                      Boolean                     @default(true)
+  department                    String
+  role                          Role
+  title                         String?
+  createdAt                     DateTime                    @default(now())
+  updatedAt                     DateTime                    @updatedAt
+  purchaseRequests              PurchaseRequest[]           @relation("RequesterPurchaseRequests")
+  approvals                     Approval[]
+  notifications                 Notification[]
+  assignedRequests              PurchaseRequest[]           @relation("CurrentApproverPurchaseRequests")
+  cancelledPurchaseRequests     PurchaseRequest[]           @relation("CancelledPurchaseRequests")
+  uploadedAttachments           PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
+  recordedReceipts              PurchaseRequestReceipt[]
+  createdPurchaseOrders         PurchaseOrder[]
+  submittedPurchaseOrderChanges PurchaseOrderChange[]       @relation("SubmittedPurchaseOrderChanges")
+  reviewedPurchaseOrderChanges  PurchaseOrderChange[]       @relation("ReviewedPurchaseOrderChanges")
 }
 
 model PurchaseRequest {
@@ -218,16 +226,16 @@ model PurchaseRequestReceiptItem {
 }
 
 model PurchaseOrder {
-  id                    String              @id @default(cuid())
-  poNumber              String              @unique
+  id                    String                @id @default(cuid())
+  poNumber              String                @unique
   purchaseRequestId     String
-  purchaseRequest       PurchaseRequest     @relation(fields: [purchaseRequestId], references: [id], onDelete: Restrict)
+  purchaseRequest       PurchaseRequest       @relation(fields: [purchaseRequestId], references: [id], onDelete: Restrict)
   createdById           String
-  createdBy             User                @relation(fields: [createdById], references: [id], onDelete: Restrict)
-  issuedAt              DateTime            @default(now())
+  createdBy             User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
+  issuedAt              DateTime              @default(now())
   supplierName          String
   supplierId            String?
-  supplier              Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  supplier              Supplier?             @relation(fields: [supplierId], references: [id], onDelete: Restrict)
   supplierCode          String?
   supplierTaxId         String?
   supplierContactPerson String?
@@ -238,13 +246,39 @@ model PurchaseOrder {
   paymentTerms          String?
   expectedDeliveryDate  DateTime?
   note                  String?
-  totalAmount           Decimal             @db.Decimal(12, 2)
-  createdAt             DateTime            @default(now())
+  totalAmount           Decimal               @db.Decimal(12, 2)
+  version               Int                   @default(0)
+  revision              Int                   @default(0)
+  createdAt             DateTime              @default(now())
   items                 PurchaseOrderItem[]
+  changes               PurchaseOrderChange[]
 
   @@index([purchaseRequestId, issuedAt])
   @@index([createdById])
   @@index([supplierId])
+}
+
+model PurchaseOrderChange {
+  id              String                    @id @default(cuid())
+  purchaseOrderId String
+  purchaseOrder   PurchaseOrder             @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  submittedById   String
+  submittedBy     User                      @relation("SubmittedPurchaseOrderChanges", fields: [submittedById], references: [id], onDelete: Restrict)
+  reviewedById    String?
+  reviewedBy      User?                     @relation("ReviewedPurchaseOrderChanges", fields: [reviewedById], references: [id], onDelete: Restrict)
+  reason          String
+  reviewComment   String?
+  status          PurchaseOrderChangeStatus @default(PENDING)
+  baseVersion     Int
+  before          Json
+  after           Json
+  createdAt       DateTime                  @default(now())
+  reviewedAt      DateTime?
+
+  @@index([purchaseOrderId, createdAt])
+  @@index([purchaseOrderId, status])
+  @@index([submittedById])
+  @@index([reviewedById])
 }
 
 model Supplier {

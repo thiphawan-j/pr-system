@@ -172,6 +172,7 @@ export type PurchaseRequestDetail = {
   hasPartialReceipt: boolean;
   receipts: PurchaseRequestReceipt[];
   purchaseOrders: PurchaseOrderSummary[];
+  hasPendingPurchaseOrderChange: boolean;
   completedAt?: string | null;
   cancellationRequestedAt?: string | null;
   cancelledAt?: string | null;
@@ -213,6 +214,13 @@ export type PurchaseOrderSummary = {
 };
 
 export type PurchaseOrderDetail = PurchaseOrderSummary & {
+  version: number;
+  revision: number;
+  canEdit: boolean;
+  canReview: boolean;
+  canWithdraw: boolean;
+  pendingChangeId: string | null;
+  changes: PurchaseOrderChange[];
   supplierId: string | null;
   supplierCode: string | null;
   supplierTaxId: string | null;
@@ -244,6 +252,49 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
     receivedQuantity: number;
     closedQuantity: number;
   }>;
+};
+
+export const purchaseOrderChangeStatuses = ["PENDING", "APPROVED", "REJECTED"] as const;
+export type PurchaseOrderChangeStatus = (typeof purchaseOrderChangeStatuses)[number];
+
+export type PurchaseOrderSnapshot = {
+  supplierId: string | null;
+  supplierCode: string | null;
+  supplierTaxId: string | null;
+  supplierContactPerson: string | null;
+  supplierContacts: SupplierContact[];
+  supplierName: string;
+  supplierAddress: string | null;
+  supplierContact: string | null;
+  deliveryAddress: string | null;
+  paymentTerms: string | null;
+  expectedDeliveryDate: string | null;
+  note: string | null;
+  totalAmount: number;
+  items: Array<{
+    id?: string;
+    purchaseRequestItemId?: string;
+    itemName: string;
+    description: string | null;
+    quantity: number;
+    unit: string | null;
+    unitPrice: number;
+    amount: number;
+  }>;
+};
+
+export type PurchaseOrderChange = {
+  id: string;
+  status: PurchaseOrderChangeStatus;
+  baseVersion: number;
+  reason: string;
+  reviewComment: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
+  submittedBy: { id: string; name: string };
+  reviewedBy: { id: string; name: string } | null;
+  before: PurchaseOrderSnapshot;
+  after: PurchaseOrderSnapshot;
 };
 
 export const supplierContactChannels = ["LINE", "PHONE", "ECOMMERCE", "EMAIL", "OTHER"] as const;

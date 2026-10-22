@@ -64,7 +64,9 @@ type PersistedItem = {
 
 const purchaseRequestInclude = {
   requester: true,
-  purchaseOrders: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { _count: { select: { items: true } } } },
+  purchaseOrders: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: {
+    _count: { select: { items: true } }, changes: { where: { status: "PENDING" }, select: { id: true } },
+  } },
   currentApprover: true,
   cancelledBy: true,
   items: {
@@ -402,6 +404,7 @@ function toDetail(
     orderedAt: request.orderedAt ? toBangkokIsoString(request.orderedAt) : null,
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
     purchaseOrders: request.purchaseOrders.map((order) => ({ id: order.id, poNumber: order.poNumber, supplierName: order.supplierName, issuedAt: toBangkokIsoString(order.issuedAt), totalAmount: Number(order.totalAmount), itemCount: order._count.items })),
+    hasPendingPurchaseOrderChange: request.purchaseOrders.some((order) => order.changes.length > 0),
     receiptVersion: request.receiptVersion,
     hasPartialReceipt: request.items.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
     receipts: request.receipts.map((receipt) => ({
@@ -1465,6 +1468,7 @@ export async function updatePurchaseRequestCancellation(
       "กรุณาระบุเลขอ้างอิงการยกเลิก PO",
       400,
     );
+    await assertNoPendingPurchaseOrderChanges(db, id);
   } else {
     invariant(isOwnerCancellation, "PR สถานะนี้ไม่สามารถยกเลิกได้", 400);
     invariant(
@@ -1479,7 +1483,9 @@ export async function updatePurchaseRequestCancellation(
       where: {
         id,
         status: request.status,
-        ...(isOrderedCancellation ? { receivedAt: null, receiptVersion: request.receiptVersion, receipts: { none: {} } } : {}),
+        ...(isOrderedCancellation ? { receivedAt: null, receiptVersion: request.receiptVersion, receipts: { none: {} },
+          purchaseOrders: { none: { changes: { some: { status: "PENDING" } } } },
+        } : {}),
       },
       data: {
         status: PurchaseRequestStatus.CANCELLED,
@@ -1666,6 +1672,11 @@ export async function reviewPurchaseRequest(
   });
 }
 
+async function assertNoPendingPurchaseOrderChanges(db: Pick<Prisma.TransactionClient, "purchaseOrderChange">, id: string) {
+  const pending = await db.purchaseOrderChange.findFirst({ where: { purchaseOrder: { purchaseRequestId: id }, status: "PENDING" }, select: { id: true } });
+  invariant(!pending, "PR นี้มี PO รอตรวจการแก้ไข กรุณาพิจารณาให้เสร็จก่อนรับสินค้า ยกเลิก หรือปิดงาน", 400);
+}
+
 export async function recordPurchaseRequestReceipt(
   id: string,
   session: SessionUser,
@@ -1683,6 +1694,7 @@ export async function recordPurchaseRequestReceipt(
   assertCanViewPurchaseRequest(session, request.requesterId, request.department, request.currentApproverId);
   invariant(request.status === PurchaseRequestStatus.ORDERED, "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้", 400);
   invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+  await assertNoPendingPurchaseOrderChanges(db, id);
 
   const isClosing = input.action === "CLOSE_REMAINDER";
   if (isClosing) {
@@ -1723,7 +1735,9 @@ export async function recordPurchaseRequestReceipt(
     // Serialize all quantity changes, cancellation and completion on the PR.
     // A stale form or repeated submission cannot append another receipt.
     const updated = await transaction.purchaseRequest.updateMany({
-      where: { id, status: PurchaseRequestStatus.ORDERED, receiptVersion: input.expectedVersion },
+      where: { id, status: PurchaseRequestStatus.ORDERED, receiptVersion: input.expectedVersion,
+        purchaseOrders: { none: { changes: { some: { status: "PENDING" } } } },
+      },
       data: {
         receiptVersion: { increment: 1 },
         receivedAt: allSettled ? settledReceivedAt : null,
@@ -1969,6 +1983,7 @@ export async function updateReceiptReferences(
 
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
   invariant(input.expectedVersion === undefined || request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+  await assertNoPendingPurchaseOrderChanges(db, id);
   invariant(
     request.status === PurchaseRequestStatus.ORDERED ||
       request.status === PurchaseRequestStatus.COMPLETED,
@@ -2008,6 +2023,7 @@ export async function updateReceiptReferences(
         receivedAt: request.receivedAt,
         updatedAt: request.updatedAt,
         receiptVersion: request.receiptVersion,
+        purchaseOrders: { none: { changes: { some: { status: "PENDING" } } } },
       },
       data: {
         status:

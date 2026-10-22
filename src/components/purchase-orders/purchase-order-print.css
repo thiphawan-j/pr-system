@@ -1,109 +1,102 @@
+.purchase-order-document {
+  width: 100%;
+  font-family: "Noto Sans Thai", sans-serif;
+}
+
+.purchase-order-page {
+  display: block;
+  width: 100%;
+  max-width: 210mm;
+  height: auto;
+  margin-inline: auto;
+  overflow: visible;
+  background: #fff;
+  color-scheme: light;
+  box-shadow: 0 2px 16px rgb(0 0 0 / 12%);
+  user-select: text;
+}
+
+.purchase-order-page + .purchase-order-page {
+  margin-top: 24px;
+}
+
 @media print {
-  @page {
-    margin: 12mm;
+  @page purchase-order {
+    size: A4 portrait;
+    margin: 0;
+  }
+
+  html:has(.purchase-order-document),
+  body:has(.purchase-order-document) {
+    width: auto !important;
+    min-width: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    background: #fff !important;
+    color-scheme: light !important;
   }
 
   body:has(.purchase-order-document) {
-    background: white !important;
-    color: #111 !important;
-    color-scheme: light;
+    page: purchase-order;
+  }
+
+  body:has(.purchase-order-document) .min-h-screen {
+    min-height: 0 !important;
   }
 
   body:has(.purchase-order-document) header.sticky,
   body:has(.purchase-order-document) [data-sonner-toaster],
   body:has(.purchase-order-document) [data-slot="sheet-content"],
   body:has(.purchase-order-document) [data-slot="sheet-overlay"],
+  body:has(.purchase-order-document) nextjs-portal,
   .purchase-order-actions {
     display: none !important;
   }
 
-  body:has(.purchase-order-document) main {
-    display: block !important;
-    width: 100% !important;
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
+  body:has(.purchase-order-document) main,
+  .purchase-order-view,
   .purchase-order-document {
+    display: block !important;
+    width: 210mm !important;
+    min-width: 0 !important;
+    max-width: none !important;
+    height: auto !important;
+    min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
     border-radius: 0 !important;
-    background: white !important;
-    color: #111 !important;
     box-shadow: none !important;
-    font-size: 10pt;
+    gap: 0 !important;
   }
 
-  .purchase-order-document .text-muted-foreground,
-  .purchase-order-document a,
-  .purchase-order-document th {
-    color: #333 !important;
+  .purchase-order-view > * {
+    margin: 0 !important;
   }
 
-  .purchase-order-document [data-slot="table-container"] {
-    overflow: visible !important;
-  }
-
-  .purchase-order-document thead {
-    display: table-header-group;
-  }
-
-  .purchase-order-document table {
-    width: 100%;
-    table-layout: fixed;
-    font-size: 9pt;
-  }
-
-  .purchase-order-document th,
-  .purchase-order-document td {
-    min-width: 0 !important;
+  .purchase-order-page {
+    display: block !important;
+    width: 210mm !important;
     max-width: none !important;
-    padding: 6px;
-    overflow-wrap: anywhere;
-  }
-
-  .purchase-order-document th {
-    white-space: normal;
-  }
-
-  .purchase-order-document th:first-child {
-    width: 5%;
-  }
-
-  .purchase-order-document th:nth-child(2) {
-    width: 41%;
-  }
-
-  .purchase-order-document th:nth-child(n + 3) {
-    width: 18%;
-  }
-
-  .purchase-order-document [data-slot="badge"] {
-    border: 1px solid #555 !important;
-    background: white !important;
-    color: #111 !important;
+    height: 297mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
     box-shadow: none !important;
-  }
-
-  .purchase-order-document tr,
-  .purchase-order-document .purchase-order-notice {
+    overflow: visible !important;
     break-inside: avoid;
+    page-break-inside: avoid;
+    break-after: page;
+    page-break-after: always;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  .purchase-order-document .purchase-order-parties {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-  }
-
-  .purchase-order-document .purchase-order-notice {
-    border: 2px solid #555;
-    background: white !important;
-    color: #111 !important;
-  }
-
-  .purchase-order-document .purchase-order-notice * {
-    color: #111 !important;
+  .purchase-order-page:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
 }

@@ -107,6 +107,7 @@ export default async function PurchaseRequestDetailPage({
     request.status === "ORDERED" &&
     !request.receivedAt &&
     request.receipts.length === 0 &&
+    !request.hasPendingPurchaseOrderChange &&
     canHandleCancellation
   ) {
     cancellationMode = "CANCEL_ORDERED";
@@ -121,11 +122,12 @@ export default async function PurchaseRequestDetailPage({
   const canProgress =
     request.status === "APPROVED" &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
-  const canConfirmReceipt = request.status === "ORDERED";
+  const canConfirmReceipt = request.status === "ORDERED" && !request.hasPendingPurchaseOrderChange;
   const isPurchasing = session.role === "PURCHASING" || session.role === "ADMIN";
   const canCloseOutstanding =
     isPurchasing && request.items.some((item) => item.receivedQuantity > 0);
   const canEditReceiptReferences =
+    !request.hasPendingPurchaseOrderChange &&
     ((request.status === "ORDERED" && request.receivedAt) ||
       request.status === "COMPLETED") &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
@@ -137,6 +139,15 @@ export default async function PurchaseRequestDetailPage({
 
   return (
     <div className="space-y-6">
+      {request.hasPendingPurchaseOrderChange ? (
+        <Alert className="border-amber-500/40 bg-amber-500/10" id="pending-po-change-notice">
+          <CircleAlert className="size-4" />
+          <AlertTitle>{locale === "th" ? "มี PO รอตรวจการแก้ไข" : "A PO revision is awaiting review"}</AlertTitle>
+          <AlertDescription>{locale === "th"
+            ? "เปิด PO จากส่วนใบสั่งซื้อเพื่อดูฉบับแก้ไข ระหว่างรอตรวจ ระบบพักการรับสินค้า การยกเลิก และการปิดงานของ PR นี้"
+            : "Open the PO below to review the proposed revision. Receiving, cancellation, and completion are paused until the revision is resolved."}</AlertDescription>
+        </Alert>
+      ) : null}
       <section className="flex flex-col gap-4 rounded-[2rem] border border-border/70 bg-card/80 p-6">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
           <div className="space-y-3">
