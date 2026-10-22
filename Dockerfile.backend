@@ -15,9 +15,12 @@ RUN npm ci
 
 FROM base AS builder
 
+ARG NEXT_BUILD_MAX_OLD_SPACE_SIZE=2048
+
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN npm run build
+# Scope the build heap to this step; runtime and migration containers keep their defaults.
+RUN NODE_OPTIONS="--max-old-space-size=${NEXT_BUILD_MAX_OLD_SPACE_SIZE}" npm run build
 
 FROM base AS migrator
 
@@ -45,7 +48,6 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/@fontsource/noto-sans-thai ./node_modules/@fontsource/noto-sans-thai
 
-USER nextjs
 USER nextjs
 
 EXPOSE 3000

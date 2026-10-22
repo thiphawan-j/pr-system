@@ -2,6 +2,8 @@
 
 คู่มือนี้ใช้สำหรับ deploy PR System production บน Droplet เดิม `165.22.108.234` โดยแยกจากระบบเดิม `rider.tangthong.com` และใช้ Caddy container เดิมของ server เท่านั้น
 
+การ deploy อัตโนมัติสร้าง Docker images บน GitHub Actions runner แล้วส่งไปให้ Droplet โหลดและรัน เพื่อลดการใช้หน่วยความจำของเครื่อง production ระหว่าง build Next.js
+
 ## Server facts ของเครื่องจริง
 
 - Existing app: `rider.tangthong.com`
@@ -25,6 +27,8 @@
 - `pr-system-private`: internal Docker network ของ PR System สำหรับ `web <-> db`
 - `ttt-rider_default`: external Docker network เดียวกับ `ttt-rider-caddy`
 
+ชื่อ service สำหรับคำสั่ง `docker compose` คือ `postgres`, `migrate` และ `pr-system-web` ส่วน `pr-system-db` และ `pr-system-migrate` เป็นชื่อ container
+
 Production compose นี้ตั้งใจให้เป็นแบบนี้:
 
 - ไม่มี container ใดของ PR System map host port `80/443`
@@ -34,9 +38,9 @@ Production compose นี้ตั้งใจให้เป็นแบบน�
 ## 1. เตรียมไฟล์บน server
 
 ```bash
-sudo mkdir -p /srv/pr-system
-sudo chown "$USER":"$USER" /srv/pr-system
-cd /srv/pr-system
+sudo mkdir -p /opt/pr-system/pr-system
+sudo chown "$USER":"$USER" /opt/pr-system/pr-system
+cd /opt/pr-system/pr-system
 
 git clone https://github.com/thiphawan-j/pr-system.git .
 git checkout main
@@ -45,7 +49,7 @@ git checkout main
 ถ้า clone ไว้อยู่แล้ว:
 
 ```bash
-cd /srv/pr-system
+cd /opt/pr-system/pr-system
 git fetch origin
 git checkout main
 git pull --ff-only origin main
@@ -84,20 +88,30 @@ DATABASE_URL="postgresql://pr_system:replace-with-a-strong-database-password@pr-
 - compose production นี้ไม่ต้องตั้งค่า frontend bind port เพราะไม่ได้ publish port ออก host
 - compose production นี้จะ join external network `ttt-rider_default` โดยตรง
 
-## 3. Build และ start Docker Compose
+## 3. Deploy อัตโนมัติผ่าน GitHub Actions
 
-```bash
-cd /srv/pr-system
+ใช้ workflow `Deploy to DigitalOcean Droplet` หลัง `CI` ของ `main` ใน repository เดียวกันผ่าน โดย workflow จะทำงานตามลำดับดังนี้:
 
-docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tools build
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d pr-system-db
-docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tools run --rm pr-system-migrate
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d pr-system-web
-```
+1. เลือก commit ที่ผ่าน CI และ checkout ด้วย SHA เต็ม เพื่อให้ source code, Docker images และ migration เป็นชุดเดียวกัน
+2. สร้าง web image และ migration image สำหรับ `linux/amd64` บน GitHub runner พร้อม tag ตาม SHA ของ commit นั้น ขั้นตอน build ใช้ ARG `NEXT_BUILD_MAX_OLD_SPACE_SIZE` เริ่มต้น 2,048 MB ปรับได้เฉพาะตอน build โดยไม่ตั้ง Node heap ค่านี้ให้ web container ตอนใช้งานจริง
+3. ส่ง images ด้วย `docker image save` ที่บีบอัดผ่าน SSH แล้วใช้ `docker image load` บน Droplet โดยไม่เก็บไฟล์ archive เพิ่มบน server และไม่ build Next.js บน Droplet
+4. ตรวจ image, platform, environment, volumes และ network ที่ต้องใช้ พร้อมสำรองฐานข้อมูลก่อนใช้ `prisma migrate deploy`
+5. เมื่อ migration สำเร็จจึงแทนที่ web container ด้วย image ที่สร้างไว้ ตรวจหน้า `/login` และ runtime logs ตามขั้นตอนตรวจความพร้อมเดิม
+
+การส่ง images ใช้ secrets เดิม `DROPLET_HOST`, `DROPLET_USER` และ `DROPLET_SSH_KEY` ไม่ต้องเพิ่ม container registry หรือ registry token ส่วน `.env.prod` และข้อมูลใน database/storage volumes ยังคงอยู่บน Droplet
+
+workflow เลือก images ผ่าน `PR_SYSTEM_WEB_IMAGE=pr-system-web:<full-SHA>` และ `PR_SYSTEM_MIGRATE_IMAGE=pr-system-migrate:<full-SHA>` จึงใช้ migration และ web จาก commit เดียวกัน เมื่อ deploy และตรวจความพร้อมสำเร็จแล้วจึงอัปเดต tags `:prod` สำหรับคำสั่ง Compose ที่ใช้ค่า default หากต้องการสั่งด้วย revision อื่น ให้กำหนดสองค่านี้เป็น tags ที่ต้องการก่อน
+
+การสั่ง workflow ด้วยตนเองผ่าน `workflow_dispatch` รองรับเฉพาะ branch `main`
+
+ต้อง commit และ push การแก้ workflow เข้า `main` แล้วให้ CI ของ commit ใหม่นั้นผ่านก่อน การกด rerun ของ deployment เก่าที่ล้มเหลวเพียงอย่างเดียวจะยังไม่ใช้ workflow ฉบับแก้ไข
+
+สำหรับการติดตั้งครั้งแรก ให้เตรียม `.env.prod`, production volumes และ external network ตามหัวข้อก่อนหน้าให้ครบก่อนเริ่ม workflow
 
 ตรวจสถานะ:
 
 ```bash
+cd /opt/pr-system/pr-system
 docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=100 pr-system-web
 docker inspect pr-system-web --format '{{range $name, $_ := .NetworkSettings.Networks}}{{println $name}}{{end}}'
@@ -145,18 +159,11 @@ curl -I https://pr-system.tangthong.com
 
 ## 6. Deploy update ครั้งถัดไป
 
-```bash
-cd /srv/pr-system
+push การแก้ไขเข้า `main` แล้วตรวจให้ `CI` และ `Deploy to DigitalOcean Droplet` ผ่าน โดยตรวจ SHA ที่ deploy ใน workflow logs ให้ตรงกับ commit ที่ต้องการ การ deploy จะใช้ images ที่ GitHub runner สร้างไว้และไม่สั่ง `docker compose build` บน production Droplet
 
-git fetch origin
-git checkout main
-git pull --ff-only origin main
+หากต้อง build ด้วยตนเอง ให้ใช้เครื่อง builder ที่มี RAM เพียงพอสำหรับ Next.js compilation และ TypeScript checking แล้วส่ง images ของ SHA เดียวกันไปให้ Droplet โหลดตามขั้นตอนใน workflow หลีกเลี่ยงการใช้ production Droplet ที่มี RAM จำกัดเป็น builder การเพิ่ม Node heap อย่างเดียวไม่ได้เพิ่ม RAM ของเครื่อง
 
-docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tools build
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d pr-system-db
-docker compose --env-file .env.prod -f docker-compose.prod.yml --profile tools run --rm pr-system-migrate
-docker compose --env-file .env.prod -f docker-compose.prod.yml up -d pr-system-web
-```
+ก่อนสั่ง migration หรือแทนที่ container ด้วยตนเอง ต้องตรวจว่ามีทั้ง web image และ migration image ของ commit ที่ต้องการโหลดครบแล้ว พร้อมสำรองฐานข้อมูลตามหัวข้อ 8 ใช้ service `postgres` สำหรับฐานข้อมูลและ `migrate` สำหรับ migration โดยไม่สั่ง seed หรือสร้างฐานข้อมูลใหม่ทับข้อมูล production
 
 ## 7. Logs และ operations
 
@@ -170,7 +177,7 @@ docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f
 
 ```bash
 docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f pr-system-web
-docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f pr-system-db
+docker compose --env-file .env.prod -f docker-compose.prod.yml logs -f postgres
 ```
 
 Restart:
@@ -198,17 +205,17 @@ database ของ PR System ถูกออกแบบให้ใช้ Docke
 เข้า `psql` โดยไม่ expose port:
 
 ```bash
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec pr-system-db \
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec postgres \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 
 Backup:
 
 ```bash
-cd /srv/pr-system
+cd /opt/pr-system/pr-system
 mkdir -p backups
 
-docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T pr-system-db \
+docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres \
   sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB"' \
   > "backups/pr-system-$(date +%Y%m%d-%H%M%S).sql"
 ```
@@ -222,7 +229,7 @@ gzip backups/pr-system-YYYYMMDD-HHMMSS.sql
 Restore database:
 
 ```bash
-cat backups/pr-system-YYYYMMDD-HHMMSS.sql | docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T pr-system-db \
+cat backups/pr-system-YYYYMMDD-HHMMSS.sql | docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T postgres \
   sh -c 'psql -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
 ```
 

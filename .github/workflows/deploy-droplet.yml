@@ -23,45 +23,187 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: >-
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main') ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main' &&
+       github.event.workflow_run.head_repository.full_name == github.repository &&
+       (github.event.workflow_run.event == 'push' ||
+        github.event.workflow_run.event == 'workflow_dispatch'))
+    env:
+      DEPLOY_SHA: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || github.sha }}
 
     steps:
+      - name: Validate deployment revision
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]] || {
+            echo "ERROR: Deployment revision must be a full commit SHA."
+            exit 1
+          }
+
+          printf 'PR_SYSTEM_WEB_IMAGE=pr-system-web:%s\n' "$DEPLOY_SHA" >> "$GITHUB_ENV"
+          printf 'PR_SYSTEM_MIGRATE_IMAGE=pr-system-migrate:%s\n' "$DEPLOY_SHA" >> "$GITHUB_ENV"
+
+      - name: Checkout deployment revision
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
+          persist-credentials: false
+
       - name: Add SSH key
         shell: bash
+        env:
+          DROPLET_SSH_KEY: ${{ secrets.DROPLET_SSH_KEY }}
         run: |
           set -euo pipefail
 
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          printf '%s\n' "${{ secrets.DROPLET_SSH_KEY }}" \
+          printf '%s\n' "$DROPLET_SSH_KEY" \
             > ~/.ssh/droplet_key
 
           chmod 600 ~/.ssh/droplet_key
 
       - name: Trust Droplet host key
         shell: bash
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
         run: |
           set -euo pipefail
 
-          ssh-keyscan -H "${{ secrets.DROPLET_HOST }}" \
+          ssh-keyscan -H "$DROPLET_HOST" \
             >> ~/.ssh/known_hosts
+
+      - name: Check Droplet architecture and disk space
+        shell: bash
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+        run: |
+          set -euo pipefail
+
+          ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
+            -o ServerAliveInterval=30 \
+            -o ServerAliveCountMax=120 \
+            -i ~/.ssh/droplet_key \
+            "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'PREFLIGHT'
+          set -euo pipefail
+
+          ARCHITECTURE="$(docker info --format '{{.Architecture}}')"
+          case "$ARCHITECTURE" in
+            x86_64|amd64) ;;
+            *)
+              echo "ERROR: Droplet architecture $ARCHITECTURE cannot run the linux/amd64 deployment images."
+              exit 1
+              ;;
+          esac
+
+          DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}')"
+          AVAILABLE_KB="$(df -Pk "$DOCKER_ROOT" | awk 'NR == 2 {print $4}')"
+
+          echo "Docker root: $DOCKER_ROOT"
+          echo "Available space: ${AVAILABLE_KB} KB"
+
+          # Clean unused Docker data before loading the new revision images.
+          # Running containers and Docker volumes are preserved.
+          if [ "$AVAILABLE_KB" -lt 4194304 ]; then
+            echo "Low disk space detected. Cleaning unused Docker data..."
+            docker builder prune -af || true
+            docker image prune -af || true
+            docker container prune -f || true
+          fi
+
+          df -h "$DOCKER_ROOT"
+          docker system df || true
+          PREFLIGHT
+
+      - name: Build production images on Actions runner
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
+
+          docker build \
+            --pull \
+            --platform linux/amd64 \
+            --file Dockerfile.backend \
+            --target migrator \
+            --label "org.opencontainers.image.revision=$DEPLOY_SHA" \
+            --tag "$PR_SYSTEM_MIGRATE_IMAGE" \
+            .
+
+          docker build \
+            --platform linux/amd64 \
+            --file Dockerfile.backend \
+            --target runner \
+            --label "org.opencontainers.image.revision=$DEPLOY_SHA" \
+            --tag "$PR_SYSTEM_WEB_IMAGE" \
+            .
+
+      - name: Load production images on Droplet
+        shell: bash
+        env:
+          DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
+          DROPLET_USER: ${{ secrets.DROPLET_USER }}
+        run: |
+          set -euo pipefail
+
+          docker save "$PR_SYSTEM_MIGRATE_IMAGE" "$PR_SYSTEM_WEB_IMAGE" \
+            | gzip -1 \
+            | ssh \
+                -o BatchMode=yes \
+                -o StrictHostKeyChecking=yes \
+                -o ServerAliveInterval=30 \
+                -o ServerAliveCountMax=120 \
+                -o TCPKeepAlive=yes \
+                -i ~/.ssh/droplet_key \
+                "${DROPLET_USER}@${DROPLET_HOST}" 'docker load'
 
       - name: Deploy on Droplet
         shell: bash
         env:
           DROPLET_HOST: ${{ secrets.DROPLET_HOST }}
           DROPLET_USER: ${{ secrets.DROPLET_USER }}
-          APP_DIR: /opt/pr-system/pr-system
         run: |
+          set -euo pipefail
+
           ssh \
+            -o BatchMode=yes \
+            -o StrictHostKeyChecking=yes \
             -o ServerAliveInterval=30 \
             -o ServerAliveCountMax=120 \
             -o TCPKeepAlive=yes \
             -i ~/.ssh/droplet_key \
-            "${DROPLET_USER}@${DROPLET_HOST}" 'bash -s' <<'REMOTE'
+            "${DROPLET_USER}@${DROPLET_HOST}" \
+            "bash -s -- '$DEPLOY_SHA' '$PR_SYSTEM_WEB_IMAGE' '$PR_SYSTEM_MIGRATE_IMAGE'" <<'REMOTE'
           set -euo pipefail
+
+          DEPLOY_SHA="${1:?Missing deployment revision}"
+          export PR_SYSTEM_WEB_IMAGE="${2:?Missing web image}"
+          export PR_SYSTEM_MIGRATE_IMAGE="${3:?Missing migration image}"
+
+          [[ "$DEPLOY_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$PR_SYSTEM_WEB_IMAGE" = "pr-system-web:$DEPLOY_SHA"
+          test "$PR_SYSTEM_MIGRATE_IMAGE" = "pr-system-migrate:$DEPLOY_SHA"
+
+          for image in "$PR_SYSTEM_WEB_IMAGE" "$PR_SYSTEM_MIGRATE_IMAGE"; do
+            IMAGE_REVISION="$(docker image inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+            test "$IMAGE_REVISION" = "$DEPLOY_SHA" || {
+              echo "ERROR: Loaded image $image does not match deployment revision $DEPLOY_SHA."
+              exit 1
+            }
+            IMAGE_PLATFORM="$(docker image inspect "$image" --format '{{.Os}}/{{.Architecture}}')"
+            test "$IMAGE_PLATFORM" = "linux/amd64" || {
+              echo "ERROR: Loaded image $image has unsupported platform $IMAGE_PLATFORM."
+              exit 1
+            }
+          done
 
           DEPLOY_COMPLETED=0
 
@@ -130,11 +272,12 @@ jobs:
           }
 
           echo "========================================"
-          echo "Pull latest source code"
+          echo "Checkout deployment source revision"
           echo "========================================"
 
-          git fetch origin main
-          git reset --hard origin/main
+          git fetch --no-tags origin "$DEPLOY_SHA"
+          git reset --hard "$DEPLOY_SHA"
+          test "$(git rev-parse HEAD)" = "$DEPLOY_SHA"
 
           echo "Deploying commit:"
           git log -1 --oneline
@@ -147,34 +290,10 @@ jobs:
           compose config --services
 
           echo "========================================"
-          echo "Check Docker disk space"
-          echo "========================================"
-
-          DOCKER_ROOT="$(docker info --format '{{.DockerRootDir}}')"
-          AVAILABLE_KB="$(df -Pk "$DOCKER_ROOT" | awk 'NR == 2 {print $4}')"
-
-          echo "Docker root: $DOCKER_ROOT"
-          echo "Available space: ${AVAILABLE_KB} KB"
-
-          # ถ้ามีพื้นที่เหลือน้อยกว่า 4 GB ให้ล้างเฉพาะ cache/image/container
-          # ที่ไม่ได้ใช้งาน โดยไม่แตะ Docker volumes
-          if [ "$AVAILABLE_KB" -lt 4194304 ]; then
-            echo "Low disk space detected. Cleaning unused Docker data..."
-
-            docker builder prune -af || true
-            docker image prune -af || true
-            docker container prune -f || true
-          fi
-
-          echo "Disk usage after cleanup:"
-          df -h "$DOCKER_ROOT"
-          docker system df || true
-
-          echo "========================================"
           echo "Start production PostgreSQL"
           echo "========================================"
 
-          compose up -d postgres
+          compose up -d --no-build postgres
 
           echo "Waiting for PostgreSQL to become healthy..."
 
@@ -245,23 +364,10 @@ jobs:
           ls -lh "$BACKUP_FILE"
 
           echo "========================================"
-          echo "Build migration image"
+          echo "Loaded production images"
           echo "========================================"
 
-          export COMPOSE_PARALLEL_LIMIT=1
-
-          compose build --pull migrate
-
-          echo "========================================"
-          echo "Build new production web image"
-          echo "========================================"
-
-          # ใช้ Docker cache เพื่อให้ deploy เร็วขึ้น
-          # เมื่อ source code เปลี่ยน Docker จะ rebuild layer ที่เกี่ยวข้องเอง
-          compose build pr-system-web
-
-          echo "New image:"
-          docker image inspect pr-system-web:prod \
+          docker image inspect "$PR_SYSTEM_WEB_IMAGE" "$PR_SYSTEM_MIGRATE_IMAGE" \
             --format 'Created={{.Created}} ID={{.Id}}'
 
           echo "========================================"
@@ -282,6 +388,8 @@ jobs:
           # ห้ามเปลี่ยนกลับไปใช้ prisma db push
           compose run \
             --rm \
+            --no-deps \
+            --pull never \
             --interactive=false \
             -T \
             migrate \
@@ -293,6 +401,8 @@ jobs:
 
           compose up \
             -d \
+            --no-build \
+            --pull never \
             --force-recreate \
             --no-deps \
             pr-system-web
@@ -345,7 +455,7 @@ jobs:
           docker inspect pr-system-web \
             --format 'ContainerCreated={{.Created}} ContainerImage={{.Image}}'
 
-          docker image inspect pr-system-web:prod \
+          docker image inspect "$PR_SYSTEM_WEB_IMAGE" \
             --format 'ImageCreated={{.Created}} ImageID={{.Id}}'
 
           echo "========================================"
@@ -382,6 +492,11 @@ jobs:
           echo "========================================"
 
           docker logs --tail=120 pr-system-web
+
+          # Keep the manual Compose defaults aligned after deployment checks pass.
+          # The revision tags remain available for inspection and rollback.
+          docker tag "$PR_SYSTEM_WEB_IMAGE" pr-system-web:prod
+          docker tag "$PR_SYSTEM_MIGRATE_IMAGE" pr-system-migrate:prod
 
           echo "========================================"
           echo "Remove dangling Docker images"

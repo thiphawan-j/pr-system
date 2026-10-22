@@ -33,7 +33,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
       target: runner
-    image: pr-system-web:prod
+    image: ${PR_SYSTEM_WEB_IMAGE:-pr-system-web:prod}
     container_name: pr-system-web
     restart: unless-stopped
     env_file:
@@ -64,7 +64,7 @@ services:
       context: .
       dockerfile: Dockerfile.backend
       target: migrator
-    image: pr-system-migrate:prod
+    image: ${PR_SYSTEM_MIGRATE_IMAGE:-pr-system-migrate:prod}
     container_name: pr-system-migrate
     profiles:
       - tools
