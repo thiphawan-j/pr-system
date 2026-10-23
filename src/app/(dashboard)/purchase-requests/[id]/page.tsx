@@ -1,17 +1,20 @@
 import Link from "next/link";
 import {
+  ArrowLeft,
   Ban,
   CircleAlert,
   Download,
   FilePenLine,
+  FileText,
   GitBranch,
+  Package,
   Paperclip,
-  ReceiptText,
   UserRoundCheck,
 } from "lucide-react";
 
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
 import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
+import { DetailText } from "@/components/purchase-requests/detail-text";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
 import {
   PurchaseRequestCancellationPanel,
@@ -136,9 +139,22 @@ export default async function PurchaseRequestDetailPage({
   const isAwaitingReceiptReferences =
     request.status === "ORDERED" && Boolean(request.receivedAt);
   const hasClosedRemainder = request.items.some((item) => item.closedQuantity > 0);
+  const documentDetails = [
+    { label: dictionary.common.documentDate, value: formatDate(request.requestDate, locale) },
+    { label: dictionary.common.department, value: getDepartmentLabel(request.department, locale) },
+    { label: dictionary.common.requester, value: request.requester.name },
+    { label: dictionary.purchaseRequests.currentApprover, value: request.currentApprover?.name ?? dictionary.common.none },
+    ...(request.orderedAt ? [{ label: dictionary.common.orderedDate, value: formatDate(request.orderedAt, locale) }] : []),
+    ...(request.receivedAt ? [{ label: dictionary.common.receivedDate, value: formatDate(request.receivedAt, locale) }] : []),
+    ...(request.completedAt ? [{ label: dictionary.common.completedDate, value: formatDate(request.completedAt, locale) }] : []),
+    ...(request.status === "COMPLETED" || request.receiptNumber
+      ? [{ label: dictionary.common.receiptNumber, value: request.receiptNumber ?? dictionary.common.none }] : []),
+    ...(request.status === "COMPLETED" || request.taxInvoiceNumber
+      ? [{ label: dictionary.common.taxInvoiceNumber, value: request.taxInvoiceNumber ?? dictionary.common.none }] : []),
+  ];
 
   return (
-    <div className="space-y-6">
+    <div className="min-w-0 space-y-6 wrap-anywhere">
       {request.hasPendingPurchaseOrderChange ? (
         <Alert className="border-amber-500/40 bg-amber-500/10" id="pending-po-change-notice">
           <CircleAlert className="size-4" />
@@ -148,45 +164,55 @@ export default async function PurchaseRequestDetailPage({
             : "Open the PO below to review the proposed revision. Receiving, cancellation, and completion are paused until the revision is resolved."}</AlertDescription>
         </Alert>
       ) : null}
-      <section className="flex flex-col gap-4 rounded-[2rem] border border-border/70 bg-card/80 p-6">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center gap-3">
-              <StatusBadge
-                status={request.status}
-                receivedAt={request.receivedAt}
-                hasPartialReceipt={request.hasPartialReceipt}
-                hasClosedRemainder={hasClosedRemainder}
-                locale={locale}
-              />
-              <PriorityBadge priority={request.urgency} locale={locale} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight">{request.prNumber}</h1>
-              <p className="text-muted-foreground">{request.reason}</p>
-            </div>
-          </div>
+      <Link
+        href="/purchase-requests"
+        className="inline-flex items-center gap-2 rounded-lg text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-ring"
+      >
+        <ArrowLeft className="size-4" />
+        {dictionary.navigation.purchaseRequests}
+      </Link>
 
-          <div className="flex flex-col gap-2 sm:flex-row lg:flex-col">
-            <SharePurchaseRequestButton
-              requestId={request.id}
-              prNumber={request.prNumber}
-              reason={request.reason}
+      <section className="space-y-5 rounded-3xl border border-border/70 bg-card/90 p-5 sm:p-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge
+              status={request.status}
+              receivedAt={request.receivedAt}
+              hasPartialReceipt={request.hasPartialReceipt}
+              hasClosedRemainder={hasClosedRemainder}
+              locale={locale}
             />
+            <PriorityBadge priority={request.urgency} locale={locale} />
+          </div>
+          <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end *:w-full sm:*:w-auto">
+            <SharePurchaseRequestButton requestId={request.id} prNumber={request.prNumber} reason={request.reason} />
             {canEdit ? (
               <Button asChild variant="outline" className="rounded-xl">
                 <Link href={`/purchase-requests/${request.id}/edit`}>
                   <FilePenLine />
-                  {isPurchasingReturnStatus
-                    ? dictionary.purchaseRequests.editReturnedRequest
-                    : dictionary.purchaseRequests.editDraft}
+                  {isPurchasingReturnStatus ? dictionary.purchaseRequests.editReturnedRequest : dictionary.purchaseRequests.editDraft}
                 </Link>
               </Button>
             ) : null}
-            {request.status === "DRAFT" && request.requester.id === session.id ? (
+            {request.status === "DRAFT" && isOwner ? (
               <SubmitPurchaseRequestButton requestId={request.id} />
             ) : null}
           </div>
+        </div>
+        <div className="grid gap-5 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+          <div className="min-w-0 space-y-2">
+            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{request.prNumber}</h1>
+            <DetailText text={request.reason} locale={locale} className="text-base text-muted-foreground" />
+          </div>
+          <div aria-label={dictionary.purchaseRequests.totalSummary} className="min-w-0 space-y-1 rounded-2xl bg-primary/5 p-4 md:min-w-56 md:border-l md:border-border/70 md:bg-transparent md:py-0 md:pr-0 md:pl-6 md:text-right">
+            <p className="text-sm text-muted-foreground">{dictionary.common.totalAmount}</p>
+            <p className="text-3xl font-semibold tracking-tight text-primary tabular-nums">{formatCurrency(request.totalAmount, locale)}</p>
+            <p className="text-xs text-muted-foreground">{dictionary.purchaseRequests.itemList} · {formatNumber(request.items.length, locale)} {dictionary.common.itemCount}</p>
+          </div>
+        </div>
+        <div className="flex flex-col gap-x-6 gap-y-1 border-t border-border/70 pt-4 text-xs leading-5 text-muted-foreground sm:flex-row sm:flex-wrap">
+          <p>{dictionary.common.createdAt} {formatDateTime(request.createdAt, locale)}</p>
+          <p>{dictionary.common.updatedAt} {formatDateTime(request.updatedAt, locale)}</p>
         </div>
       </section>
 
@@ -309,353 +335,110 @@ export default async function PurchaseRequestDetailPage({
         </Alert>
       ) : null}
 
-      <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-        <div className="space-y-6">
+      <section className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6">
+        <div className="min-w-0 space-y-5 lg:space-y-6">
+          <Card className="border-border/70">
+            <CardHeader className="flex flex-row items-center gap-2.5 border-b">
+              <FileText className="size-4 shrink-0 text-primary" />
+              <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.detailTitle}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <dl className="grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-3">
+                {documentDetails.map((detail) => (
+                  <div key={detail.label} className="min-w-0 space-y-1">
+                    <dt className="text-xs text-muted-foreground">{detail.label}</dt>
+                    <dd className="font-medium leading-6">{detail.value}</dd>
+                  </div>
+                ))}
+              </dl>
+              {request.status === "COMPLETED" || request.receiptReferenceNote ? (
+                <div className="space-y-1.5 border-t border-border/70 pt-4">
+                  <p className="text-xs text-muted-foreground">{dictionary.common.comment}</p>
+                  <DetailText text={request.receiptReferenceNote ?? dictionary.common.none} locale={locale} />
+                </div>
+              ) : null}
+            </CardContent>
+          </Card>
+
           {request.purchaseOrders.length > 0 ? (
             <Card className="border-border/70">
-              <CardHeader><CardTitle>{dictionary.purchaseOrders.linkedTitle}</CardTitle></CardHeader>
+              <CardHeader><CardTitle role="heading" aria-level={2}>{dictionary.purchaseOrders.linkedTitle}</CardTitle></CardHeader>
               <CardContent className="space-y-3">
                 {request.purchaseOrders.map((order) => (
-                  <div key={order.id} className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-border/70 p-4">
-                    <div>
-                      <Link href={`/purchase-orders/${order.id}`} className="font-semibold underline underline-offset-4">{order.poNumber}</Link>
-                      <p className="mt-1 text-sm text-muted-foreground">{order.supplierName} · {formatDate(order.issuedAt, locale)}</p>
+                  <div key={order.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border/70 p-4">
+                    <div className="min-w-0 space-y-1">
+                      <Link href={`/purchase-orders/${order.id}`} className="font-semibold text-primary underline underline-offset-4">{order.poNumber}</Link>
+                      <p className="text-sm text-muted-foreground">{order.supplierName} · {formatDate(order.issuedAt, locale)}</p>
                     </div>
-                    <p className="font-medium">{formatCurrency(order.totalAmount, locale)}</p>
+                    <p className="font-medium tabular-nums">{formatCurrency(order.totalAmount, locale)}</p>
                   </div>
                 ))}
               </CardContent>
             </Card>
           ) : null}
-          <Card className="border-border/70">
-            <CardHeader>
-              <CardTitle>{dictionary.purchaseRequests.detailTitle}</CardTitle>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {dictionary.common.documentDate}
-                </p>
-                <p className="font-medium">{formatDate(request.requestDate, locale)}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {dictionary.common.department}
-                </p>
-                <p className="font-medium">
-                  {getDepartmentLabel(request.department, locale)}
-                </p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {dictionary.common.requester}
-                </p>
-                <p className="font-medium">{request.requester.name}</p>
-              </div>
-              <div>
-                <p className="text-sm text-muted-foreground">
-                  {dictionary.purchaseRequests.currentApprover}
-                </p>
-                <p className="font-medium">
-                  {request.currentApprover?.name ?? dictionary.common.none}
-                </p>
-              </div>
-              {request.orderedAt ? (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.orderedDate}
-                  </p>
-                  <p className="font-medium">{formatDate(request.orderedAt, locale)}</p>
-                </div>
-              ) : null}
-              {request.receivedAt ? (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.receivedDate}
-                  </p>
-                  <p className="font-medium">
-                    {formatDate(request.receivedAt, locale)}
-                  </p>
-                </div>
-              ) : null}
-              {request.completedAt ? (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.completedDate}
-                  </p>
-                  <p className="font-medium">
-                    {formatDate(request.completedAt, locale)}
-                  </p>
-                </div>
-              ) : null}
-              {request.status === "COMPLETED" || request.receiptNumber ? (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.receiptNumber}
-                  </p>
-                  <p className="font-medium">
-                    {request.receiptNumber ?? dictionary.common.none}
-                  </p>
-                </div>
-              ) : null}
-              {request.status === "COMPLETED" || request.taxInvoiceNumber ? (
-                <div>
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.taxInvoiceNumber}
-                  </p>
-                  <p className="font-medium">
-                    {request.taxInvoiceNumber ?? dictionary.common.none}
-                  </p>
-                </div>
-              ) : null}
-              {request.status === "COMPLETED" || request.receiptReferenceNote ? (
-                <div className="sm:col-span-2">
-                  <p className="text-sm text-muted-foreground">
-                    {dictionary.common.comment}
-                  </p>
-                  <p className="font-medium">
-                    {request.receiptReferenceNote ?? dictionary.common.none}
-                  </p>
-                </div>
-              ) : null}
-              <div className="sm:col-span-2">
-                <p className="text-sm text-muted-foreground">
-                  {dictionary.purchaseRequests.reason}
-                </p>
-                <p className="font-medium">{request.reason}</p>
-              </div>
-            </CardContent>
-          </Card>
 
           <Card className="border-border/70">
-            <CardHeader>
-              <CardTitle>{dictionary.purchaseRequests.itemList}</CardTitle>
+            <CardHeader className="flex flex-row items-center justify-between gap-3 border-b">
+              <div className="flex min-w-0 items-center gap-2.5">
+                <Package className="size-4 shrink-0 text-primary" />
+                <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.itemList}</CardTitle>
+              </div>
+              <span className="shrink-0 rounded-full bg-muted px-2.5 py-1 text-xs text-muted-foreground">{request.items.length} {dictionary.common.itemCount}</span>
             </CardHeader>
             <CardContent className="space-y-4">
-              {request.items.map((item) => (
-                <div
-                  key={item.id}
-                  className="grid gap-3 rounded-2xl border border-border/70 p-4 sm:grid-cols-[1.2fr_1fr_0.6fr_0.8fr]"
-                >
-                  <div>
-                    <p className="font-medium">{item.itemName}</p>
-                    <p className="text-sm text-muted-foreground">
-                      {item.description || dictionary.common.noDescription}
-                    </p>
-                    {item.supplierName ? (
-                      <p className="mt-2 text-sm text-muted-foreground">
-                        {dictionary.purchaseRequests.supplierName}:{" "}
-                        <span className="font-medium text-foreground">
-                          {item.supplierName}
-                        </span>
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">
-                      {dictionary.purchaseRequests.quantityUnit}
-                    </p>
-                    <p className="font-medium">
-                      {formatNumber(item.quantity, locale)}
-                      {item.unit ? ` ${getUnitLabel(item.unit, locale)}` : ""}
-                    </p>
-                  </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">
-                      {dictionary.purchaseRequests.unitPrice}
-                    </p>
-                    <p className="font-medium">
-                      {item.unitPrice === undefined
-                        ? "-"
-                        : formatCurrency(item.unitPrice, locale)}
-                    </p>
-                  </div>
-                  <div className="text-sm">
-                    <p className="text-muted-foreground">
-                      {dictionary.purchaseRequests.lineTotal}
-                    </p>
-                    <p className="font-semibold">{formatCurrency(item.amount, locale)}</p>
-                  </div>
-                  {request.receipts.length > 0 ? (
-                    <div className="grid grid-cols-2 gap-3 border-t border-border/70 pt-3 text-sm sm:col-span-4 sm:grid-cols-4">
-                      <div>
-                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.received}</p>
-                        <p className="font-medium">{formatNumber(item.receivedQuantity, locale)}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.cancelled}</p>
-                        <p className="font-medium">{formatNumber(item.closedQuantity, locale)}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.remaining}</p>
-                        <p className="font-medium">{formatNumber(item.remainingQuantity, locale)}</p>
-                      </div>
-                      <div>
-                        <p className="text-muted-foreground">{dictionary.receiptWorkflow.overReceived}</p>
-                        <p className={item.overReceivedQuantity > 0 ? "font-medium text-amber-700 dark:text-amber-300" : "font-medium"}>{formatNumber(item.overReceivedQuantity, locale)}</p>
+              {request.items.map((item, index) => (
+                <article key={item.id} className="min-w-0 overflow-hidden rounded-2xl border border-border/70">
+                  <div className="space-y-4 p-4 sm:p-5">
+                    <div className="flex items-start gap-3">
+                      <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <h3 className="font-semibold leading-6">{item.itemName}</h3>
+                        <DetailText text={item.description || dictionary.common.noDescription} locale={locale} className="text-muted-foreground" />
                       </div>
                     </div>
+                    {item.supplierName ? (
+                      <div className="min-w-0 space-y-1.5 rounded-xl bg-muted/40 px-3 py-3">
+                        <p className="text-xs text-muted-foreground">{dictionary.purchaseRequests.supplierName}</p>
+                        <DetailText text={item.supplierName} locale={locale} />
+                      </div>
+                    ) : null}
+                  </div>
+                  <dl className="grid grid-cols-2 gap-4 border-t border-border/70 bg-muted/20 p-4 sm:grid-cols-3 sm:px-5">
+                    <div className="min-w-0 space-y-1">
+                      <dt className="text-xs text-muted-foreground">{dictionary.purchaseRequests.quantityUnit}</dt>
+                      <dd className="font-medium tabular-nums">{formatNumber(item.quantity, locale)}{item.unit ? ` ${getUnitLabel(item.unit, locale)}` : ""}</dd>
+                    </div>
+                    <div className="min-w-0 space-y-1">
+                      <dt className="text-xs text-muted-foreground">{dictionary.purchaseRequests.unitPrice}</dt>
+                      <dd className="font-medium tabular-nums">{item.unitPrice === undefined ? "-" : formatCurrency(item.unitPrice, locale)}</dd>
+                    </div>
+                    <div className="col-span-2 min-w-0 space-y-1 border-t border-border/70 pt-3 sm:col-span-1 sm:border-t-0 sm:pt-0">
+                      <dt className="text-xs text-muted-foreground">{dictionary.purchaseRequests.lineTotal}</dt>
+                      <dd className="font-semibold text-primary tabular-nums">{formatCurrency(item.amount, locale)}</dd>
+                    </div>
+                  </dl>
+                  {request.receipts.length > 0 ? (
+                    <dl className="grid grid-cols-2 gap-4 border-t border-border/70 p-4 sm:grid-cols-4 sm:px-5">
+                      {[
+                        { label: dictionary.receiptWorkflow.received, value: item.receivedQuantity },
+                        { label: dictionary.receiptWorkflow.cancelled, value: item.closedQuantity },
+                        { label: dictionary.receiptWorkflow.remaining, value: item.remainingQuantity },
+                        { label: dictionary.receiptWorkflow.overReceived, value: item.overReceivedQuantity },
+                      ].map((stat, statIndex) => (
+                        <div key={stat.label} className="min-w-0 space-y-1">
+                          <dt className="text-xs text-muted-foreground">{stat.label}</dt>
+                          <dd className={statIndex === 3 && stat.value > 0 ? "font-medium text-amber-700 tabular-nums dark:text-amber-300" : "font-medium tabular-nums"}>{formatNumber(stat.value, locale)}</dd>
+                        </div>
+                      ))}
+                    </dl>
                   ) : null}
-                </div>
+                </article>
               ))}
             </CardContent>
           </Card>
 
-          <ReceiptHistoryPanel
-            requestId={request.id}
-            expectedVersion={request.receiptVersion}
-            receipts={request.receipts}
-            canEditReferences={isPurchasing}
-          />
-
-          <Card className="border-border/70">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <GitBranch className="size-5 text-primary" />
-              <CardTitle>{dictionary.purchaseRequests.timelineTitle}</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {request.approvals.map((approval, index) => (
-                  <div key={approval.id} className="flex gap-4">
-                    <div className="flex flex-col items-center">
-                      <div className="flex size-10 items-center justify-center rounded-full bg-primary/15 text-primary">
-                        <UserRoundCheck className="size-4" />
-                      </div>
-                      {index < request.approvals.length - 1 ? (
-                        <div className="mt-2 h-full w-px bg-border" />
-                      ) : null}
-                    </div>
-                    <div className="flex-1 pb-4">
-                      {(() => {
-                        const actionLabel =
-                          approval.action === "COMMENTED" && approval.stepLabel
-                            ? translateWorkflowText(approval.stepLabel, locale)
-                            : formatApprovalAction(approval.action, locale);
-                        const stepLabel =
-                          approval.action === "COMMENTED"
-                            ? null
-                            : translateWorkflowText(approval.stepLabel, locale);
-
-                        return (
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium">{actionLabel}</p>
-                        {stepLabel ? (
-                          <span className="text-sm text-muted-foreground">
-                            {stepLabel}
-                          </span>
-                        ) : null}
-                      </div>
-                        );
-                      })()}
-                      <p className="text-sm text-muted-foreground">
-                        {approval.approver.name} ·{" "}
-                        {formatDateTime(approval.createdAt, locale)}
-                      </p>
-                      {approval.comment ? (
-                        <p className="mt-2 text-sm">
-                          {translateWorkflowText(approval.comment, locale)}
-                        </p>
-                      ) : null}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        <div className="space-y-6">
-          <Card className="border-border/70">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <ReceiptText className="size-5 text-primary" />
-              <CardTitle>{dictionary.purchaseRequests.totalSummary}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  {dictionary.purchaseRequests.itemList}
-                </span>
-                <span className="font-medium">{request.items.length}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-muted-foreground">
-                  {dictionary.common.totalAmount}
-                </span>
-                <span className="text-2xl font-semibold">
-                  {formatCurrency(request.totalAmount, locale)}
-                </span>
-              </div>
-              <div className="rounded-2xl border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
-                <p>
-                  {dictionary.common.createdAt}{" "}
-                  {formatDateTime(request.createdAt, locale)}
-                </p>
-                <p>
-                  {dictionary.common.updatedAt}{" "}
-                  {formatDateTime(request.updatedAt, locale)}
-                </p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="border-border/70">
-            <CardHeader className="flex flex-row items-center gap-3">
-              <Paperclip className="size-5 text-primary" />
-              <CardTitle>{dictionary.purchaseRequests.attachmentsTitle}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              {request.attachments.length ? (
-                request.attachments.map((attachment) => (
-                  <div
-                    key={attachment.id}
-                    className="flex items-start justify-between gap-3 rounded-2xl border border-border/70 px-4 py-3"
-                  >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {attachment.originalName}
-                      </p>
-                      <p className="text-xs text-muted-foreground">
-                        {formatFileSize(attachment.size, locale)} ·{" "}
-                        {dictionary.purchaseRequests.uploadedBy}{" "}
-                        {attachment.uploadedBy.name}
-                      </p>
-                    </div>
-                    <div className="flex shrink-0 flex-wrap items-center gap-2">
-                      <AttachmentPreviewButton
-                        requestId={request.id}
-                        attachment={attachment}
-                      />
-                      <Button asChild variant="outline" size="sm" className="rounded-xl">
-                        <a href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}>
-                          <Download />
-                          {dictionary.purchaseRequests.downloadAttachment}
-                        </a>
-                      </Button>
-                    </div>
-                  </div>
-                ))
-              ) : (
-                <div className="rounded-2xl border border-dashed border-border/70 p-4 text-sm text-muted-foreground">
-                  {dictionary.purchaseRequests.noAttachments}
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <PurchaseRequestCommentPanel requestId={request.id} />
-
-          {cancellationMode ? (
-            <PurchaseRequestCancellationPanel
-              requestId={request.id}
-              mode={cancellationMode}
-              requestedReason={latestCancellationRequest?.comment}
-            />
-          ) : null}
-
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
-          {canProgress ? (
-            <PurchasingProgressPanel requestId={request.id} status={request.status} />
-          ) : null}
+          {canProgress ? <PurchasingProgressPanel requestId={request.id} status={request.status} /> : null}
           {canConfirmReceipt ? (
             <ReceiptConfirmationPanel
               key={request.receiptVersion}
@@ -675,7 +458,80 @@ export default async function PurchaseRequestDetailPage({
               receiptReferenceNote={request.receiptReferenceNote}
             />
           ) : null}
+          <ReceiptHistoryPanel
+            requestId={request.id}
+            expectedVersion={request.receiptVersion}
+            receipts={request.receipts}
+            canEditReferences={isPurchasing}
+          />
+
+          <Card className="border-border/70">
+            <CardHeader className="flex flex-row items-center gap-2.5 border-b">
+              <GitBranch className="size-4 shrink-0 text-primary" />
+              <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.timelineTitle}</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ol>
+                {request.approvals.map((approval, index) => {
+                  const actionLabel = approval.action === "COMMENTED" && approval.stepLabel
+                    ? translateWorkflowText(approval.stepLabel, locale)
+                    : formatApprovalAction(approval.action, locale);
+                  const stepLabel = approval.action === "COMMENTED" ? null : translateWorkflowText(approval.stepLabel, locale);
+                  return (
+                    <li key={approval.id} className="relative flex gap-3 pb-6 last:pb-0 sm:gap-4">
+                      {index < request.approvals.length - 1 ? <span aria-hidden="true" className="absolute top-9 bottom-0 left-4 w-px bg-border" /> : null}
+                      <div className="relative flex size-8 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                        <UserRoundCheck className="size-4" />
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1 pt-0.5">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <p className="font-medium">{actionLabel}</p>
+                          {stepLabel ? <span className="text-xs text-muted-foreground">{stepLabel}</span> : null}
+                        </div>
+                        <p className="text-xs leading-5 text-muted-foreground">{approval.approver.name} · {formatDateTime(approval.createdAt, locale)}</p>
+                        {approval.comment ? <DetailText text={translateWorkflowText(approval.comment, locale) ?? approval.comment} locale={locale} className="pt-1" /> : null}
+                      </div>
+                    </li>
+                  );
+                })}
+              </ol>
+            </CardContent>
+          </Card>
         </div>
+
+        <aside aria-label={dictionary.purchaseRequests.attachmentsTitle} className="min-w-0 space-y-5 lg:space-y-6">
+          <Card className="border-border/70">
+            <CardHeader className="flex flex-row items-center gap-2.5 border-b">
+              <Paperclip className="size-4 shrink-0 text-primary" />
+              <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.attachmentsTitle}</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {request.attachments.length ? request.attachments.map((attachment) => (
+                <div key={attachment.id} className="min-w-0 space-y-3 rounded-xl border border-border/70 p-3">
+                  <div className="min-w-0 space-y-1">
+                    <p className="text-sm font-medium leading-5">{attachment.originalName}</p>
+                    <p className="text-xs leading-5 text-muted-foreground">{formatFileSize(attachment.size, locale)} · {dictionary.purchaseRequests.uploadedBy} {attachment.uploadedBy.name}</p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <AttachmentPreviewButton requestId={request.id} attachment={attachment} />
+                    <Button asChild variant="outline" size="sm" className="rounded-xl">
+                      <a href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}>
+                        <Download />
+                        {dictionary.purchaseRequests.downloadAttachment}
+                      </a>
+                    </Button>
+                  </div>
+                </div>
+              )) : (
+                <div className="rounded-xl border border-dashed border-border/70 p-4 text-sm leading-6 text-muted-foreground">{dictionary.purchaseRequests.noAttachments}</div>
+              )}
+            </CardContent>
+          </Card>
+          <PurchaseRequestCommentPanel requestId={request.id} />
+          {cancellationMode ? (
+            <PurchaseRequestCancellationPanel requestId={request.id} mode={cancellationMode} requestedReason={latestCancellationRequest?.comment} />
+          ) : null}
+        </aside>
       </section>
     </div>
   );

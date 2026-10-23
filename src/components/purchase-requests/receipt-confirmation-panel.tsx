@@ -138,26 +138,28 @@ export function ReceiptConfirmationPanel({
 
   return (
     <>
-      <Card className="border-border/70">
-        <CardHeader>
+      <Card className="min-w-0 border-border/70">
+        <CardHeader className="border-b">
           <CardTitle>{dictionary.approval.receivedTitle}</CardTitle>
           <CardDescription>{labels.description}</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
+        <CardContent className="space-y-5">
+          <div className="space-y-2 sm:max-w-xs">
             <Label htmlFor="received-date">{dictionary.common.receivedDate}</Label>
             <Input id="received-date" type="date" required disabled={isPending} value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} />
           </div>
           <div className="space-y-3">
             {items.map((item) => (
-              <div key={item.id} className="space-y-3 rounded-xl border border-border/70 p-3">
-                <p className="font-medium">{item.itemName}</p>
-                <p className="text-xs text-muted-foreground">
-                  {labels.ordered} {formatNumber(item.quantity, locale)} · {labels.received} {formatNumber(item.receivedQuantity, locale)} · {labels.remaining} {formatNumber(item.remainingQuantity, locale)}
-                  {item.unit ? ` ${getUnitLabel(item.unit, locale)}` : ""}
-                </p>
-                <div className="space-y-2">
-                  <Label htmlFor={`receipt-quantity-${item.id}`}>{labels.receiveNow} · {item.itemName}</Label>
+              <div key={item.id} className="grid min-w-0 gap-4 rounded-xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)] sm:items-center">
+                <div className="min-w-0 space-y-1.5">
+                  <p className="font-medium [overflow-wrap:anywhere]">{item.itemName}</p>
+                  <p className="text-xs leading-5 text-muted-foreground">
+                    {labels.ordered} {formatNumber(item.quantity, locale)} · {labels.received} {formatNumber(item.receivedQuantity, locale)} · {labels.remaining} {formatNumber(item.remainingQuantity, locale)}
+                    {item.unit ? ` ${getUnitLabel(item.unit, locale)}` : ""}
+                  </p>
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <Label className="block leading-5 [overflow-wrap:anywhere]" htmlFor={`receipt-quantity-${item.id}`}>{labels.receiveNow} · {item.itemName}</Label>
                   <Input id={`receipt-quantity-${item.id}`} type="number" min="0" max={2147483647 - item.receivedQuantity} step="1" disabled={isPending} value={quantities[item.id] ?? "0"} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
                 </div>
               </div>
@@ -179,35 +181,41 @@ export function ReceiptConfirmationPanel({
             <Label htmlFor="receipt-comment">{dictionary.common.comment}</Label>
             <Textarea id="receipt-comment" rows={3} maxLength={2000} disabled={isPending} value={comment} onChange={(event) => setComment(event.target.value)} placeholder={dictionary.approval.receivedCommentPlaceholder} />
           </div>
-          <fieldset className="space-y-3 rounded-xl border border-border/70 p-3">
+          <fieldset className="min-w-0 rounded-xl border border-border/70 p-4">
             <legend className="px-1 text-xs text-muted-foreground">{labels.optionalRoundReferences}</legend>
-            <div className="space-y-2">
-              <Label htmlFor="round-receipt-number">{dictionary.common.receiptNumber}</Label>
-              <Input id="round-receipt-number" maxLength={200} disabled={isPending} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} placeholder={dictionary.approval.receiptNumberPlaceholder} />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="round-tax-invoice-number">{dictionary.common.taxInvoiceNumber}</Label>
-              <Input id="round-tax-invoice-number" maxLength={200} disabled={isPending} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} placeholder={dictionary.approval.taxInvoiceNumberPlaceholder} />
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="min-w-0 space-y-2">
+                <Label htmlFor="round-receipt-number">{dictionary.common.receiptNumber}</Label>
+                <Input id="round-receipt-number" maxLength={200} disabled={isPending} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} placeholder={dictionary.approval.receiptNumberPlaceholder} />
+              </div>
+              <div className="min-w-0 space-y-2">
+                <Label htmlFor="round-tax-invoice-number">{dictionary.common.taxInvoiceNumber}</Label>
+                <Input id="round-tax-invoice-number" maxLength={200} disabled={isPending} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} placeholder={dictionary.approval.taxInvoiceNumberPlaceholder} />
+              </div>
             </div>
           </fieldset>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-          <Button type="button" className="w-full rounded-xl" disabled={isPending} onClick={() => submitReceipt("RECEIVED")}>
-            {isPending ? dictionary.common.saving : dictionary.approval.confirmReceived}
-          </Button>
+          <div className="flex justify-end border-t border-border/70 pt-4">
+            <Button type="button" className="w-full rounded-xl sm:w-auto sm:min-w-44" disabled={isPending} onClick={() => submitReceipt("RECEIVED")}>
+              {isPending ? dictionary.common.saving : dictionary.approval.confirmReceived}
+            </Button>
+          </div>
         </CardContent>
       </Card>
       {canCloseOutstanding && outstandingItems.length > 0 ? (
-        <Card className="border-amber-500/30">
-          <CardHeader>
+        <Card className="min-w-0 border-amber-500/30">
+          <CardHeader className="border-b">
             <CardTitle>{labels.closeTitle}</CardTitle>
             <CardDescription>{labels.closeDescription}</CardDescription>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-5">
             {outstandingItems.map((item) => (
-              <div key={item.id} className="space-y-2">
-                <Label htmlFor={`close-quantity-${item.id}`}>{labels.closeQuantity} · {item.itemName}</Label>
+              <div key={item.id} className="grid min-w-0 gap-3 rounded-xl border border-border/70 bg-muted/20 p-4 sm:grid-cols-[minmax(0,1fr)_minmax(9rem,12rem)] sm:items-center">
+                <div className="min-w-0 space-y-1.5">
+                  <Label className="block leading-5 [overflow-wrap:anywhere]" htmlFor={`close-quantity-${item.id}`}>{labels.closeQuantity} · {item.itemName}</Label>
+                  <p className="text-xs text-muted-foreground">{labels.remaining}: {formatNumber(item.remainingQuantity, locale)}</p>
+                </div>
                 <Input id={`close-quantity-${item.id}`} type="number" min="0" max={item.remainingQuantity} step="1" disabled={isPending} value={closeQuantities[item.id] ?? "0"} onChange={(event) => setCloseQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
-                <p className="text-xs text-muted-foreground">{labels.remaining}: {formatNumber(item.remainingQuantity, locale)}</p>
               </div>
             ))}
             <div className="space-y-2">
@@ -215,9 +223,11 @@ export function ReceiptConfirmationPanel({
               <Textarea id="close-remainder-reason" required aria-required="true" rows={3} maxLength={2000} disabled={isPending} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} placeholder={labels.closeReasonPlaceholder} />
             </div>
             {closeError ? <p role="alert" className="text-sm text-destructive">{closeError}</p> : null}
-            <Button type="button" variant="outline" className="w-full rounded-xl" disabled={isPending} onClick={() => submitReceipt("CLOSE_REMAINDER")}>
-              {isPending ? dictionary.common.saving : labels.closeOutstanding}
-            </Button>
+            <div className="flex justify-end border-t border-border/70 pt-4">
+              <Button type="button" variant="outline" className="w-full rounded-xl sm:w-auto sm:min-w-44" disabled={isPending} onClick={() => submitReceipt("CLOSE_REMAINDER")}>
+                {isPending ? dictionary.common.saving : labels.closeOutstanding}
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}

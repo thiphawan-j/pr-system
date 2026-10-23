@@ -41,12 +41,16 @@ export function SignOutButton() {
       type="button"
       variant="ghost"
       size="sm"
-      className="rounded-full"
+      className="size-8 rounded-full p-0 sm:h-7 sm:w-auto sm:px-2.5"
+      aria-label={isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
+      title={isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
       onClick={handleSignOut}
       disabled={isPending}
     >
       <LogOut />
-      {isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
+      <span className="hidden sm:inline">
+        {isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
+      </span>
     </Button>
   );
 }

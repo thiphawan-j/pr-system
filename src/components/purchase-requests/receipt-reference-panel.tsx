@@ -89,8 +89,8 @@ export function ReceiptReferencePanel({
   }
 
   return (
-    <Card id="receipt-reference-panel" className="border-border/70">
-      <CardHeader>
+    <Card id="receipt-reference-panel" className="min-w-0 border-border/70">
+      <CardHeader className="border-b">
         <CardTitle>{dictionary.approval.receiptReferenceTitle}</CardTitle>
         {status === "ORDERED" ? (
           <CardDescription>
@@ -100,26 +100,28 @@ export function ReceiptReferencePanel({
           </CardDescription>
         ) : null}
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="receipt-number">{dictionary.common.receiptNumber}</Label>
-          <Input
-            id="receipt-number"
-            value={currentReceiptNumber}
-            onChange={(event) => setCurrentReceiptNumber(event.target.value)}
-            placeholder={dictionary.approval.receiptNumberPlaceholder}
-          />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="tax-invoice-number">
-            {dictionary.common.taxInvoiceNumber}
-          </Label>
-          <Input
-            id="tax-invoice-number"
-            value={currentTaxInvoiceNumber}
-            onChange={(event) => setCurrentTaxInvoiceNumber(event.target.value)}
-            placeholder={dictionary.approval.taxInvoiceNumberPlaceholder}
-          />
+      <CardContent className="space-y-5">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor="receipt-number">{dictionary.common.receiptNumber}</Label>
+            <Input
+              id="receipt-number"
+              value={currentReceiptNumber}
+              onChange={(event) => setCurrentReceiptNumber(event.target.value)}
+              placeholder={dictionary.approval.receiptNumberPlaceholder}
+            />
+          </div>
+          <div className="min-w-0 space-y-2">
+            <Label htmlFor="tax-invoice-number">
+              {dictionary.common.taxInvoiceNumber}
+            </Label>
+            <Input
+              id="tax-invoice-number"
+              value={currentTaxInvoiceNumber}
+              onChange={(event) => setCurrentTaxInvoiceNumber(event.target.value)}
+              placeholder={dictionary.approval.taxInvoiceNumberPlaceholder}
+            />
+          </div>
         </div>
         <div className="space-y-2">
           <Label htmlFor="receipt-reference-note">{dictionary.common.comment}</Label>
@@ -131,21 +133,23 @@ export function ReceiptReferencePanel({
             placeholder={dictionary.approval.receiptReferenceNotePlaceholder}
           />
         </div>
-        <Button
-          type="button"
-          className="w-full rounded-xl"
-          disabled={
-            isPending ||
-            (!currentReceiptNumber.trim() && !currentTaxInvoiceNumber.trim())
-          }
-          onClick={handleSubmit}
-        >
-          {isPending
-            ? dictionary.common.saving
-            : status === "ORDERED"
-              ? dictionary.approval.saveReceiptReferences
-              : dictionary.approval.updateReceiptReferences}
-        </Button>
+        <div className="flex justify-end border-t border-border/70 pt-4">
+          <Button
+            type="button"
+            className="w-full rounded-xl sm:w-auto sm:min-w-44"
+            disabled={
+              isPending ||
+              (!currentReceiptNumber.trim() && !currentTaxInvoiceNumber.trim())
+            }
+            onClick={handleSubmit}
+          >
+            {isPending
+              ? dictionary.common.saving
+              : status === "ORDERED"
+                ? dictionary.approval.saveReceiptReferences
+                : dictionary.approval.updateReceiptReferences}
+          </Button>
+        </div>
       </CardContent>
     </Card>
   );
