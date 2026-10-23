@@ -110,6 +110,11 @@ const purchaseRequestListSelect = {
   urgency: true,
   status: true,
   totalAmount: true,
+  items: {
+    select: { itemName: true },
+    orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+    take: 2,
+  },
   requester: {
     select: {
       name: true,
@@ -243,22 +248,30 @@ function buildFilterWhere(
     });
   }
 
-  if (filters.status && filters.status !== "ALL") {
-    if (filters.status === "AWAITING_RECEIPT_REFERENCES") {
-      andConditions.push({
-        status: PurchaseRequestStatus.ORDERED,
-        receivedAt: { not: null },
-      });
-    } else if (filters.status === "ORDERED") {
-      andConditions.push({
-        status: PurchaseRequestStatus.ORDERED,
-        receivedAt: null,
-      });
-    } else {
-      andConditions.push({
-        status: filters.status as PurchaseRequestStatus,
-      });
-    }
+  const selectedStatuses = Array.isArray(filters.status)
+    ? filters.status
+    : filters.status && filters.status !== "ALL" ? [filters.status] : [];
+
+  if (selectedStatuses.length) {
+    const statusConditions = selectedStatuses.map((status): Prisma.PurchaseRequestWhereInput => {
+      if (status === "AWAITING_RECEIPT_REFERENCES") {
+        return {
+          status: PurchaseRequestStatus.ORDERED,
+          receivedAt: { not: null },
+        };
+      }
+
+      if (status === "ORDERED") {
+        return {
+          status: PurchaseRequestStatus.ORDERED,
+          receivedAt: null,
+        };
+      }
+
+      return { status };
+    });
+
+    andConditions.push({ OR: statusConditions });
   }
 
   if (filters.urgency && filters.urgency !== "ALL") {
@@ -363,6 +376,7 @@ function toListItem(
     status: request.status,
     totalAmount: decimalToNumber(request.totalAmount),
     itemCount: request._count.items,
+    itemNames: request.items.map((item) => item.itemName),
     currentApproverName: request.currentApprover?.name ?? null,
     latestComment: latestApproval?.comment ?? null,
   } satisfies PurchaseRequestListItem;

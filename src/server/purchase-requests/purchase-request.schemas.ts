@@ -143,6 +143,19 @@ export const purchaseRequestFiltersSchema = z.object({
   ),
 });
 
+export const purchaseRequestListFiltersSchema = purchaseRequestFiltersSchema.extend({
+  status: z.preprocess(
+    (value) => value === undefined ? [] : typeof value === "string" ? [value] : value,
+    z.array(z.enum(["ALL", "SUBMITTED", ...purchaseRequestListStatusFilters] as const)),
+  ).transform((statuses) => {
+    if (statuses.includes("ALL") || statuses.includes("SUBMITTED")) {
+      return [];
+    }
+
+    return [...new Set(statuses.filter((status) => status !== "ALL" && status !== "SUBMITTED"))];
+  }),
+});
+
 export const purchaseRequestPaginationSchema = z.object({
   page: optionalPositiveInteger.default(1),
   limit: optionalPageSizeInteger.default(purchaseRequestListPageSize),

@@ -6,7 +6,7 @@ import {
   saveAttachmentFiles,
 } from "@/server/attachments/attachment.service";
 import {
-  purchaseRequestFiltersSchema,
+  purchaseRequestListFiltersSchema,
   purchaseRequestPaginationSchema,
 } from "@/server/purchase-requests/purchase-request.schemas";
 import { parsePurchaseRequestRequest } from "@/server/purchase-requests/purchase-request.request";
@@ -19,9 +19,9 @@ import { toErrorResponse } from "@/server/shared/errors";
 export async function GET(request: NextRequest) {
   try {
     const session = await requireSession();
-    const filters = purchaseRequestFiltersSchema.parse({
+    const filters = purchaseRequestListFiltersSchema.parse({
       query: request.nextUrl.searchParams.get("query") ?? undefined,
-      status: request.nextUrl.searchParams.get("status") ?? undefined,
+      status: request.nextUrl.searchParams.getAll("status"),
       urgency: request.nextUrl.searchParams.get("urgency") ?? undefined,
       preset: request.nextUrl.searchParams.get("preset") ?? undefined,
       department: request.nextUrl.searchParams.get("department") ?? undefined,

@@ -136,6 +136,7 @@ export type PurchaseRequestListItem = {
   status: PurchaseRequestStatus;
   totalAmount: number;
   itemCount: number;
+  itemNames: string[];
   currentApproverName?: string | null;
   latestComment?: string | null;
 };
@@ -359,7 +360,7 @@ export type NotificationItem = {
 
 export type PurchaseRequestFilters = {
   query?: string;
-  status?: PurchaseRequestListStatusFilter | "ALL";
+  status?: PurchaseRequestListStatusFilter | "ALL" | PurchaseRequestListStatusFilter[];
   urgency?: Priority | "ALL";
   preset?: PurchaseRequestQuickFilter;
   department?: string | "ALL";

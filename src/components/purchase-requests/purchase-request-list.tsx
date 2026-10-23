@@ -16,7 +16,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { getDepartmentLabel, interpolate } from "@/lib/i18n";
 import type {
   PurchaseRequestListItem,
@@ -78,6 +78,37 @@ function canEditDraft(
   );
 }
 
+function ItemNamesSummary({ request }: { request: PurchaseRequestListItem }) {
+  const { dictionary, locale } = useI18n();
+  const remainingCount = Math.max(0, request.itemCount - request.itemNames.length);
+
+  if (!request.itemNames.length) {
+    return null;
+  }
+
+  return (
+    <div className="min-w-0 space-y-1 whitespace-normal">
+      <p className="text-xs text-muted-foreground">{dictionary.purchaseRequests.itemList}</p>
+      <ul className="min-w-0 space-y-0.5 text-xs leading-5">
+        {request.itemNames.map((name, index) => (
+          <li key={`${index}-${name}`} className="line-clamp-1 wrap-anywhere" title={name}>
+            {name}
+          </li>
+        ))}
+      </ul>
+      {remainingCount > 0 ? (
+        <Link
+          href={`/purchase-requests/${request.id}`}
+          className="inline-block rounded-sm text-xs font-medium text-primary underline underline-offset-4 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+          aria-label={`${dictionary.purchaseRequests.itemList} ${request.prNumber}: ${interpolate(dictionary.purchaseRequests.moreItems, { count: formatNumber(remainingCount, locale) })}`}
+        >
+          {interpolate(dictionary.purchaseRequests.moreItems, { count: formatNumber(remainingCount, locale) })}
+        </Link>
+      ) : null}
+    </div>
+  );
+}
+
 export function PurchaseRequestList({
   currentUserId,
   currentUserRole,
@@ -125,8 +156,9 @@ export function PurchaseRequestList({
                 <PriorityBadge priority={request.urgency} locale={locale} />
               </div>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm">
+            <CardContent className="min-w-0 space-y-3 text-sm">
               <p>{request.reason}</p>
+              <ItemNamesSummary request={request} />
               <div className="grid grid-cols-2 gap-3 text-muted-foreground">
                 <div>
                   <p>{dictionary.common.date}</p>
@@ -180,12 +212,15 @@ export function PurchaseRequestList({
               <TableBody>
                 {items.map((request) => (
                   <TableRow key={request.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{request.prNumber}</p>
-                        <p className="line-clamp-1 max-w-xs text-xs text-muted-foreground">
-                          {request.reason}
-                        </p>
+                    <TableCell className="max-w-xs whitespace-normal">
+                      <div className="min-w-0 max-w-xs space-y-2">
+                        <div>
+                          <p className="font-medium">{request.prNumber}</p>
+                          <p className="line-clamp-1 text-xs text-muted-foreground wrap-anywhere">
+                            {request.reason}
+                          </p>
+                        </div>
+                        <ItemNamesSummary request={request} />
                       </div>
                     </TableCell>
                     <TableCell>

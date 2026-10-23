@@ -2,17 +2,18 @@ import Link from "next/link";
 import { Search } from "lucide-react";
 
 import { PurchaseRequestList } from "@/components/purchase-requests/purchase-request-list";
+import { PurchaseRequestStatusFilter } from "@/components/purchase-requests/purchase-request-status-filter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { departments, purchaseRequestListPageSize } from "@/lib/constants";
 import { getDepartmentLabel } from "@/lib/i18n";
-import { priorities, purchaseRequestListStatusFilters } from "@/lib/types";
+import { priorities } from "@/lib/types";
 import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import {
-  purchaseRequestFiltersSchema,
+  purchaseRequestListFiltersSchema,
   purchaseRequestPaginationSchema,
 } from "@/server/purchase-requests/purchase-request.schemas";
 import { listPurchaseRequestsPage } from "@/server/purchase-requests/purchase-request.service";
@@ -21,12 +22,18 @@ function firstOf(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-function toFilterQueryString(filters: ReturnType<typeof purchaseRequestFiltersSchema.parse>) {
-  return new URLSearchParams(
-    Object.entries(filters).flatMap(([key, value]) =>
-      value ? [[key, value]] : [],
-    ),
-  ).toString();
+function toFilterQueryString(filters: ReturnType<typeof purchaseRequestListFiltersSchema.parse>) {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(filters)) {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => params.append(key, entry));
+    } else if (value) {
+      params.append(key, value);
+    }
+  }
+
+  return params.toString();
 }
 
 export default async function PurchaseRequestsPage({
@@ -40,9 +47,9 @@ export default async function PurchaseRequestsPage({
     getCurrentDictionary(),
   ]);
   const rawSearchParams = await searchParams;
-  const filters = purchaseRequestFiltersSchema.parse({
+  const filters = purchaseRequestListFiltersSchema.parse({
     query: firstOf(rawSearchParams.query),
-    status: firstOf(rawSearchParams.status),
+    status: rawSearchParams.status,
     urgency: firstOf(rawSearchParams.urgency),
     preset: firstOf(rawSearchParams.preset),
     department: firstOf(rawSearchParams.department),
@@ -127,21 +134,10 @@ export default async function PurchaseRequestsPage({
 
             <div className="space-y-2">
               <Label htmlFor="status">{dictionary.common.status}</Label>
-              <select
-                id="status"
-                name="status"
+              <PurchaseRequestStatusFilter
+                key={`${filterQueryString}:${page}`}
                 defaultValue={filters.status}
-                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-              >
-                <option value="ALL">{dictionary.common.all}</option>
-                {purchaseRequestListStatusFilters.map((status) => (
-                  <option key={status} value={status}>
-                    {status === "AWAITING_RECEIPT_REFERENCES"
-                      ? dictionary.approval.awaitingReceiptReferences
-                      : dictionary.statuses[status]}
-                  </option>
-                ))}
-              </select>
+              />
             </div>
 
             <div className="space-y-2">
