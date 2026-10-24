@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { supplierListPageSize } from "@/lib/constants";
 import { supplierContactChannels } from "@/lib/types";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
@@ -31,7 +32,7 @@ export const supplierFiltersSchema = z.object({
   query: optionalText(200),
   status: z.enum(["ALL", "ACTIVE", "INACTIVE"]).default("ALL"),
   page: z.coerce.number().int().min(1).max(1000000).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(100).default(supplierListPageSize),
 });
 
 export type CreateSupplierInput = z.output<typeof createSupplierSchema>;

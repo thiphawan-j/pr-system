@@ -19,7 +19,7 @@ import type { PurchaseRequestDetail } from "@/lib/types";
 type ReceiptConfirmationPanelProps = {
   requestId: string;
   expectedVersion: number;
-  items: PurchaseRequestDetail["items"];
+  items: PurchaseRequestDetail["receivingItems"];
   canCloseOutstanding: boolean;
 };
 

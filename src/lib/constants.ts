@@ -8,6 +8,7 @@ import type {
 export const appName = "PR Flow";
 export const purchaseRequestListPageSize = 10;
 export const adminUserListPageSize = 10;
+export const supplierListPageSize = 10;
 
 export const managementDepartment = "บริหาร/จัดการ" as const;
 
@@ -104,4 +105,5 @@ export const navigationItems = [
   { href: "/reports", labelKey: "reports" },
   { href: "/suppliers", labelKey: "suppliers", roles: ["PURCHASING", "ADMIN"] },
   { href: "/admin/users", labelKey: "adminUsers", roles: ["ADMIN"] },
+  { href: "/admin/company", labelKey: "companySettings", roles: ["ADMIN"] },
 ] as const;

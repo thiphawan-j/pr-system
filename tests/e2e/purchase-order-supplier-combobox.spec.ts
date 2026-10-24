@@ -151,7 +151,7 @@ test("new typed supplier names group by normalized spelling and create manual PO
   }
   const { orders, payload } = await submitOrders(page, request);
   expect(orders).toHaveLength(1);
-  expect(payload.orders).toEqual([{ supplierName: name, itemIds: request.items.map((item) => item.id) }]);
+  expect(payload.orders).toEqual([{ supplierName: name, itemIds: request.items.map((item) => item.id), taxMode: "UNSPECIFIED", vatRate: 7 }]);
   const document = await getOrder(page, orders[0]!.id);
   expect(document.supplierId).toBeNull();
   expect(document.supplierName).toBe(name);
@@ -180,6 +180,7 @@ test("editing a registered choice clears its identity and headers even when the 
   const { orders, payload } = await submitOrders(page, request);
   expect(payload.orders).toEqual([{
     supplierName: supplier.name, itemIds: [request.items[0]!.id], supplierAddress: "Manually supplied address",
+    taxMode: "UNSPECIFIED", vatRate: 7,
   }]);
   const document = await getOrder(page, orders[0]!.id);
   expect(document).toMatchObject({ supplierId: null, supplierAddress: "Manually supplied address", supplierContacts: [], paymentTerms: null });

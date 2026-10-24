@@ -1,10 +1,16 @@
 import { z } from "zod";
+import { PURCHASE_PRICE_TAX_MODES } from "@/lib/purchase-order-tax";
 import { supplierContactSchema } from "@/server/suppliers/supplier.schemas";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
   .transform((value) => value || undefined);
 
+const taxModeSchema = z.enum(PURCHASE_PRICE_TAX_MODES);
+const vatRateSchema = z.number().finite().min(0).max(100).multipleOf(0.01, "อัตราภาษีต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง");
+
 const orderFields = {
+  taxMode: taxModeSchema.optional(),
+  vatRate: vatRateSchema.optional(),
   deliveryAddress: optionalText(2000),
   expectedDeliveryDate: z.iso.date("กรุณาระบุวันที่ส่งมอบที่ถูกต้อง").optional(),
   note: optionalText(2000),
@@ -24,10 +30,24 @@ const manualOrderSchema = z.object({
     paymentTerms: optionalText(500),
 }).strict();
 
+const preparationItemSchema = z.object({
+  clientId: z.string().min(1).max(100),
+  sourceItemId: z.string().min(1).max(100).optional(),
+  taxMode: taxModeSchema.nullable().optional(),
+  itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า").max(200),
+  description: optionalText(2000),
+  quantity: z.number().int().positive("จำนวนต้องมากกว่า 0").max(2147483647),
+  unit: optionalText(50),
+  unitPrice: z.number().finite().nonnegative("ราคาต่อหน่วยต้องไม่ติดลบ").max(9999999999.99)
+    .multipleOf(0.01, "ราคาต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง"),
+}).strict();
+
 export const purchaseOrderConversionSchema = z.object({
   orders: z.array(z.union([registeredOrderSchema, manualOrderSchema]))
     .min(1, "กรุณาระบุใบสั่งซื้ออย่างน้อยหนึ่งใบ").max(500),
-}).strict().superRefine(({ orders }, context) => {
+  items: z.array(preparationItemSchema).min(1, "ต้องมีอย่างน้อย 1 รายการ").max(500).optional(),
+  expectedUpdatedAt: z.iso.datetime({ offset: true, error: "ข้อมูล PR มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่" }).optional(),
+}).strict().superRefine(({ orders, items, expectedUpdatedAt }, context) => {
   const suppliers = orders.map((order) => "supplierId" in order
     ? `registered:${order.supplierId}`
     : `manual:${order.supplierName.normalize("NFKC").toLowerCase()}`);
@@ -37,6 +57,19 @@ export const purchaseOrderConversionSchema = z.object({
   const itemIds = orders.flatMap((order) => order.itemIds);
   if (new Set(itemIds).size !== itemIds.length) {
     context.addIssue({ code: "custom", path: ["orders"], message: "รายการสินค้าซ้ำกัน" });
+  }
+  if (items) {
+    if (!expectedUpdatedAt) {
+      context.addIssue({ code: "custom", path: ["expectedUpdatedAt"], message: "กรุณาโหลดข้อมูล PR ใหม่ก่อนแก้ไขรายการ" });
+    }
+    const clientIds = new Set(items.map((item) => item.clientId));
+    const sourceIds = items.flatMap((item) => item.sourceItemId ? [item.sourceItemId] : []);
+    if (clientIds.size !== items.length || new Set(sourceIds).size !== sourceIds.length) {
+      context.addIssue({ code: "custom", path: ["items"], message: "รายการสินค้าซ้ำกัน" });
+    }
+    if (itemIds.length !== items.length || itemIds.some((itemId) => !clientIds.has(itemId))) {
+      context.addIssue({ code: "custom", path: ["orders"], message: "กรุณาจัดผู้ขายให้ครบทุกรายการใน PR โดยไม่ซ้ำกัน" });
+    }
   }
 });
 
@@ -55,6 +88,8 @@ const supplierOverrides = {
 
 export const purchaseOrderChangeSchema = z.object({
   expectedVersion: z.number().int().nonnegative().max(2147483646),
+  taxMode: taxModeSchema.optional(),
+  vatRate: vatRateSchema.optional(),
   reason: z.string().trim().min(5, "กรุณาระบุเหตุผลการแก้ไขอย่างน้อย 5 ตัวอักษร").max(2000),
   supplier: z.union([
     z.object({ supplierId: z.string().min(1).max(100), supplierName: z.string().trim().min(1).max(200).optional(), ...supplierOverrides }).strict(),
@@ -66,6 +101,7 @@ export const purchaseOrderChangeSchema = z.object({
   note: optionalText(2000),
   items: z.array(z.object({
     id: z.string().min(1).max(100).optional(),
+    taxMode: taxModeSchema.nullable().optional(),
     itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า").max(200),
     description: optionalText(2000),
     quantity: z.number().int().positive().max(2147483647),

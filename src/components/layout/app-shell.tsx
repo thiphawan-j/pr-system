@@ -32,16 +32,16 @@ export function AppShell({
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-border/70 bg-background/80 backdrop-blur">
         <div className="mx-auto flex w-full max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-2">
             <MobileNav session={session} />
             <Link
               href="/dashboard"
-              className="flex items-center gap-2 rounded-full px-1 py-1"
+              className="flex shrink-0 items-center gap-2 rounded-full px-1 py-1"
             >
-              <div className="flex size-10 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
+              <div className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary text-primary-foreground shadow-lg shadow-primary/20">
                 <LayoutGrid className="size-5" />
               </div>
-              <div className="hidden sm:block">
+              <div className="hidden max-w-36 sm:block">
                 <p className="text-sm font-semibold">PR Flow</p>
                 <p className="text-xs text-muted-foreground">
                   {dictionary.app.shortDescription}
@@ -50,11 +50,11 @@ export function AppShell({
             </Link>
           </div>
 
-          <div className="hidden lg:flex">
+          <div className="hidden min-w-0 flex-1 lg:block">
             <NavigationLinks sessionRole={session.role} />
           </div>
 
-          <div className="ml-auto flex items-center gap-2">
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             <Button asChild size="sm" className="hidden rounded-full sm:inline-flex">
               <Link href="/purchase-requests/new">
                 <PlusCircle />
@@ -71,14 +71,14 @@ export function AppShell({
               href="/profile"
               aria-label={dictionary.navigation.profile}
               title={dictionary.navigation.profile}
-              className="hidden items-center gap-3 rounded-full border border-border/70 bg-card px-3 py-1.5 transition-colors hover:bg-muted/40 md:flex"
+              className="hidden max-w-48 items-center gap-3 rounded-full border border-border/70 bg-card px-3 py-1.5 transition-colors hover:bg-muted/40 md:flex"
             >
               <Avatar size="sm">
                 <AvatarFallback>{getInitials(session.name)}</AvatarFallback>
               </Avatar>
               <div className="min-w-0">
                 <p className="max-w-44 truncate text-sm font-medium">{session.name}</p>
-                <p className="text-xs text-muted-foreground">
+                <p className="truncate text-xs text-muted-foreground">
                   {getDepartmentLabelFromDictionary(session.department, dictionary)} ·{" "}
                   {dictionary.roles[session.role]}
                 </p>

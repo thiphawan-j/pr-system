@@ -27,6 +27,7 @@ export function documentOrderFixture(count = 2, longDescriptions = false): Purch
     canWithdraw: false,
     pendingChangeId: null,
     changes: [],
+    buyerCompany: null,
     supplierId: "supplier-test",
     supplierCode: "SUP-DOC-TEST",
     supplierName: "ผู้จำหน่ายสำหรับทดสอบเอกสาร",
@@ -40,7 +41,7 @@ export function documentOrderFixture(count = 2, longDescriptions = false): Purch
     expectedDeliveryDate: "2026-10-29",
     note: "หมายเหตุ PO ที่อนุญาตให้ผู้ขายเห็น สำหรับตรวจรูปแบบเอกสาร",
     createdBy: { id: "author-test", name: "ผู้จัดทำทดสอบ" },
-    purchaseRequest: { id: "pr-test", prNumber: "PR-DOC-TEST", department: "Operations", requesterName: "ผู้ขอซื้อทดสอบ", status: "ORDERED" },
+    purchaseRequest: { id: "pr-test", prNumber: "PR-DOC-TEST", department: "Operations", requesterName: "ผู้ขอซื้อทดสอบ", status: "ORDERED", receiptVersion: 0, canCloseOrder: false },
     items,
   };
 }
@@ -62,5 +63,23 @@ export function emptyOptionalDocumentFixture(): PurchaseOrderDetail {
     expectedDeliveryDate: null,
     note: null,
     items: order.items.map((item) => ({ ...item, unit: null, description: null })),
+  };
+}
+
+/** Explicit tax metadata for print/PDF checks; the ordinary fixture stays legacy/unknown. */
+export function taxDocumentFixture(mode: "INCLUSIVE" | "EXCLUSIVE" | "NONE" | "UNSPECIFIED"): PurchaseOrderDetail {
+  const order = documentOrderFixture(1);
+  return {
+    ...order,
+    taxMode: mode,
+    vatRate: 7,
+    totalAmount: mode === "EXCLUSIVE" ? 107 : 100,
+    items: order.items.map((item) => ({
+      ...item,
+      quantity: 1,
+      unitPrice: 100,
+      amount: 100,
+      taxMode: null,
+    })),
   };
 }

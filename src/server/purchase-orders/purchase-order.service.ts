@@ -1,9 +1,12 @@
 import "server-only";
 
-import { ApprovalAction, NotificationType, Prisma, PurchaseRequestStatus } from "@prisma/client";
+import { ApprovalAction, NotificationType, Prisma, PurchaseRequestStatus, type PurchaseRequestItem, type PurchasePriceTaxMode } from "@prisma/client";
+import { calculatePurchaseOrderTax, calculateTaxLine } from "@/lib/purchase-order-tax";
 import { toBangkokDateValue, toBangkokIsoString, toBangkokMonthValue } from "@/lib/format";
 import type { PurchaseOrderDetail, PurchaseOrderSnapshot, PurchaseOrderSummary, SessionUser } from "@/lib/types";
 import { canApprovePurchaseRequest, isPurchasing } from "@/server/auth/authorization";
+import { companyIdentitySchema } from "@/server/company/company.schemas";
+import { companyIdentity, lockCompanyProfile } from "@/server/company/company.service";
 import { getDb } from "@/server/db";
 import { createNotifications } from "@/server/notifications/notification.service";
 import type { PurchaseOrderConversionInput } from "@/server/purchase-orders/purchase-order.schemas";
@@ -12,6 +15,94 @@ import { AppError, invariant } from "@/server/shared/errors";
 import { supplierContactSchema } from "@/server/suppliers/supplier.schemas";
 import { formatSupplierCode } from "@/server/suppliers/supplier.service";
 import { z } from "zod";
+
+const maximumPreparationAmount = new Prisma.Decimal("9999999999.99");
+
+type PreparedConversionItem = {
+  clientId: string;
+  sourceItemId?: string;
+  itemName: string;
+  description: string | null;
+  quantity: number;
+  unit: string | null;
+  unitPrice: Prisma.Decimal;
+  amount: Prisma.Decimal;
+  taxMode: PurchasePriceTaxMode | null;
+};
+
+function prepareConversionItems(input: PurchaseOrderConversionInput, originals: PurchaseRequestItem[]) {
+  if (!input.items) return null;
+  const sourceIds = new Set(originals.map((item) => item.id));
+  const retainedSourceIds = input.items.flatMap((item) => item.sourceItemId ? [item.sourceItemId] : []);
+  invariant(retainedSourceIds.every((itemId) => sourceIds.has(itemId)), "ไม่พบรายการสินค้าใน PR นี้", 400);
+  invariant(new Set(retainedSourceIds).size === retainedSourceIds.length &&
+    new Set(input.items.map((item) => item.clientId)).size === input.items.length,
+  "รายการสินค้าซ้ำกัน", 400);
+  // An approved, unissued PR normally has no receipt activity. Keep this guard
+  // explicit so preparation can never discard an existing receiving ledger.
+  invariant(originals.every((item) => item.receivedQuantity === 0 && item.closedQuantity === 0),
+    "ไม่สามารถปรับรายการก่อนออก PO ของ PR ที่มีการรับสินค้าหรือปิดยอดแล้ว", 400);
+  let total = new Prisma.Decimal(0);
+  const items: PreparedConversionItem[] = input.items.map((item) => {
+    const unitPrice = new Prisma.Decimal(item.unitPrice);
+    const amount = unitPrice.times(item.quantity);
+    invariant(amount.lte(maximumPreparationAmount), "ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
+    total = total.plus(amount);
+    return {
+      clientId: item.clientId, sourceItemId: item.sourceItemId,
+      itemName: item.itemName, description: item.description ?? null,
+      quantity: item.quantity, unit: item.unit ?? null, unitPrice, amount, taxMode: item.taxMode ?? null,
+    };
+  });
+  invariant(total.lte(maximumPreparationAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
+  return { items, total };
+}
+
+function preparationItemSummary(item: Pick<PurchaseRequestItem, "itemName" | "description" | "quantity" | "unit" | "unitPrice" | "amount"> & { taxMode?: PurchasePriceTaxMode | null; vatRate?: Prisma.Decimal }) {
+  const mode = item.taxMode ?? "UNSPECIFIED";
+  const rate = Number(item.vatRate ?? 7);
+  const tax = calculateTaxLine(item.amount.toString(), mode, rate);
+  return [
+    `ชื่อสินค้า: ${item.itemName}`,
+    `รายละเอียด: ${item.description ?? "—"}`,
+    `จำนวน: ${item.quantity}`,
+    `หน่วย: ${item.unit ?? "—"}`,
+    `ราคาต่อหน่วย: ${item.unitPrice ? `${item.unitPrice.toFixed(2)} บาท` : "ไม่ได้ระบุ"}`,
+    `ยอดรวม: ${item.amount.toFixed(2)} บาท`,
+    `รูปแบบภาษี: ${taxModeLabel(mode)}`, `อัตรา VAT: ${rate.toFixed(2)}%`,
+    `ยอดสุทธิ: ${tax.netAmount === null ? "ไม่ได้ระบุ" : `${tax.netAmount.toFixed(2)} บาท`}`,
+    `VAT: ${tax.taxAmount === null ? "ไม่ได้ระบุ" : `${tax.taxAmount.toFixed(2)} บาท`}`,
+    `ยอดชำระ: ${tax.totalAmount.toFixed(2)} บาท`,
+  ].join(" | ");
+}
+
+function taxModeLabel(mode: PurchasePriceTaxMode) {
+  return { UNSPECIFIED: "ไม่ได้ระบุ", INCLUSIVE: "รวม VAT แล้ว", EXCLUSIVE: "ยังไม่รวม VAT", NONE: "ไม่มี VAT" }[mode];
+}
+
+function preparationAuditComment(originals: PurchaseRequestItem[], items: Array<PreparedConversionItem & { vatRate?: Prisma.Decimal }>, beforeTotal: Prisma.Decimal, afterTotal: Prisma.Decimal) {
+  const byId = new Map(originals.map((item) => [item.id, item]));
+  const retainedIds = new Set(items.flatMap((item) => item.sourceItemId ? [item.sourceItemId] : []));
+  const changes: string[] = [];
+  for (const original of originals) {
+    if (!retainedIds.has(original.id)) changes.push(`ลบสินค้า: ${preparationItemSummary(original)}`);
+  }
+  for (const item of items) {
+    const original = item.sourceItemId ? byId.get(item.sourceItemId) : undefined;
+    if (!original) {
+      changes.push(`เพิ่มสินค้า: ${preparationItemSummary(item)}`);
+    } else if (original.itemName !== item.itemName || original.description !== item.description ||
+      original.quantity !== item.quantity || original.unit !== item.unit ||
+      !(original.unitPrice ?? new Prisma.Decimal(0)).equals(item.unitPrice) || !original.amount.equals(item.amount) ||
+      original.taxMode !== (item.taxMode ?? "UNSPECIFIED") || !original.vatRate.equals(item.vatRate ?? 7)) {
+      changes.push(`แก้ไขสินค้า\nก่อน: ${preparationItemSummary(original)}\nหลัง: ${preparationItemSummary(item)}`);
+    }
+  }
+  if (!changes.length && beforeTotal.equals(afterTotal)) return null;
+  return [`ปรับรายการก่อนออก PO โดยฝ่ายจัดซื้อ`,
+    `ยอดรวม PR: ${beforeTotal.toFixed(2)} → ${afterTotal.toFixed(2)} บาท`,
+    `ยอดรวม PO: ${afterTotal.toFixed(2)} บาท`, ...changes].join("\n");
+}
 
 export async function convertPurchaseRequestToOrders(
   id: string,
@@ -22,6 +113,11 @@ export async function convertPurchaseRequestToOrders(
   const db = getDb();
   const issuedAt = new Date();
   const { purchaseOrders, request } = await db.$transaction(async (transaction) => {
+    await lockCompanyProfile(transaction, "shared");
+    // Use the same PR row lock as receipts, cancellations, and PO amendments.
+    // A second submission must read the committed status and item snapshot.
+    await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseRequest" WHERE "id" = ${id} FOR UPDATE`);
+    const company = await transaction.companyProfile.findUnique({ where: { id: "default" } });
     const request = await transaction.purchaseRequest.findUnique({
       where: { id },
       include: { items: { orderBy: [{ createdAt: "asc" }, { id: "asc" }] }, purchaseOrders: { select: { id: true } } },
@@ -29,9 +125,15 @@ export async function convertPurchaseRequestToOrders(
     invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
     invariant(request.purchaseOrders.length === 0, "PR นี้ถูกแปลงเป็น PO แล้ว กรุณาโหลดข้อมูลใหม่", 409);
     invariant(request.status === PurchaseRequestStatus.APPROVED, "PR ต้องได้รับการอนุมัติก่อนแปลงเป็น PO", 400);
+    invariant(!(input.items || input.orders.some((order) => order.taxMode !== undefined || order.vatRate !== undefined)) || input.expectedUpdatedAt, "กรุณาโหลดข้อมูล PR ใหม่ก่อนแก้ไขรายการ", 400);
+    if (input.expectedUpdatedAt) {
+      invariant(new Date(input.expectedUpdatedAt).getTime() === request.updatedAt.getTime(),
+        "ข้อมูล PR มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    }
 
+    const prepared = prepareConversionItems(input, request.items);
     const allocatedIds = input.orders.flatMap((order) => order.itemIds);
-    const sourceIds = new Set(request.items.map((item) => item.id));
+    const sourceIds = new Set(prepared ? prepared.items.map((item) => item.clientId) : request.items.map((item) => item.id));
     invariant(
       allocatedIds.length === sourceIds.size && new Set(allocatedIds).size === sourceIds.size && allocatedIds.every((itemId) => sourceIds.has(itemId)),
       "กรุณาจัดผู้ขายให้ครบทุกรายการใน PR โดยไม่ซ้ำกัน", 400,
@@ -62,6 +164,32 @@ export async function convertPurchaseRequestToOrders(
     invariant(suppliers.length === supplierIds.length, "ไม่พบผู้ขายที่เลือก กรุณาเลือกผู้ขายใหม่", 400);
     invariant(suppliers.every((supplier) => supplier.isActive), "ผู้ขายที่เลือกถูกปิดใช้งานแล้ว กรุณาเลือกผู้ขายใหม่", 400);
 
+    // Save the final purchasing specification to the PR and PO together.
+    // Receiving balances remain on PO lines and are never copied from the PR.
+    const conversionItems = request.items.map((item) => ({
+      ...item, clientId: item.id, sourceItemId: item.id,
+    }));
+    if (prepared) {
+      const retainedIds = prepared.items.flatMap((item) => item.sourceItemId ? [item.sourceItemId] : []);
+      await transaction.purchaseRequestItem.deleteMany({ where: { purchaseRequestId: id, id: { notIn: retainedIds } } });
+      const supplierByClientId = new Map(input.orders.flatMap((order) => {
+        const name = "supplierId" in order ? suppliersById.get(order.supplierId)!.name : order.supplierName;
+        return order.itemIds.map((itemId) => [itemId, name] as const);
+      }));
+      conversionItems.length = 0;
+      for (const item of prepared.items) {
+        const fields = {
+          itemName: item.itemName, description: item.description, quantity: item.quantity,
+          unit: item.unit, unitPrice: item.unitPrice, amount: item.amount,
+          supplierName: supplierByClientId.get(item.clientId)!,
+        };
+        const persisted = item.sourceItemId
+          ? await transaction.purchaseRequestItem.update({ where: { id: item.sourceItemId }, data: fields })
+          : await transaction.purchaseRequestItem.create({ data: { ...fields, purchaseRequestId: id } });
+        conversionItems.push({ ...persisted, clientId: item.clientId, sourceItemId: persisted.id });
+      }
+    }
+
     const key = toBangkokMonthValue(issuedAt).replace("-", "");
     const sequence = await transaction.purchaseOrderNumberSequence.upsert({
       where: { key },
@@ -70,6 +198,9 @@ export async function convertPurchaseRequestToOrders(
     });
     const firstNumber = sequence.nextValue - input.orders.length;
     const purchaseOrders: PurchaseOrderSummary[] = [];
+    const overridesByClientId = new Map(prepared?.items.map((item) => [item.clientId, item.taxMode]) ?? []);
+    const auditedItems: Array<PreparedConversionItem & { vatRate?: Prisma.Decimal }> = [];
+    let requestTotal = new Prisma.Decimal(0);
     for (const [index, order] of input.orders.entries()) {
       const registered = "supplierId" in order ? suppliersById.get(order.supplierId)! : null;
       const supplierData = registered ? {
@@ -90,34 +221,61 @@ export async function convertPurchaseRequestToOrders(
       } : null;
       invariant(supplierData, "กรุณาระบุผู้ขายของทุกรายการ", 400);
       const selectedIds = new Set(order.itemIds);
-      const items = request.items.filter((item) => selectedIds.has(item.id));
-      const totalAmount = items.reduce((total, item) => total.plus(item.amount), new Prisma.Decimal(0));
+      const items = conversionItems.filter((item) => selectedIds.has(item.clientId));
+      const taxMode = order.taxMode ?? "UNSPECIFIED";
+      const vatRate = order.vatRate ?? 7;
+      let tax;
+      try {
+        tax = calculatePurchaseOrderTax(items.map((item) => ({ amount: item.amount.toString(), taxMode: overridesByClientId.get(item.clientId) ?? null })), taxMode, vatRate);
+      } catch {
+        throw new AppError("ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
+      }
+      const totalAmount = new Prisma.Decimal(tax.totalAmount);
+      requestTotal = requestTotal.plus(totalAmount);
+      invariant(requestTotal.lte(maximumPreparationAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
+      for (const item of items) {
+        const effectiveTaxMode = overridesByClientId.get(item.clientId) ?? taxMode;
+        await transaction.purchaseRequestItem.update({ where: { id: item.sourceItemId }, data: { taxMode: effectiveTaxMode, vatRate } });
+        auditedItems.push({ ...item, unitPrice: item.unitPrice ?? new Prisma.Decimal(0), taxMode: effectiveTaxMode, vatRate: new Prisma.Decimal(vatRate) });
+      }
       const created = await transaction.purchaseOrder.create({
         data: {
           poNumber: `PO-${key}-${String(firstNumber + index).padStart(4, "0")}`,
           purchaseRequestId: id,
           createdById: session.id,
           issuedAt,
+          buyerCompany: company ? companyIdentity(company) : Prisma.DbNull,
           ...supplierData,
           deliveryAddress: order.deliveryAddress,
           expectedDeliveryDate: order.expectedDeliveryDate ? new Date(`${order.expectedDeliveryDate}T00:00:00.000Z`) : null,
           note: order.note,
-          totalAmount,
+          totalAmount, taxMode, vatRate,
           items: {
             create: items.map((item, position) => ({
-              purchaseRequestItemId: item.id,
+              purchaseRequestItemId: item.sourceItemId ?? null,
               position,
               itemName: item.itemName,
               description: item.description,
               quantity: item.quantity,
               unit: item.unit,
               unitPrice: item.unitPrice ?? new Prisma.Decimal(0),
-              amount: item.amount,
+              amount: item.amount, taxMode: overridesByClientId.get(item.clientId) ?? null,
             })),
           },
         },
       });
       purchaseOrders.push({ id: created.id, poNumber: created.poNumber, supplierName: created.supplierName, issuedAt: toBangkokIsoString(created.issuedAt), totalAmount: Number(created.totalAmount), itemCount: items.length });
+    }
+    await transaction.purchaseRequest.update({ where: { id }, data: { totalAmount: requestTotal } });
+    {
+      const comment = preparationAuditComment(request.items, auditedItems, request.totalAmount, requestTotal);
+      if (comment) {
+        await transaction.approval.create({ data: {
+          purchaseRequestId: id, approverId: session.id, action: ApprovalAction.COMMENTED,
+          stepLabel: "ปรับรายการก่อนออก PO",
+          comment: `${purchaseOrders.map((order) => order.poNumber).join(", ")}\n${comment}`,
+        } });
+      }
     }
     await transaction.approval.create({
       data: { purchaseRequestId: id, approverId: session.id, action: ApprovalAction.ORDERED, stepLabel: "ฝ่ายจัดซื้อ", comment: `แปลง PR เป็น PO: ${purchaseOrders.map((order) => order.poNumber).join(", ")}` },
@@ -142,9 +300,10 @@ export async function getPurchaseOrderById(id: string, session: SessionUser): Pr
     where: { id },
     include: {
       createdBy: { select: { id: true, name: true } },
-      purchaseRequest: { select: { id: true, prNumber: true, requesterId: true, department: true, currentApproverId: true, status: true, receivedAt: true, requester: { select: { name: true } },
+      purchaseRequest: { select: { id: true, prNumber: true, requesterId: true, department: true, currentApproverId: true, status: true, receiptVersion: true, receivedAt: true, requester: { select: { name: true } },
+        purchaseOrders: { where: { changes: { some: { status: "PENDING" } } }, select: { id: true }, take: 1 },
         approvals: { where: { action: "APPROVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { approverId: true } } } },
-      items: { orderBy: { position: "asc" }, include: { purchaseRequestItem: { select: { receivedQuantity: true, closedQuantity: true } } } },
+      items: { orderBy: { position: "asc" } },
       changes: { orderBy: [{ createdAt: "desc" }, { id: "desc" }], include: {
         submittedBy: { select: { id: true, name: true } }, reviewedBy: { select: { id: true, name: true } },
       } },
@@ -158,10 +317,15 @@ export async function getPurchaseOrderById(id: string, session: SessionUser): Pr
     assertCanViewPurchaseRequest(session, source.requesterId, source.department, source.currentApproverId);
   }
   const contacts = z.array(supplierContactSchema).safeParse(order.supplierContacts);
+  const buyerCompany = companyIdentitySchema.safeParse(order.buyerCompany);
   const pending = order.changes.find((change) => change.status === "PENDING");
   const active = source.status === "ORDERED" && !source.receivedAt;
   const reviewable = source.status === "ORDERED";
+  const tax = calculatePurchaseOrderTax(order.items.map((item) => ({ amount: item.amount.toString(), taxMode: item.taxMode })), order.taxMode, Number(order.vatRate));
+  const hasTaxMetadata = order.taxMode !== "UNSPECIFIED" || !order.vatRate.equals(7) || order.items.some((item) => item.taxMode !== null);
   return {
+    ...(hasTaxMetadata ? { taxMode: order.taxMode, vatRate: Number(order.vatRate), subtotalAmount: tax.subtotalAmount, netAmount: tax.netAmount, taxAmount: tax.taxAmount, hasUnspecifiedTax: tax.hasUnspecifiedTax } : {}),
+    buyerCompany: buyerCompany.success ? buyerCompany.data : null,
     version: order.version, revision: order.revision,
     canEdit: active && isPurchasing(session) && !pending,
     canReview: reviewable && Boolean(pending) && pending?.submittedById !== session.id && canApprovePurchaseRequest(session, source.approvals[0]?.approverId),
@@ -185,12 +349,23 @@ export async function getPurchaseOrderById(id: string, session: SessionUser): Pr
     deliveryAddress: order.deliveryAddress, paymentTerms: order.paymentTerms,
     expectedDeliveryDate: order.expectedDeliveryDate ? toBangkokDateValue(order.expectedDeliveryDate) : null,
     note: order.note, createdBy: order.createdBy,
-    purchaseRequest: { id: source.id, prNumber: source.prNumber, department: source.department, requesterName: source.requester.name, status: source.status },
-    items: order.items.map((item) => ({
-      id: item.id, purchaseRequestItemId: item.purchaseRequestItemId,
-      itemName: item.itemName, description: item.description, quantity: item.quantity, unit: item.unit,
-      unitPrice: Number(item.unitPrice), amount: Number(item.amount),
-      receivedQuantity: item.purchaseRequestItem.receivedQuantity, closedQuantity: item.purchaseRequestItem.closedQuantity,
-    })),
+    purchaseRequest: {
+      id: source.id, prNumber: source.prNumber, department: source.department, requesterName: source.requester.name, status: source.status,
+      receiptVersion: source.receiptVersion,
+      canCloseOrder: isPurchasing(session) && source.status === "ORDERED" && source.purchaseOrders.length === 0,
+    },
+    items: order.items.map((item) => {
+      const line = calculateTaxLine(item.amount.toString(), item.taxMode ?? order.taxMode, Number(order.vatRate));
+      return {
+        id: item.id, purchaseRequestItemId: item.purchaseRequestItemId,
+        itemName: item.itemName, description: item.description, quantity: item.quantity, unit: item.unit,
+        unitPrice: Number(item.unitPrice), amount: Number(item.amount),
+        ...(hasTaxMetadata ? {
+          taxMode: item.taxMode, effectiveTaxMode: item.taxMode ?? order.taxMode, vatRate: Number(order.vatRate),
+          netAmount: line.netAmount, taxAmount: line.taxAmount, totalWithTax: line.totalAmount,
+        } : {}),
+        receivedQuantity: item.receivedQuantity, closedQuantity: item.closedQuantity,
+      };
+    }),
   };
 }

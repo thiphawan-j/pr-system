@@ -291,3 +291,9 @@ export const receiptEntrySchema = z
   });
 
 export type ReceiptEntryInput = z.infer<typeof receiptEntrySchema>;
+
+export const closePurchaseRequestSchema = z.object({
+  expectedVersion: z.number().int().nonnegative(),
+}).strict();
+
+export type ClosePurchaseRequestInput = z.infer<typeof closePurchaseRequestSchema>;

@@ -14,6 +14,7 @@ import {
 
 import { ApprovalActionPanel } from "@/components/purchase-requests/approval-action-panel";
 import { AttachmentPreviewButton } from "@/components/purchase-requests/attachment-preview-button";
+import { CloseOrderButton } from "@/components/purchase-requests/close-order-button";
 import { DetailText } from "@/components/purchase-requests/detail-text";
 import { PriorityBadge } from "@/components/purchase-requests/priority-badge";
 import {
@@ -128,17 +129,17 @@ export default async function PurchaseRequestDetailPage({
   const canConfirmReceipt = request.status === "ORDERED" && !request.hasPendingPurchaseOrderChange;
   const isPurchasing = session.role === "PURCHASING" || session.role === "ADMIN";
   const canCloseOutstanding =
-    isPurchasing && request.items.some((item) => item.receivedQuantity > 0);
+    isPurchasing && request.receivingItems.some((item) => item.receivedQuantity > 0);
   const canEditReceiptReferences =
     !request.hasPendingPurchaseOrderChange &&
-    ((request.status === "ORDERED" && request.receivedAt) ||
-      request.status === "COMPLETED") &&
+    Boolean(request.receivedAt) &&
+    (request.status === "ORDERED" || request.status === "COMPLETED") &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
   const receiptReferenceStatus =
     request.status === "COMPLETED" ? "COMPLETED" : "ORDERED";
   const isAwaitingReceiptReferences =
     request.status === "ORDERED" && Boolean(request.receivedAt);
-  const hasClosedRemainder = request.items.some((item) => item.closedQuantity > 0);
+  const hasClosedRemainder = request.receivingItems.some((item) => item.closedQuantity > 0);
   const documentDetails = [
     { label: dictionary.common.documentDate, value: formatDate(request.requestDate, locale) },
     { label: dictionary.common.department, value: getDepartmentLabel(request.department, locale) },
@@ -186,6 +187,13 @@ export default async function PurchaseRequestDetailPage({
           </div>
           <div className="grid gap-2 sm:flex sm:flex-wrap sm:justify-end *:w-full sm:*:w-auto">
             <SharePurchaseRequestButton requestId={request.id} prNumber={request.prNumber} reason={request.reason} />
+            {request.canCloseOrder ? (
+              <CloseOrderButton
+                requestId={request.id}
+                expectedVersion={request.receiptVersion}
+                prNumber={request.prNumber}
+              />
+            ) : null}
             {canEdit ? (
               <Button asChild variant="outline" className="rounded-xl">
                 <Link href={`/purchase-requests/${request.id}/edit`}>
@@ -411,13 +419,23 @@ export default async function PurchaseRequestDetailPage({
                     <div className="min-w-0 space-y-1">
                       <dt className="text-xs text-muted-foreground">{dictionary.purchaseRequests.unitPrice}</dt>
                       <dd className="font-medium tabular-nums">{item.unitPrice === undefined ? "-" : formatCurrency(item.unitPrice, locale)}</dd>
+                      {item.taxMode && item.taxMode !== "UNSPECIFIED" ? <p className="text-xs text-muted-foreground">{dictionary.poTax[item.taxMode]}{item.taxMode === "NONE" ? "" : ` ${item.vatRate ?? 7}%`}</p> : null}
                     </div>
                     <div className="col-span-2 min-w-0 space-y-1 border-t border-border/70 pt-3 sm:col-span-1 sm:border-t-0 sm:pt-0">
                       <dt className="text-xs text-muted-foreground">{dictionary.purchaseRequests.lineTotal}</dt>
                       <dd className="font-semibold text-primary tabular-nums">{formatCurrency(item.amount, locale)}</dd>
                     </div>
                   </dl>
-                  {request.receipts.length > 0 ? (
+                  {item.taxMode && item.taxMode !== "UNSPECIFIED" ? (
+                    <dl className="grid grid-cols-2 gap-4 border-t border-border/70 bg-primary/5 p-4 sm:grid-cols-3 sm:px-5">
+                      {[
+                        { label: dictionary.poTax.netAmount, value: item.netAmount },
+                        { label: dictionary.poTax.taxAmount, value: item.taxAmount },
+                        { label: dictionary.poTax.totalAmount, value: item.totalWithTax },
+                      ].map((value) => <div key={value.label} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{value.label}</dt><dd className="font-medium tabular-nums">{value.value == null ? "—" : formatCurrency(value.value, locale)}</dd></div>)}
+                    </dl>
+                  ) : null}
+                  {!request.purchaseOrders.length && (request.receipts.length > 0 || hasClosedRemainder) ? (
                     <dl className="grid grid-cols-2 gap-4 border-t border-border/70 p-4 sm:grid-cols-4 sm:px-5">
                       {[
                         { label: dictionary.receiptWorkflow.received, value: item.receivedQuantity },
@@ -437,6 +455,39 @@ export default async function PurchaseRequestDetailPage({
             </CardContent>
           </Card>
 
+          {request.purchaseOrders.length > 0 ? (
+            <Card className="border-border/70" data-testid="po-receiving-items">
+              <CardHeader>
+                <CardTitle role="heading" aria-level={2}>{dictionary.receiptWorkflow.poItemsTitle}</CardTitle>
+                <p className="text-sm text-muted-foreground">{dictionary.receiptWorkflow.poItemsDescription}</p>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {request.receivingItems.map((item) => (
+                  <article key={item.id} className="min-w-0 space-y-3 rounded-xl border border-border/70 p-4">
+                    <div className="min-w-0 space-y-1">
+                      <h3 className="font-medium [overflow-wrap:anywhere]">{item.itemName}</h3>
+                      {item.supplierName ? <p className="text-xs text-muted-foreground [overflow-wrap:anywhere]">{item.supplierName}</p> : null}
+                    </div>
+                    <dl className="grid grid-cols-2 gap-3 sm:grid-cols-5">
+                      {[
+                        { label: dictionary.receiptWorkflow.ordered, value: item.quantity },
+                        { label: dictionary.receiptWorkflow.received, value: item.receivedQuantity },
+                        { label: dictionary.receiptWorkflow.cancelled, value: item.closedQuantity },
+                        { label: dictionary.receiptWorkflow.remaining, value: item.remainingQuantity },
+                        { label: dictionary.receiptWorkflow.overReceived, value: item.overReceivedQuantity },
+                      ].map((stat) => (
+                        <div key={stat.label} className="min-w-0 space-y-1">
+                          <dt className="text-xs text-muted-foreground">{stat.label}</dt>
+                          <dd className="font-medium tabular-nums">{formatNumber(stat.value, locale)}{item.unit ? ` ${getUnitLabel(item.unit, locale)}` : ""}</dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </article>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
           {canProgress ? <PurchasingProgressPanel requestId={request.id} status={request.status} /> : null}
           {canConfirmReceipt ? (
@@ -444,7 +495,7 @@ export default async function PurchaseRequestDetailPage({
               key={request.receiptVersion}
               requestId={request.id}
               expectedVersion={request.receiptVersion}
-              items={request.items}
+              items={request.receivingItems}
               canCloseOutstanding={canCloseOutstanding}
             />
           ) : null}

@@ -44,9 +44,13 @@ import {
   getUnreadNotificationCount,
   listNotificationsForUser,
 } from "@/server/notifications/notification.service";
+import { calculateTaxLine } from "@/lib/purchase-order-tax";
 import { getDb } from "@/server/db";
 import { AppError, invariant } from "@/server/shared/errors";
-import type { ReceiptEntryInput } from "@/server/purchase-requests/purchase-request.schemas";
+import type {
+  ClosePurchaseRequestInput,
+  ReceiptEntryInput,
+} from "@/server/purchase-requests/purchase-request.schemas";
 import {
   findApproverForDepartment,
   findPrimaryPurchasingUser,
@@ -66,6 +70,7 @@ const purchaseRequestInclude = {
   requester: true,
   purchaseOrders: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: {
     _count: { select: { items: true } }, changes: { where: { status: "PENDING" }, select: { id: true } },
+    items: { orderBy: { position: "asc" } },
   } },
   currentApprover: true,
   cancelledBy: true,
@@ -75,7 +80,7 @@ const purchaseRequestInclude = {
   receipts: {
     include: {
       recordedBy: { select: { id: true, name: true } },
-      items: { include: { item: { select: { itemName: true } } } },
+      items: { include: { item: { select: { itemName: true } }, purchaseOrderItem: { select: { itemName: true } } } },
     },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
@@ -96,6 +101,50 @@ const purchaseRequestInclude = {
     },
   },
 } satisfies Prisma.PurchaseRequestInclude;
+
+const receivingPurchaseOrders = {
+  orderBy: [{ createdAt: "asc" }, { id: "asc" }],
+  select: { supplierName: true, taxMode: true, vatRate: true, items: { orderBy: { position: "asc" } } },
+} satisfies Prisma.PurchaseOrderFindManyArgs;
+
+type ReceivingRequest = {
+  items: Prisma.PurchaseRequestItemGetPayload<object>[];
+  purchaseOrders: Array<Pick<Prisma.PurchaseOrderGetPayload<object>, "supplierName" | "taxMode" | "vatRate"> & { items: Prisma.PurchaseOrderItemGetPayload<object>[] }>;
+};
+
+// Once POs exist, their lines and counters are the source of receiving
+// quantities. PR specification updates do not rewrite these receiving balances.
+// Linked lines retain their old public identity for existing receipt clients.
+function receivingRows(request: ReceivingRequest) {
+  if (request.purchaseOrders.length) {
+    return request.purchaseOrders.flatMap((order) => order.items.map((item) => ({
+      ...item,
+      id: item.purchaseRequestItemId ?? item.id,
+      sourceItemId: item.purchaseRequestItemId,
+      purchaseOrderItemId: item.id,
+      supplierName: order.supplierName, taxMode: item.taxMode ?? order.taxMode, vatRate: order.vatRate,
+    })));
+  }
+  return request.items.map((item) => ({ ...item, sourceItemId: item.id, purchaseOrderItemId: null }));
+}
+
+function receiptLineSource(item: ReturnType<typeof receivingRows>[number]) {
+  return { itemId: item.sourceItemId, purchaseOrderItemId: item.purchaseOrderItemId };
+}
+
+async function incrementReceivingQuantity(
+  transaction: Prisma.TransactionClient,
+  item: ReturnType<typeof receivingRows>[number],
+  field: "receivedQuantity" | "closedQuantity",
+  quantity: number,
+) {
+  const data = { [field]: { increment: quantity } };
+  if (item.purchaseOrderItemId) {
+    await transaction.purchaseOrderItem.update({ where: { id: item.purchaseOrderItemId }, data });
+  } else {
+    await transaction.purchaseRequestItem.update({ where: { id: item.sourceItemId! }, data });
+  }
+}
 
 const purchaseRequestListSelect = {
   id: true,
@@ -382,11 +431,33 @@ function toListItem(
   } satisfies PurchaseRequestListItem;
 }
 
+function taxLineDto(item: Pick<Prisma.PurchaseRequestItemGetPayload<object>, "amount" | "taxMode" | "vatRate">) {
+  if (item.taxMode === "UNSPECIFIED" && item.vatRate.equals(7)) return {};
+  const line = calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate));
+  return { taxMode: item.taxMode, vatRate: Number(item.vatRate), netAmount: line.netAmount, taxAmount: line.taxAmount, totalWithTax: line.totalAmount };
+}
+
 function toDetail(
   request: Prisma.PurchaseRequestGetPayload<{
     include: typeof purchaseRequestInclude;
   }>,
+  session: SessionUser,
 ) {
+  const receivingItems = receivingRows(request).map((item) => ({
+    id: item.id,
+    itemName: item.itemName,
+    description: item.description ?? undefined,
+    supplierName: item.supplierName ?? undefined,
+    quantity: item.quantity,
+    receivedQuantity: item.receivedQuantity,
+    closedQuantity: item.closedQuantity,
+    remainingQuantity: Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity),
+    overReceivedQuantity: Math.max(0, item.receivedQuantity - item.quantity),
+    unit: item.unit ?? undefined,
+    unitPrice: item.unitPrice === null ? undefined : decimalToNumber(item.unitPrice),
+    amount: decimalToNumber(item.amount),
+    ...taxLineDto(item),
+  }));
   return {
     id: request.id,
     prNumber: request.prNumber,
@@ -419,8 +490,12 @@ function toDetail(
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
     purchaseOrders: request.purchaseOrders.map((order) => ({ id: order.id, poNumber: order.poNumber, supplierName: order.supplierName, issuedAt: toBangkokIsoString(order.issuedAt), totalAmount: Number(order.totalAmount), itemCount: order._count.items })),
     hasPendingPurchaseOrderChange: request.purchaseOrders.some((order) => order.changes.length > 0),
+    canCloseOrder: isPurchasing(session) &&
+      request.status === PurchaseRequestStatus.ORDERED &&
+      request.purchaseOrders.every((order) => order.changes.length === 0),
     receiptVersion: request.receiptVersion,
-    hasPartialReceipt: request.items.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
+    receivingItems,
+    hasPartialReceipt: receivingItems.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
     receipts: request.receipts.map((receipt) => ({
       id: receipt.id,
       action: receipt.action,
@@ -432,8 +507,8 @@ function toDetail(
       createdAt: toBangkokIsoString(receipt.createdAt),
       recordedBy: receipt.recordedBy,
       items: receipt.items.map((item) => ({
-        itemId: item.itemId,
-        itemName: item.item.itemName,
+        itemId: item.itemId ?? item.purchaseOrderItemId!,
+        itemName: item.purchaseOrderItem?.itemName ?? item.item!.itemName,
         quantity: item.quantity,
       })),
     })),
@@ -459,6 +534,7 @@ function toDetail(
     receiptReferenceNote: request.receiptReferenceNote ?? null,
     createdAt: toBangkokIsoString(request.createdAt),
     updatedAt: toBangkokIsoString(request.updatedAt),
+    orderPreparationVersion: request.updatedAt.toISOString(),
     items: request.items.map((item) => ({
       id: item.id,
       itemName: item.itemName,
@@ -475,11 +551,12 @@ function toDetail(
           ? undefined
           : (() => {
               const unitPrice = decimalToNumber(item.unitPrice);
-              return unitPrice === 0 && decimalToNumber(item.amount) === 0
+              return unitPrice === 0 && decimalToNumber(item.amount) === 0 && request.purchaseOrders.length === 0
                 ? undefined
                 : unitPrice;
             })(),
       amount: decimalToNumber(item.amount),
+      ...taxLineDto(item),
     })),
     attachments: request.attachments.map((attachment) => ({
       id: attachment.id,
@@ -914,7 +991,7 @@ export async function getPurchaseRequestById(id: string, session: SessionUser) {
     request.currentApproverId,
   );
 
-  return toDetail(request);
+  return toDetail(request, session);
 }
 
 export async function addPurchaseRequestComment(
@@ -1691,61 +1768,150 @@ async function assertNoPendingPurchaseOrderChanges(db: Pick<Prisma.TransactionCl
   invariant(!pending, "PR นี้มี PO รอตรวจการแก้ไข กรุณาพิจารณาให้เสร็จก่อนรับสินค้า ยกเลิก หรือปิดงาน", 400);
 }
 
+export async function closePurchaseRequest(
+  id: string,
+  session: SessionUser,
+  input: ClosePurchaseRequestInput,
+) {
+  invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดงานออเดอร์ได้", 403);
+  const result = await getDb().$transaction(async (transaction) => {
+    // Share the same PR lock as PO revisions. Existing receipt and cancellation
+    // updates also lock this row before changing quantities or document status.
+    await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseRequest" WHERE "id" = ${id} FOR UPDATE`);
+    const request = await transaction.purchaseRequest.findUnique({
+      where: { id },
+      include: {
+        items: true,
+        purchaseOrders: receivingPurchaseOrders,
+        receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+      },
+    });
+    invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
+    invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    invariant(request.status === PurchaseRequestStatus.ORDERED, "ปิดงานได้เฉพาะ PR ที่สั่งซื้อแล้วและยังไม่ปิดงาน", 400);
+    const now = new Date();
+    await assertNoPendingPurchaseOrderChanges(transaction, id);
+
+    const remainingItems = receivingRows(request).flatMap((item) => {
+      const quantity = Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity);
+      return quantity > 0 ? [{ ...item, quantity }] : [];
+    });
+    const comment = remainingItems.length > 0
+      ? "ปิดงาน โดยปิดยอดค้างรับที่เหลือทั้งหมด"
+      : "ปิดงาน โดยไม่มียอดค้างรับเหลือ";
+    const lastActualReceipt = request.receipts[0];
+    const updated = await transaction.purchaseRequest.updateMany({
+      where: {
+        id,
+        status: PurchaseRequestStatus.ORDERED,
+        receiptVersion: input.expectedVersion,
+        purchaseOrders: { none: { changes: { some: { status: "PENDING" } } } },
+      },
+      data: {
+        status: PurchaseRequestStatus.COMPLETED,
+        completedAt: now,
+        receiptVersion: { increment: 1 },
+        // This operation settles the undelivered balance; only a real receipt
+        // supplies a goods-received date.
+        receivedAt: lastActualReceipt ? request.receivedAt ?? lastActualReceipt.receivedDate : null,
+      },
+    });
+    invariant(updated.count === 1, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    for (const item of remainingItems) {
+      await incrementReceivingQuantity(transaction, item, "closedQuantity", item.quantity);
+    }
+    if (remainingItems.length > 0) {
+      await transaction.purchaseRequestReceipt.create({
+        data: {
+          purchaseRequestId: id,
+          recordedById: session.id,
+          action: "CLOSE_REMAINDER",
+          receivedDate: toUtcStartOfDayFromDateValue(toBangkokDateValue(now)),
+          comment,
+          items: { create: remainingItems.map((item) => ({ ...receiptLineSource(item), quantity: item.quantity })) },
+        },
+      });
+    }
+    await transaction.approval.create({
+      data: {
+        purchaseRequestId: id,
+        approverId: session.id,
+        action: ApprovalAction.COMPLETED,
+        stepLabel: "ปิดงานออเดอร์",
+        comment: [comment, remainingItems.map((item) => `${item.itemName}: ${item.quantity}`).join(", ")].filter(Boolean).join(" | "),
+      },
+    });
+    return { prNumber: request.prNumber, requesterId: request.requesterId };
+  }, { timeout: 15000 });
+
+  try {
+    await notifyProgressUpdate({ requestId: id, prNumber: result.prNumber, requesterId: result.requesterId, action: "COMPLETED" });
+  } catch (error) {
+    console.error("[purchase-request-close-notification]", error);
+  }
+}
+
 export async function recordPurchaseRequestReceipt(
   id: string,
   session: SessionUser,
   input: ReceiptEntryInput,
 ) {
   const db = getDb();
-  const request = await db.purchaseRequest.findUnique({
-    where: { id },
-    include: {
-      items: true,
-      receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
-    },
-  });
-  invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
-  assertCanViewPurchaseRequest(session, request.requesterId, request.department, request.currentApproverId);
-  invariant(request.status === PurchaseRequestStatus.ORDERED, "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้", 400);
-  invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
-  await assertNoPendingPurchaseOrderChanges(db, id);
+  const result = await db.$transaction(async (transaction) => {
+    // Lock before reading either the PR version or its item balances so a
+    // concurrent receipt, closure, or PO revision cannot split the snapshot.
+    await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseRequest" WHERE "id" = ${id} FOR UPDATE`);
+    const request = await transaction.purchaseRequest.findUnique({
+      where: { id },
+      include: {
+        items: true,
+        purchaseOrders: receivingPurchaseOrders,
+        receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+      },
+    });
+    invariant(request, "ไม่พบเอกสาร PR ที่ต้องการ", 404);
+    assertCanViewPurchaseRequest(session, request.requesterId, request.department, request.currentApproverId);
+    invariant(request.status === PurchaseRequestStatus.ORDERED, "PR ต้องถูกสั่งซื้อแล้วและยังไม่ปิดงานจึงจะบันทึกรับของได้", 400);
+    invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
+    await assertNoPendingPurchaseOrderChanges(transaction, id);
 
-  const isClosing = input.action === "CLOSE_REMAINDER";
-  if (isClosing) {
-    invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดยอดค้างรับได้", 403);
-    invariant(input.comment && input.comment.trim().length >= 5, "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร", 400);
-    invariant(request.items.some((item) => item.receivedQuantity > 0), "กรุณาบันทึกรับสินค้าบางส่วนก่อนปิดยอดค้างรับ", 400);
-  } else {
-    invariant(input.receivedDate, "กรุณาระบุวันที่รับของ", 400);
-  }
-  invariant(input.items.length > 0, "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ", 400);
-  invariant(new Set(input.items.map((item) => item.itemId)).size === input.items.length, "รายการสินค้าซ้ำกัน", 400);
-  const itemById = new Map(request.items.map((item) => [item.id, item]));
-  let hasOverReceipt = false;
-  for (const entry of input.items) {
-    const item = itemById.get(entry.itemId);
-    invariant(item, "ไม่พบรายการสินค้าใน PR นี้", 400);
-    invariant(Number.isInteger(entry.quantity) && entry.quantity > 0, "จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0", 400);
-    const remaining = Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity);
+    const items = receivingRows(request);
+
+    const isClosing = input.action === "CLOSE_REMAINDER";
     if (isClosing) {
-      invariant(entry.quantity <= remaining, "จำนวนปิดยอดต้องไม่เกินยอดค้างรับ", 400);
-      item.closedQuantity += entry.quantity;
+      invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดยอดค้างรับได้", 403);
+      invariant(input.comment && input.comment.trim().length >= 5, "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร", 400);
+      invariant(items.some((item) => item.receivedQuantity > 0), "กรุณาบันทึกรับสินค้าบางส่วนก่อนปิดยอดค้างรับ", 400);
     } else {
-      invariant(item.closedQuantity === 0 || entry.quantity <= remaining, "ไม่สามารถรับสินค้าในส่วนที่ปิดยอดแล้วได้", 400);
-      invariant(item.receivedQuantity + entry.quantity <= 2147483647, "จำนวนรับสินค้ามากเกินขอบเขตที่รองรับ", 400);
-      item.receivedQuantity += entry.quantity;
-      hasOverReceipt ||= item.receivedQuantity > item.quantity;
+      invariant(input.receivedDate, "กรุณาระบุวันที่รับของ", 400);
     }
-  }
-  if (hasOverReceipt) {
-    invariant(input.overReceiptReason && input.overReceiptReason.trim().length >= 5, "กรุณาระบุเหตุผลการรับเกินอย่างน้อย 5 ตัวอักษร", 400);
-  }
-  const allSettled = request.items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
-  const eventDate = toUtcStartOfDayFromDateValue(input.receivedDate ?? toBangkokDateValue(new Date()));
-  // Closing an undelivered balance must not change the actual goods-received
-  // date to the day Purchasing closed that balance.
-  const settledReceivedAt = isClosing ? request.receipts[0]?.receivedDate ?? eventDate : eventDate;
-  const receipt = await db.$transaction(async (transaction) => {
+    invariant(input.items.length > 0, "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ", 400);
+    invariant(new Set(input.items.map((item) => item.itemId)).size === input.items.length, "รายการสินค้าซ้ำกัน", 400);
+    const itemById = new Map(items.map((item) => [item.id, item]));
+    let hasOverReceipt = false;
+    for (const entry of input.items) {
+      const item = itemById.get(entry.itemId);
+      invariant(item, "ไม่พบรายการสินค้าใน PR นี้", 400);
+      invariant(Number.isInteger(entry.quantity) && entry.quantity > 0, "จำนวนต้องเป็นจำนวนเต็มที่มากกว่า 0", 400);
+      const remaining = Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity);
+      if (isClosing) {
+        invariant(entry.quantity <= remaining, "จำนวนปิดยอดต้องไม่เกินยอดค้างรับ", 400);
+        item.closedQuantity += entry.quantity;
+      } else {
+        invariant(item.closedQuantity === 0 || entry.quantity <= remaining, "ไม่สามารถรับสินค้าในส่วนที่ปิดยอดแล้วได้", 400);
+        invariant(item.receivedQuantity + entry.quantity <= 2147483647, "จำนวนรับสินค้ามากเกินขอบเขตที่รองรับ", 400);
+        item.receivedQuantity += entry.quantity;
+        hasOverReceipt ||= item.receivedQuantity > item.quantity;
+      }
+    }
+    if (hasOverReceipt) {
+      invariant(input.overReceiptReason && input.overReceiptReason.trim().length >= 5, "กรุณาระบุเหตุผลการรับเกินอย่างน้อย 5 ตัวอักษร", 400);
+    }
+    const allSettled = items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
+    const eventDate = toUtcStartOfDayFromDateValue(input.receivedDate ?? toBangkokDateValue(new Date()));
+    // Closing an undelivered balance must not change the actual goods-received
+    // date to the day Purchasing closed that balance.
+    const settledReceivedAt = isClosing ? request.receipts[0]?.receivedDate ?? eventDate : eventDate;
     // Serialize all quantity changes, cancellation and completion on the PR.
     // A stale form or repeated submission cannot append another receipt.
     const updated = await transaction.purchaseRequest.updateMany({
@@ -1760,12 +1926,7 @@ export async function recordPurchaseRequestReceipt(
     });
     invariant(updated.count === 1, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
     for (const entry of input.items) {
-      await transaction.purchaseRequestItem.update({
-        where: { id: entry.itemId },
-        data: isClosing
-          ? { closedQuantity: { increment: entry.quantity } }
-          : { receivedQuantity: { increment: entry.quantity } },
-      });
+      await incrementReceivingQuantity(transaction, itemById.get(entry.itemId)!, isClosing ? "closedQuantity" : "receivedQuantity", entry.quantity);
     }
     const created = await transaction.purchaseRequestReceipt.create({
       data: {
@@ -1777,7 +1938,7 @@ export async function recordPurchaseRequestReceipt(
         overReceiptReason: hasOverReceipt ? input.overReceiptReason?.trim() : null,
         receiptNumber: !isClosing ? input.receiptNumber?.trim() || null : null,
         taxInvoiceNumber: !isClosing ? input.taxInvoiceNumber?.trim() || null : null,
-        items: { create: input.items.map((entry) => ({ itemId: entry.itemId, quantity: entry.quantity })) },
+        items: { create: input.items.map((entry) => ({ ...receiptLineSource(itemById.get(entry.itemId)!), quantity: entry.quantity })) },
       },
     });
     const quantities = input.items.map((entry) => `${itemById.get(entry.itemId)!.itemName}: ${entry.quantity}`).join(", ");
@@ -1790,16 +1951,21 @@ export async function recordPurchaseRequestReceipt(
         comment: [quantities, input.comment, hasOverReceipt ? `เหตุผลรับเกิน: ${input.overReceiptReason}` : null].filter(Boolean).join(" | "),
       },
     });
-    return created;
-  });
-  if (allSettled && !request.receivedAt && request.currentApproverId && request.currentApproverId !== session.id) {
+    return {
+      receiptId: created.id,
+      prNumber: request.prNumber,
+      notifyPurchasingUserId: allSettled && !request.receivedAt && request.currentApproverId !== session.id
+        ? request.currentApproverId : null,
+    };
+  }, { timeout: 15000 });
+  if (result.notifyPurchasingUserId) {
     try {
-      await notifyReceiptReferencesPending({ requestId: id, prNumber: request.prNumber, purchasingUserId: request.currentApproverId });
+      await notifyReceiptReferencesPending({ requestId: id, prNumber: result.prNumber, purchasingUserId: result.notifyPurchasingUserId });
     } catch (error) {
       console.error("[receipt-notification]", error);
     }
   }
-  return { id: receipt.id };
+  return { id: result.receiptId };
 }
 
 export async function updatePurchaseRequestReceiptReferences(
@@ -1846,7 +2012,7 @@ export async function progressPurchaseRequest(
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
-    include: { items: true },
+    include: { items: true, purchaseOrders: receivingPurchaseOrders },
   });
 
   if (!request) {
@@ -1856,7 +2022,7 @@ export async function progressPurchaseRequest(
   // Preserve the original all-at-once API for existing clients. New clients
   // submit explicit item quantities and a version through the receipts route.
   if (input.action === "RECEIVED") {
-    const items = request.items
+    const items = receivingRows(request)
       .map((item) => ({ itemId: item.id, quantity: Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity) }))
       .filter((item) => item.quantity > 0);
     invariant(items.length > 0, "ไม่มีจำนวนค้างรับ กรุณาใช้หน้ารับสินค้าเพื่อบันทึกรับเกิน", 400);
@@ -1988,7 +2154,7 @@ export async function updateReceiptReferences(
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
-    include: { items: true, receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },
+    include: { items: true, purchaseOrders: receivingPurchaseOrders, receipts: { where: { action: "RECEIVED" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }] } },
   });
 
   if (!request) {
@@ -2009,7 +2175,7 @@ export async function updateReceiptReferences(
     "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้",
     400,
   );
-  invariant(request.items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity), "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน", 400);
+  invariant(receivingRows(request).every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity), "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน", 400);
   invariant(request.receipts.slice(0, -1).every((receipt) => receipt.receiptNumber || receipt.taxInvoiceNumber), "กรุณาบันทึกเลขเอกสารของการรับสินค้าแต่ละรอบให้ครบก่อนปิดงาน", 400);
   invariant(
     input.receiptNumber || input.taxInvoiceNumber,

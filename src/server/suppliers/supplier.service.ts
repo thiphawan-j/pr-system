@@ -1,6 +1,7 @@
 import "server-only";
 
 import { Prisma } from "@prisma/client";
+import { supplierListPageSize } from "@/lib/constants";
 import { toBangkokIsoString } from "@/lib/format";
 import { supplierContactChannels, type SessionUser, type SupplierDetail, type SupplierListPage } from "@/lib/types";
 import { assertRole } from "@/server/auth/authorization";
@@ -35,7 +36,7 @@ function toSupplierDetail(supplier: Prisma.SupplierGetPayload<{ include: typeof 
 
 export async function listSuppliersPage(session: SessionUser, filters: Partial<SupplierFilters> = {}): Promise<SupplierListPage> {
   assertRole(session, ["PURCHASING", "ADMIN"]);
-  const { page = 1, limit = 20, query, status = "ALL" } = filters;
+  const { page = 1, limit = supplierListPageSize, query, status = "ALL" } = filters;
   const codeMatch = query?.match(/^(?:SUP-)?0*(\d+)$/i);
   const code = codeMatch ? Number(codeMatch[1]) : undefined;
   const where: Prisma.SupplierWhereInput = {

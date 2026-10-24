@@ -344,9 +344,11 @@ test("cancellation is reflected on every issued PO while preserving its supplier
   }), 200);
   for (const original of before) {
     const current = await getOrder(page, original.id);
-    expect(current.purchaseRequest.status).toBe("CANCELLED");
-    expect(current.canEdit).toBe(false);
-    expect({ ...current, canEdit: original.canEdit, purchaseRequest: { ...current.purchaseRequest, status: original.purchaseRequest.status } }).toEqual(original);
+    expect(current).toEqual({
+      ...original,
+      canEdit: false,
+      purchaseRequest: { ...original.purchaseRequest, status: "CANCELLED", canCloseOrder: false },
+    });
   }
   await page.goto(`/purchase-orders/${summaries[0]!.id}`);
   await expect(page.locator("main")).toContainText(/ยกเลิกแล้ว|cancelled/i);
@@ -362,7 +364,7 @@ test("PO source links retain live partial receipt and closed balances without ch
   const summaries = await issuedOrders(await convert(page, request));
   const before = await Promise.all(summaries.map((order) => getOrder(page, order.id)));
   request = await getRequest(page, request.id);
-  const firstItem = request.items[0]!;
+  const firstItem = request.receivingItems[0]!;
   await authenticate(page);
   await expectStatus(await receive(page, request, [{ itemId: firstItem.id, quantity: 1 }], { receiptNumber: "RCV-REAL-PO-PARTIAL" }), 200);
   request = await getRequest(page, request.id);
@@ -371,7 +373,7 @@ test("PO source links retain live partial receipt and closed balances without ch
     data: {
       action: "CLOSE_REMAINDER",
       expectedVersion: request.receiptVersion,
-      items: request.items.filter((item) => item.remainingQuantity > 0).map((item) => ({ itemId: item.id, quantity: item.remainingQuantity })),
+      items: request.receivingItems.filter((item) => item.remainingQuantity > 0).map((item) => ({ itemId: item.id, quantity: item.remainingQuantity })),
       comment: "The remaining approved quantities will no longer be delivered",
     },
   }), 200);
@@ -385,7 +387,7 @@ test("PO source links retain live partial receipt and closed balances without ch
     expect(current.purchaseRequest.status).toBe("COMPLETED");
     expect(current.totalAmount).toBe(original.totalAmount);
     for (const item of current.items) {
-      const source = completed.items.find((entry) => entry.id === item.purchaseRequestItemId)!;
+      const source = completed.receivingItems.find((entry) => entry.id === (item.purchaseRequestItemId ?? item.id))!;
       const snapshot = original.items.find((entry) => entry.id === item.id)!;
       expect(item).toEqual({ ...snapshot, receivedQuantity: source.receivedQuantity, closedQuantity: source.closedQuantity });
     }

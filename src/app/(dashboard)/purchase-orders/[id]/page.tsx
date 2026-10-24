@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { ArrowLeft, Ban, CircleAlert, Download } from "lucide-react";
+import { ArrowLeft, Ban, Building2, CircleAlert, Download } from "lucide-react";
 
 import { PrintPurchaseOrderButton } from "@/components/purchase-orders/print-purchase-order-button";
 import { PurchaseOrderChangeHistory } from "@/components/purchase-orders/purchase-order-change-history";
 import { PurchaseOrderChangeReview } from "@/components/purchase-orders/purchase-order-change-review";
 import { PurchaseOrderDocumentPreview } from "@/components/purchase-orders/purchase-order-document";
 import { StatusBadge } from "@/components/purchase-requests/status-badge";
+import { CloseOrderButton } from "@/components/purchase-requests/close-order-button";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { formatNumber } from "@/lib/format";
@@ -39,6 +40,9 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
           <Link href={`/purchase-requests/${order.purchaseRequest.id}`}><ArrowLeft />{labels.backToRequest}</Link>
         </Button>
         <div className="flex flex-wrap gap-2">
+          {order.purchaseRequest.canCloseOrder ? (
+            <CloseOrderButton requestId={order.purchaseRequest.id} expectedVersion={order.purchaseRequest.receiptVersion} prNumber={order.purchaseRequest.prNumber} />
+          ) : null}
           {order.canEdit ? <Button asChild variant="outline" className="rounded-xl"><Link id="edit-purchase-order" href={`/purchase-orders/${order.id}/edit`}>{dictionary.poChanges.edit}</Link></Button> : null}
           <Button asChild variant="outline" className="rounded-xl"><a id="download-purchase-order-pdf" href={`/api/purchase-orders/${order.id}/pdf`}><Download />{labels.downloadPdf}</a></Button>
           <PrintPurchaseOrderButton />
@@ -53,6 +57,15 @@ export default async function PurchaseOrderPage({ params }: { params: Promise<{ 
             <div className="purchase-order-pr-status"><dt className="mb-1 text-muted-foreground">{labels.sourceStatus}</dt><dd><StatusBadge status={order.purchaseRequest.status} locale={locale} /></dd></div>
           </dl>
         </div>
+        {!order.buyerCompany && session.role === "ADMIN" ? (
+          <Alert id="po-company-setup-notice">
+            <Building2 className="size-4" />
+            <AlertTitle>{dictionary.companySettings.setupNotice}</AlertTitle>
+            <AlertDescription>
+              <Link href="/admin/company" className="font-medium text-primary underline underline-offset-4">{dictionary.companySettings.setupLink}</Link>
+            </AlertDescription>
+          </Alert>
+        ) : null}
         {order.pendingChangeId ? <Alert id="po-change-pending" className="border-amber-500/40 bg-amber-500/10"><CircleAlert className="size-4" /><AlertTitle>{dictionary.poChanges.pendingTitle}</AlertTitle><AlertDescription>{dictionary.poChanges.pendingDescription}</AlertDescription></Alert> : null}
         {cancelled || cancellationPending ? (
           <Alert className="border-amber-500/40 bg-amber-500/10">

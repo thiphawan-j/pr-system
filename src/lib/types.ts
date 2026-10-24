@@ -1,3 +1,5 @@
+import type { PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+
 export const roles = ["EMPLOYEE", "APPROVER", "PURCHASING", "ADMIN"] as const;
 export type Role = (typeof roles)[number];
 
@@ -154,6 +156,19 @@ export type PurchaseRequestReceipt = {
   items: Array<{ itemId: string; itemName: string; quantity: number }>;
 };
 
+export type PurchaseRequestReceivingItem = PurchaseRequestItemInput & {
+  id: string;
+  receivedQuantity: number;
+  closedQuantity: number;
+  remainingQuantity: number;
+  overReceivedQuantity: number;
+  taxMode?: PurchasePriceTaxMode;
+  vatRate?: number;
+  netAmount?: number | null;
+  taxAmount?: number | null;
+  totalWithTax?: number;
+};
+
 export type PurchaseRequestDetail = {
   id: string;
   prNumber: string;
@@ -170,6 +185,7 @@ export type PurchaseRequestDetail = {
   orderedAt?: string | null;
   receivedAt?: string | null;
   receiptVersion: number;
+  canCloseOrder: boolean;
   hasPartialReceipt: boolean;
   receipts: PurchaseRequestReceipt[];
   purchaseOrders: PurchaseOrderSummary[];
@@ -185,15 +201,9 @@ export type PurchaseRequestDetail = {
   receiptReferenceNote?: string | null;
   createdAt: string;
   updatedAt: string;
-  items: Array<
-    PurchaseRequestItemInput & {
-      id: string;
-      receivedQuantity: number;
-      closedQuantity: number;
-      remainingQuantity: number;
-      overReceivedQuantity: number;
-    }
-  >;
+  orderPreparationVersion?: string;
+  items: PurchaseRequestReceivingItem[];
+  receivingItems: PurchaseRequestReceivingItem[];
   attachments: PurchaseRequestAttachmentItem[];
   approvals: Array<{
     id: string;
@@ -214,7 +224,28 @@ export type PurchaseOrderSummary = {
   itemCount: number;
 };
 
+export type CompanyIdentity = {
+  name: string;
+  address: string;
+  taxId: string | null;
+  branch: string | null;
+  phone: string | null;
+  email: string | null;
+};
+
+export type CompanyProfile = CompanyIdentity & {
+  version: number;
+  updatedAt: string;
+};
+
 export type PurchaseOrderDetail = PurchaseOrderSummary & {
+  taxMode?: PurchasePriceTaxMode;
+  vatRate?: number;
+  subtotalAmount?: number;
+  netAmount?: number | null;
+  taxAmount?: number | null;
+  hasUnspecifiedTax?: boolean;
+  buyerCompany: CompanyIdentity | null;
   version: number;
   revision: number;
   canEdit: boolean;
@@ -240,10 +271,12 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
     department: string;
     requesterName: string;
     status: PurchaseRequestStatus;
+    receiptVersion: number;
+    canCloseOrder: boolean;
   };
   items: Array<{
     id: string;
-    purchaseRequestItemId: string;
+    purchaseRequestItemId: string | null;
     itemName: string;
     description: string | null;
     quantity: number;
@@ -252,6 +285,11 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
     amount: number;
     receivedQuantity: number;
     closedQuantity: number;
+    taxMode?: PurchasePriceTaxMode | null;
+    effectiveTaxMode?: PurchasePriceTaxMode;
+    netAmount?: number | null;
+    taxAmount?: number | null;
+    totalWithTax?: number;
   }>;
 };
 
@@ -259,6 +297,8 @@ export const purchaseOrderChangeStatuses = ["PENDING", "APPROVED", "REJECTED"] a
 export type PurchaseOrderChangeStatus = (typeof purchaseOrderChangeStatuses)[number];
 
 export type PurchaseOrderSnapshot = {
+  taxMode?: PurchasePriceTaxMode;
+  vatRate?: number;
   supplierId: string | null;
   supplierCode: string | null;
   supplierTaxId: string | null;
@@ -274,7 +314,8 @@ export type PurchaseOrderSnapshot = {
   totalAmount: number;
   items: Array<{
     id?: string;
-    purchaseRequestItemId?: string;
+    purchaseRequestItemId?: string | null;
+    taxMode?: PurchasePriceTaxMode | null;
     itemName: string;
     description: string | null;
     quantity: number;

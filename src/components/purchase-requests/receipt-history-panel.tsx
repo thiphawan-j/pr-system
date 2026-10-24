@@ -11,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatDate, formatDateTime, formatNumber } from "@/lib/format";
-import { translateMessage } from "@/lib/i18n";
+import { translateMessage, translateWorkflowText } from "@/lib/i18n";
 import type { PurchaseRequestDetail } from "@/lib/types";
 
 type Receipt = PurchaseRequestDetail["receipts"][number];
@@ -105,7 +105,7 @@ export function ReceiptHistoryPanel({
                 </li>
               ))}
             </ul>
-            {receipt.comment ? <p className="mt-3 whitespace-pre-wrap text-sm"><span className="text-muted-foreground">{receipt.action === "CLOSE_REMAINDER" ? labels.closeReason : dictionary.common.comment}: </span>{receipt.comment}</p> : null}
+            {receipt.comment ? <p className="mt-3 whitespace-pre-wrap text-sm"><span className="text-muted-foreground">{receipt.action === "CLOSE_REMAINDER" ? labels.closeReason : dictionary.common.comment}: </span>{translateWorkflowText(receipt.comment, locale)}</p> : null}
             {receipt.overReceiptReason ? <p className="mt-2 whitespace-pre-wrap text-sm text-amber-800 dark:text-amber-200">{labels.overReceiptReason}: {receipt.overReceiptReason}</p> : null}
             {receipt.action === "RECEIVED" ? (
               <div className="mt-3 space-y-1 text-sm">

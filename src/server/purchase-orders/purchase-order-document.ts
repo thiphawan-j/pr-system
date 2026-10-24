@@ -2,6 +2,7 @@ import { toThaiBahtText } from "@/lib/baht-text";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getDictionary, getUnitLabel, type Locale } from "@/lib/i18n";
 import type { PurchaseOrderDocument, PurchaseOrderDocumentElement } from "@/lib/purchase-order-document";
+import { calculatePurchaseOrderTax, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 import type { PurchaseOrderDetail } from "@/lib/types";
 import { loadPurchaseOrderFonts, measurePurchaseOrderText } from "./purchase-order-pdf";
 
@@ -22,12 +23,23 @@ type TextLine = { text: string; size: number; bold?: boolean; color?: string };
 /**
  * Layout only the issued PO. Changes awaiting review, PR comments and approval
  * reasons deliberately never enter this vendor-facing document.
- * Unknown commercial fields stay unknown: totalAmount is the stored PO total,
- * not a newly calculated VAT-inclusive amount.
+ * Tax metadata describes the issued unit prices; it never rewrites them.
+ * The payable amount remains the stored PO total, including for legacy orders
+ * whose VAT treatment was never recorded.
  */
 export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, locale: Locale): Promise<PurchaseOrderDocument> {
   const fonts = await loadPurchaseOrderFonts();
   const dictionary = getDictionary(locale);
+  const taxLabels = dictionary.poTax;
+  const taxMode = order.taxMode ?? "UNSPECIFIED";
+  const vatRate = order.vatRate ?? 7;
+  const taxSummary = order.items.every((item) => typeof item.amount === "number" && Number.isFinite(item.amount))
+    ? calculatePurchaseOrderTax(order.items, taxMode, vatRate)
+    : null;
+  const effectiveModes = new Set(order.items.map((item) => item.taxMode ?? taxMode));
+  const hasVat = effectiveModes.has("INCLUSIVE") || effectiveModes.has("EXCLUSIVE");
+  const taxModeLabel = (mode: PurchasePriceTaxMode) => `${taxLabels[mode]}${mode === "INCLUSIVE" || mode === "EXCLUSIVE" ? ` ${formatNumber(vatRate, locale)}%` : ""}`;
+  const priceTaxHint = effectiveModes.size > 1 ? taxLabels.mixed : taxModeLabel(effectiveModes.values().next().value ?? taxMode);
   const document: PurchaseOrderDocument = { width: W, height: H, poNumber: order.poNumber, pages: [] };
   let elements: PurchaseOrderDocumentElement[] = [];
   let y = 0;
@@ -92,31 +104,58 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     if (y + height > BOTTOM) newPage();
   }
   newPage(false);
-  // No buyer legal identity is stored in this application yet. Do not use the
-  // product brand or the reference PDF's company as a legal buyer identity.
   rect(M, 41, 4, 24, "#b29a63");
   text("ผู้ซื้อ / BUYER", M + 12, 50, 9, true, MUTED);
-  text("-", M + 12, 74, 18, true, NAVY);
-  text("ที่อยู่  -", M, 94, 9);
-  text("เลขประจำตัวผู้เสียภาษี  -    สาขา  -", M, 110, 8.5);
-  text("โทร  -    อีเมล  -", M, 126, 8.5);
   text("ใบสั่งซื้อ", RIGHT, 65, 25, true, NAVY, "right");
   text("PURCHASE ORDER", RIGHT, 84, 11, true, NAVY, "right");
   text(order.poNumber, RIGHT, 108, 11, true, NAVY, "right");
   text(`วันที่เอกสาร  ${date(order.issuedAt)}`, RIGHT, 124, 9, false, INK, "right");
   text(`ฉบับแก้ไข  ${formatNumber(order.revision, locale)}`, RIGHT, 138, 8, false, MUTED, "right");
-  line(M, 148, RIGHT, NAVY);
-  y = 158;
+  if (order.buyerCompany) {
+    // The issued buyer snapshot stays separate from the title/PO metadata.
+    // Every field can wrap, including unbroken emails and long legal addresses.
+    const buyer = order.buyerCompany;
+    const buyerWidth = RIGHT - M - 190;
+    const buyerLines = [
+      ...wrap(safe(buyer.name), buyerWidth - 12, 18, true).map((value) => ({ text: value, size: 18, bold: true, color: NAVY, indent: 12, leading: 22 })),
+      ...wrap(`ที่อยู่  ${safe(buyer.address)}`, buyerWidth, 9).map((value) => ({ text: value, size: 9, bold: false, color: INK, indent: 0, leading: 14 })),
+      ...wrap(`เลขประจำตัวผู้เสียภาษี  ${safe(buyer.taxId)}    สาขา  ${safe(buyer.branch)}`, buyerWidth, 8.5).map((value) => ({ text: value, size: 8.5, bold: false, color: INK, indent: 0, leading: 14 })),
+      ...wrap(`โทร  ${safe(buyer.phone)}    อีเมล  ${safe(buyer.email)}`, buyerWidth, 8.5).map((value) => ({ text: value, size: 8.5, bold: false, color: INK, indent: 0, leading: 14 })),
+    ];
+    y = 74;
+    for (const item of buyerLines) {
+      if (y + item.leading > BOTTOM) {
+        newPage();
+        text("ผู้ซื้อ / BUYER (ต่อ)", M, y, 9, true, MUTED);
+        y += 20;
+      }
+      text(item.text, M + item.indent, y, item.size, item.bold, item.color);
+      y += item.leading;
+    }
+    y = Math.max(document.pages.length === 1 ? 148 : 94, y + 5);
+    ensureSpace(10);
+  } else {
+    // Older POs have no legal identity snapshot; never invent a buyer company.
+    text("-", M + 12, 74, 18, true, NAVY);
+    text("ที่อยู่  -", M, 94, 9);
+    text("เลขประจำตัวผู้เสียภาษี  -    สาขา  -", M, 110, 8.5);
+    text("โทร  -    อีเมล  -", M, 126, 8.5);
+    y = 148;
+  }
+  line(M, y, RIGHT, NAVY);
+  y += 10;
   const notices: string[] = [];
   if (order.purchaseRequest.status === "CANCELLED") notices.push(`${dictionary.purchaseOrders.cancelledTitle}: ${dictionary.purchaseOrders.cancelledDescription}`);
   if (order.purchaseRequest.status === "CANCEL_REQUESTED") notices.push(`${dictionary.purchaseOrders.cancellationPendingTitle}: ${dictionary.purchaseOrders.cancellationPendingDescription}`);
   if (order.pendingChangeId) notices.push(`${dictionary.poChanges.pendingTitle}: ${dictionary.poChanges.pendingDescription}`);
   for (const notice of notices) {
     const lines = wrap(notice, RIGHT - M - 16, 8.5, true);
+    ensureSpace(lines.length * 14 + 22);
     rect(M, y, RIGHT - M, lines.length * 14 + 12, "#f5eee2", "#ba9c65");
     lines.forEach((value, i) => text(value, M + 8, y + 15 + i * 14, 8.5, true));
     y += lines.length * 14 + 22;
   }
+  ensureSpace(58);
   rect(M, y, RIGHT - M, 40, PALE);
   const refWidth = (RIGHT - M) / 3;
   [
@@ -177,8 +216,12 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   const rowHeight = 13;
   function tableHeader() {
     text("รายการสั่งซื้อ", M, y, 10, true, NAVY);
-    text("ราคาต่อหน่วย: ไม่ระบุการรวม VAT  |  จำนวนเงิน: บาท", RIGHT, y, 7.8, false, MUTED, "right");
-    y += 9;
+    const hint = locale === "th"
+      ? `ราคาต่อหน่วย: ${priceTaxHint}  |  จำนวนเงิน: บาท`
+      : `Unit prices: ${priceTaxHint}  |  Amounts: THB`;
+    const hints = wrap(hint, RIGHT - M - 100, 7.8);
+    hints.forEach((value, index) => text(value, RIGHT, y + index * 12, 7.8, false, MUTED, "right"));
+    y += 9 + (hints.length - 1) * 12;
     rect(M, y, RIGHT - M, 27, NAVY);
     ["ลำดับ", "รายการสินค้า / รายละเอียด", "จำนวน", "หน่วย", "ราคา/หน่วย", "จำนวนเงิน"].forEach((label, index) => {
       const center = index === 0 || index === 3;
@@ -194,6 +237,7 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     const lines: TextLine[] = [
       ...wrap(safe(item.itemName), edges[2] - edges[1] - 16, 9.5, true).map((value) => ({ text: value, size: 9.5, bold: true })),
       ...(item.description ? wrap(item.description, edges[2] - edges[1] - 16, 8.5).map((value) => ({ text: value, size: 8.5, color: MUTED })) : []),
+      ...((item.taxMode ?? taxMode) !== "UNSPECIFIED" || effectiveModes.size > 1 ? wrap(`VAT: ${taxModeLabel(item.taxMode ?? taxMode)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
     ];
     const unit = wrap(item.unit ? getUnitLabel(item.unit, locale) : "-", edges[4] - edges[3] - 12, 8.5);
     const count = Math.max(lines.length, unit.length);
@@ -251,11 +295,11 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   }
   const summaryX = M + 298;
   [
-    ["รวมค่าสินค้าตาม PO", money(order.totalAmount)],
+    ["รวมค่าสินค้าตาม PO", money(taxSummary?.subtotalAmount)],
     ["ส่วนลดท้ายเอกสาร", "-"],
-    ["มูลค่าหลังส่วนลด", "-"],
+    [taxSummary && !taxSummary.hasUnspecifiedTax ? taxLabels.netAmount : "มูลค่าหลังส่วนลด", money(taxSummary?.netAmount)],
     ["ค่าขนส่ง", "-"],
-    ["ภาษีมูลค่าเพิ่ม", "-"],
+    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
     ["ยอดรวมตาม PO", money(order.totalAmount)],
   ].forEach(([label, value], index) => {
     const baseline = summaryY + index * 16 + 4;

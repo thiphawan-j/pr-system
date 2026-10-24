@@ -335,6 +335,9 @@ test("a receipt belonging to another PR cannot be updated through the wrong PR e
   );
   second = await getRequest(page, second.id);
   await authenticate(page, credentials.purchasing);
+  // Action permissions in the DTO depend on the current viewer.
+  first = await getRequest(page, first.id);
+  second = await getRequest(page, second.id);
 
   await expectStatus(
     await page.request.post(

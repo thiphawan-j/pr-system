@@ -1,6 +1,6 @@
 import { expect, test, type APIResponse, type Page } from "@playwright/test";
 
-import type { PurchaseOrderDetail, PurchaseOrderSnapshot, PurchaseOrderSummary, SupplierDetail } from "../../src/lib/types";
+import type { PurchaseOrderDetail, PurchaseOrderSnapshot, PurchaseOrderSummary, PurchaseRequestDetail, SupplierDetail } from "../../src/lib/types";
 import { authenticate, expectStatus, getRequest, receive, receivedDate } from "./receipt-support";
 import { credentials, uniqueValue, type Credentials } from "./support";
 
@@ -61,6 +61,15 @@ async function createIssued(page: Page, quantities = [10, 5], split = false, sup
 
 function itemsOf(order: PurchaseOrderDetail): ChangeItem[] {
   return order.items.map((item) => ({ id: item.id, itemName: item.itemName, description: item.description ?? "", quantity: item.quantity, unit: item.unit ?? "", unitPrice: item.unitPrice }));
+}
+
+function receiptItemId(item: PurchaseOrderDetail["items"][number]) {
+  return item.purchaseRequestItemId ?? item.id;
+}
+
+function expectSourceUnchanged(current: PurchaseRequestDetail, original: PurchaseRequestDetail) {
+  expect(current.items).toEqual(original.items);
+  expect(current.totalAmount).toBe(original.totalAmount);
 }
 
 function snapshot(order: PurchaseOrderDetail): PurchaseOrderSnapshot {
@@ -140,11 +149,12 @@ test("proposing supplier, header and financial changes records before/after with
   expect(unchanged.receipts).toEqual(request.receipts);
 });
 
-test("independent approval applies the proposed PO and PR totals while retaining immutable snapshots and the PO number", async ({ page }) => {
+test("independent approval synchronizes PR and PO commercial fields and records before and after details in Timeline", async ({ page }) => {
   const { request, orders: [original] } = await createIssued(page);
   const items = itemsOf(original!);
   items[0] = { ...items[0]!, quantity: 12, unitPrice: 11.25 };
-  const pending = await proposed(await propose(page, original!, { items, note: "Approved revised quote" }));
+  const reason = uniqueValue("Quotation-price-and-quantity-changed");
+  const pending = await proposed(await propose(page, original!, { reason, items, note: "Approved revised quote" }));
   const audit = pending.changes[0]!;
   const approved = await approve(page, pending);
   expect(approved.poNumber).toBe(original!.poNumber);
@@ -158,7 +168,18 @@ test("independent approval applies the proposed PO and PR totals while retaining
   expect(approved.changes[0]!.reviewedAt).toBeTruthy();
   const source = await getRequest(page, request.id);
   expect(source.totalAmount).toBe(235);
-  expect(source.items.find((item) => item.id === original!.items[0]!.purchaseRequestItemId)).toMatchObject({ quantity: 12, unitPrice: 11.25, amount: 135, remainingQuantity: 12 });
+  expect(source.items.find((item) => item.id === original!.items[0]!.purchaseRequestItemId)).toMatchObject({ quantity: 12, unitPrice: 11.25, amount: 135, receivedQuantity: 0, closedQuantity: 0 });
+  expect(source.receivingItems.find((item) => item.id === receiptItemId(original!.items[0]!))).toMatchObject({ quantity: 12, unitPrice: 11.25, amount: 135, remainingQuantity: 12 });
+  const timeline = source.approvals.filter((entry) => entry.stepLabel === "อนุมัติแก้ไข PO");
+  expect(timeline).toHaveLength(1);
+  expect(timeline[0]!.action).toBe("COMMENTED");
+  for (const value of [original!.poNumber, reason, original!.items[0]!.itemName, "10.00", "11.25", "200.00", "235.00"]) {
+    expect(timeline[0]!.comment).toContain(value);
+  }
+  await page.goto(`/purchase-requests/${request.id}`);
+  await expect(page.locator("main")).toContainText(reason);
+  await expect(page.locator("main")).toContainText(original!.poNumber);
+  await expect(page.locator("main")).toContainText("235.00");
 });
 
 test("rejection requires a reason and leaves the issued specification unchanged and editable", async ({ page }) => {
@@ -260,10 +281,13 @@ test("competing approval and rejection commit exactly one decision and one revis
   const accepted = approval.status() === 200;
   expect(current.revision).toBe(original!.revision + (accepted ? 1 : 0));
   expect(current.changes[0]!.status).toBe(accepted ? "APPROVED" : "REJECTED");
-  expect((await getRequest(page, request.id)).items[0]!.quantity).toBe(accepted ? 12 : 10);
+  const source = await getRequest(page, request.id);
+  expect(source.totalAmount).toBe(accepted ? 120 : 100);
+  expect(source.items[0]).toMatchObject({ quantity: accepted ? 12 : 10, amount: accepted ? 120 : 100, receivedQuantity: 0, closedQuantity: 0 });
+  expect(source.receivingItems[0]!.quantity).toBe(accepted ? 12 : 10);
 });
 
-test("approval can remove an unreceived item and create a new linked PR item with recalculated amounts", async ({ page }) => {
+test("approval adds and removes linked PR and PO lines while PO counters track receiving separately", async ({ page }) => {
   const { request, orders: [original] } = await createIssued(page);
   const removed = original!.items[0]!;
   const surviving = original!.items[1]!;
@@ -276,10 +300,23 @@ test("approval can remove an unreceived item and create a new linked PR item wit
   expect(approved.items.find((item) => item.id === surviving.id)?.purchaseRequestItemId).toBe(surviving.purchaseRequestItemId);
   const added = approved.items.find((item) => item.itemName === "New replacement item")!;
   expect(added).toMatchObject({ quantity: 3, unitPrice: 7.25, amount: 21.75, receivedQuantity: 0, closedQuantity: 0 });
+  expect(added.purchaseRequestItemId).toBeTruthy();
+  expect(approved.totalAmount).toBe(121.75);
   const source = await getRequest(page, request.id);
-  expect(source.items.some((item) => item.id === removed.purchaseRequestItemId)).toBe(false);
-  expect(source.items.find((item) => item.id === added.purchaseRequestItemId)).toMatchObject({ itemName: added.itemName, quantity: 3, unitPrice: 7.25 });
   expect(source.totalAmount).toBe(121.75);
+  expect(source.items).toHaveLength(2);
+  expect(source.items.some((item) => item.id === removed.purchaseRequestItemId)).toBe(false);
+  expect(source.items.find((item) => item.id === added.purchaseRequestItemId)).toMatchObject({ itemName: added.itemName, quantity: 3, unitPrice: 7.25, amount: 21.75, receivedQuantity: 0, closedQuantity: 0 });
+  expect(source.receivingItems.some((item) => item.id === receiptItemId(removed))).toBe(false);
+  expect(source.receivingItems.find((item) => item.id === receiptItemId(added))).toMatchObject({ itemName: added.itemName, quantity: 3, unitPrice: 7.25 });
+  const audit = source.approvals.find((entry) => entry.stepLabel === "อนุมัติแก้ไข PO")!;
+  for (const value of [original!.poNumber, removed.itemName, added.itemName, "200.00", "121.75"]) expect(audit.comment).toContain(value);
+  await authenticate(page);
+  await expectStatus(await receive(page, source, [{ itemId: receiptItemId(added), quantity: 1 }]), 200);
+  const received = await getRequest(page, request.id);
+  expectSourceUnchanged(received, source);
+  expect(received.receivingItems.find((item) => item.id === receiptItemId(added))).toMatchObject({ receivedQuantity: 1, remainingQuantity: 2 });
+  expect(received.receipts[0]!.items).toContainEqual({ itemId: receiptItemId(added), itemName: added.itemName, quantity: 1 });
 });
 
 test("duplicate and foreign PO line IDs reject the whole proposal without changing either document", async ({ page }) => {
@@ -305,7 +342,7 @@ test("one pending PO change holds receipts on all supplier POs and blocks cancel
   const { request, orders } = await createIssued(page, [10, 5], true);
   await proposed(await propose(page, orders[0]!, { note: "Hold this PR while revised terms are reviewed" }));
   const heldRequest = await getRequest(page, request.id);
-  await expectStatus(await receive(page, heldRequest, [{ itemId: orders[1]!.items[0]!.purchaseRequestItemId, quantity: 1 }]), 400);
+  await expectStatus(await receive(page, heldRequest, [{ itemId: receiptItemId(orders[1]!.items[0]!), quantity: 1 }]), 400);
   await expectStatus(await page.request.post(`/api/purchase-requests/${request.id}/status`, {
     data: { action: "RECEIVED", receivedDate: "2026-10-22" },
   }), 400);
@@ -324,7 +361,7 @@ test("one pending PO change holds receipts on all supplier POs and blocks cancel
 test("received item identity, description, unit, price and supplier identity cannot be changed or removed", async ({ page }) => {
   const { request, orders: [issued] } = await createIssued(page);
   const received = issued!.items[0]!;
-  await expectStatus(await receive(page, request, [{ itemId: received.purchaseRequestItemId, quantity: 4 }]), 200);
+  await expectStatus(await receive(page, request, [{ itemId: receiptItemId(received), quantity: 4 }]), 200);
   const original = await getOrder(page, issued!.id);
   const items = itemsOf(original);
   for (const changed of [
@@ -335,38 +372,46 @@ test("received item identity, description, unit, price and supplier identity can
   await assertRejectedProposal(page, original, propose(page, original, { supplier: { supplierName: original.supplierName, supplierTaxId: "DIFFERENT-TAX" } }));
 });
 
-test("received and closed quantities constrain the new order floor while a partial PR can increase its open quantity", async ({ page }) => {
+test("received and closed quantities constrain revised PO lines and synchronize PR commercial fields without moving receipt counters", async ({ page }) => {
   const { request, orders: [issued] } = await createIssued(page);
   const first = issued!.items[0]!;
-  await expectStatus(await receive(page, request, [{ itemId: first.purchaseRequestItemId, quantity: 4 }]), 200);
+  await expectStatus(await receive(page, request, [{ itemId: receiptItemId(first), quantity: 4 }]), 200);
   const received = await getRequest(page, request.id);
   await expectStatus(await page.request.post(`/api/purchase-requests/${request.id}/receipts`, { data: {
-    action: "CLOSE_REMAINDER", expectedVersion: received.receiptVersion, items: [{ itemId: first.purchaseRequestItemId, quantity: 2 }], comment: "Two units will no longer be delivered",
+    action: "CLOSE_REMAINDER", expectedVersion: received.receiptVersion, items: [{ itemId: receiptItemId(first), quantity: 2 }], comment: "Two units will no longer be delivered",
   } }), 200);
   const original = await getOrder(page, issued!.id);
   const items = itemsOf(original);
   await assertRejectedProposal(page, original, propose(page, original, { items: [{ ...items[0]!, quantity: 5 }, items[1]!] }));
   const pending = await proposed(await propose(page, original, { items: [{ ...items[0]!, quantity: 12 }, items[1]!] }));
-  await approve(page, pending);
+  const approved = await approve(page, pending);
+  expect(approved.items.find((item) => item.id === first.id)).toMatchObject({ quantity: 12, receivedQuantity: 4, closedQuantity: 2 });
   const source = await getRequest(page, request.id);
-  expect(source.items.find((item) => item.id === first.purchaseRequestItemId)).toMatchObject({ quantity: 12, receivedQuantity: 4, closedQuantity: 2, remainingQuantity: 6 });
+  expect(source.totalAmount).toBe(220);
+  expect(source.items.find((item) => item.id === first.purchaseRequestItemId)).toMatchObject({ quantity: 12, unitPrice: 10, amount: 120, receivedQuantity: 0, closedQuantity: 0 });
+  expect(source.receivingItems.find((item) => item.id === receiptItemId(first))).toMatchObject({ quantity: 12, receivedQuantity: 4, closedQuantity: 2, remainingQuantity: 6 });
 });
 
 test("an unchanged overreceived quantity preserves the recorded excess when another PR item remains open", async ({ page }) => {
   const { request, orders: [issued] } = await createIssued(page, [10, 5]);
   const first = issued!.items[0]!;
-  await expectStatus(await receive(page, request, [{ itemId: first.purchaseRequestItemId, quantity: 12 }], { overReceiptReason: "Supplier delivered two additional units" }), 200);
+  await expectStatus(await receive(page, request, [{ itemId: receiptItemId(first), quantity: 12 }], { overReceiptReason: "Supplier delivered two additional units" }), 200);
   const original = await getOrder(page, issued!.id);
   const items = itemsOf(original);
   for (const quantity of [9, 11]) await assertRejectedProposal(page, original, propose(page, original, { items: [{ ...items[0]!, quantity }, items[1]!] }));
   const pending = await proposed(await propose(page, original, { note: "Contact only; keep the recorded overreceipt" }));
   await approve(page, pending);
-  expect((await getRequest(page, request.id)).items.find((item) => item.id === first.purchaseRequestItemId)).toMatchObject({ quantity: 10, receivedQuantity: 12, overReceivedQuantity: 2 });
+  const source = await getRequest(page, request.id);
+  expectSourceUnchanged(source, {
+    ...request,
+    items: request.items.map((item) => ({ ...item, supplierName: original.supplierName })),
+  });
+  expect(source.receivingItems.find((item) => item.id === receiptItemId(first))).toMatchObject({ quantity: 10, receivedQuantity: 12, overReceivedQuantity: 2 });
 });
 
 test("fully settled and cancelled PRs cannot open new PO changes", async ({ page }) => {
   const settled = await createIssued(page, [10]);
-  await expectStatus(await receive(page, settled.request, [{ itemId: settled.orders[0]!.items[0]!.purchaseRequestItemId, quantity: 10 }]), 200);
+  await expectStatus(await receive(page, settled.request, [{ itemId: receiptItemId(settled.orders[0]!.items[0]!), quantity: 10 }]), 200);
   const settledOrder = await getOrder(page, settled.orders[0]!.id);
   await assertRejectedProposal(page, settledOrder, propose(page, settledOrder, { note: "Too late to alter the completed receiving balance" }));
   const cancelled = await createIssued(page, [10]);
@@ -413,7 +458,7 @@ test("a proposal racing a receipt commits only a valid quantity floor or a pendi
   const { request, orders: [original] } = await createIssued(page, [10]);
   const [change, receipt] = await Promise.all([
     propose(page, original!, { items: [{ ...itemsOf(original!)[0]!, quantity: 2 }] }),
-    receive(page, request, [{ itemId: original!.items[0]!.purchaseRequestItemId, quantity: 4 }]),
+    receive(page, request, [{ itemId: receiptItemId(original!.items[0]!), quantity: 4 }]),
   ]);
   expect([change.status(), receipt.status()].filter((status) => status === 200)).toHaveLength(1);
   expect([400, 409]).toContain(change.status() === 200 ? receipt.status() : change.status());
@@ -422,12 +467,13 @@ test("a proposal racing a receipt commits only a valid quantity floor or a pendi
   if (change.status() === 200) {
     expect(current.pendingChangeId).toBeTruthy();
     expect(source.receipts).toHaveLength(0);
-    expect(source.items[0]!.receivedQuantity).toBe(0);
+    expect(source.receivingItems[0]!.receivedQuantity).toBe(0);
   } else {
     expect(current.pendingChangeId).toBeNull();
     expect(current.changes).toHaveLength(0);
-    expect(source.items[0]!.receivedQuantity).toBe(4);
+    expect(source.receivingItems[0]!.receivedQuantity).toBe(4);
   }
+  expectSourceUnchanged(source, request);
 });
 
 test("a reason without any specification change cannot create a pending amendment or hold receiving", async ({ page }) => {
@@ -436,12 +482,12 @@ test("a reason without any specification change cannot create a pending amendmen
   const unchanged = await getRequest(page, request.id);
   expect(unchanged.receiptVersion).toBe(request.receiptVersion);
   expect(unchanged.approvals).toEqual(request.approvals);
-  await expectStatus(await receive(page, unchanged, [{ itemId: original!.items[0]!.purchaseRequestItemId, quantity: 1 }]), 200);
+  await expectStatus(await receive(page, unchanged, [{ itemId: receiptItemId(original!.items[0]!), quantity: 1 }]), 200);
 });
 
 test("reducing a partial order to its received quantity settles the PR on the actual receipt date and permits finalization", async ({ page }) => {
   const { request, orders: [original] } = await createIssued(page, [10]);
-  await expectStatus(await receive(page, request, [{ itemId: original!.items[0]!.purchaseRequestItemId, quantity: 4 }], { receiptNumber: "RCV-REDUCED-ORDER" }), 200);
+  await expectStatus(await receive(page, request, [{ itemId: receiptItemId(original!.items[0]!), quantity: 4 }], { receiptNumber: "RCV-REDUCED-ORDER" }), 200);
   const received = await getRequest(page, request.id);
   const order = await getOrder(page, original!.id);
   const pending = await proposed(await propose(page, order, { items: [{ ...itemsOf(order)[0]!, quantity: 4 }] }));
@@ -451,7 +497,8 @@ test("reducing a partial order to its received quantity settles the PR on the ac
   const settled = await getRequest(page, request.id);
   expect(settled.receivedAt).toBe(receivedDate);
   expect(settled.totalAmount).toBe(40);
-  expect(settled.items[0]).toMatchObject({ remainingQuantity: 0, overReceivedQuantity: 0 });
+  expect(settled.items[0]).toMatchObject({ quantity: 4, unitPrice: 10, amount: 40, remainingQuantity: 4, receivedQuantity: 0, closedQuantity: 0 });
+  expect(settled.receivingItems[0]).toMatchObject({ quantity: 4, remainingQuantity: 0, receivedQuantity: 4, overReceivedQuantity: 0 });
   expect(settled.receipts).toEqual(received.receipts);
   await authenticate(page, credentials.purchasing);
   await expectStatus(await page.request.post(`/api/purchase-requests/${request.id}/receipt-references`, {
@@ -465,7 +512,7 @@ test("received registered PO contact and header overrides are reviewed without a
   await authenticate(page, credentials.purchasing);
   const supplier = await createSupplier(page, "contact-override");
   const { request, orders: [original] } = await createIssued(page, [10], false, supplier);
-  await expectStatus(await receive(page, request, [{ itemId: original!.items[0]!.purchaseRequestItemId, quantity: 1 }]), 200);
+  await expectStatus(await receive(page, request, [{ itemId: receiptItemId(original!.items[0]!), quantity: 1 }]), 200);
   const received = await getRequest(page, request.id);
   const order = await getOrder(page, original!.id);
   const contacts = [{ channel: "PHONE", value: "0812345678" }];
@@ -509,10 +556,10 @@ test("a replacement supplier disabled during review prevents approval atomically
     await assertRejectedProposal(page, current, propose(page, current, { supplier: { supplierId } }));
   }
   const released = await getRequest(page, request.id);
-  await expectStatus(await receive(page, released, [{ itemId: original!.items[0]!.purchaseRequestItemId, quantity: 1 }]), 200);
+  await expectStatus(await receive(page, released, [{ itemId: receiptItemId(original!.items[0]!), quantity: 1 }]), 200);
 });
 
-test("a late PR total overflow rolls back every PO, PR line and approval-history update", async ({ page }) => {
+test("a late combined PR total overflow rolls back every PO, PR line and Timeline update", async ({ page }) => {
   const { request, orders } = await createIssued(page, [10, 5], true);
   const pendingFirst = await proposed(await propose(page, orders[0]!, { items: [{ ...itemsOf(orders[0]!)[0]!, quantity: 1, unitPrice: 6000000000 }] }));
   const pendingSecond = await proposed(await propose(page, orders[1]!, { items: [{ ...itemsOf(orders[1]!)[0]!, quantity: 1, unitPrice: 6000000000 }] }));
@@ -528,8 +575,8 @@ test("a late PR total overflow rolls back every PO, PR line and approval-history
 test("existing pending changes remain reviewable after another supplier PO revision settles the whole PR", async ({ page }) => {
   const { request, orders } = await createIssued(page, [10, 5], true);
   await expectStatus(await receive(page, request, [
-    { itemId: orders[0]!.items[0]!.purchaseRequestItemId, quantity: 4 },
-    { itemId: orders[1]!.items[0]!.purchaseRequestItemId, quantity: 5 },
+    { itemId: receiptItemId(orders[0]!.items[0]!), quantity: 4 },
+    { itemId: receiptItemId(orders[1]!.items[0]!), quantity: 5 },
   ]), 200);
   const first = await getOrder(page, orders[0]!.id);
   const second = await getOrder(page, orders[1]!.id);
@@ -538,6 +585,9 @@ test("existing pending changes remain reviewable after another supplier PO revis
   await approve(page, pendingFirst);
   const settled = await getRequest(page, request.id);
   expect(settled.receivedAt).toBe(receivedDate);
+  expect(settled.totalAmount).toBe(140);
+  expect(settled.items.find((item) => item.id === first.items[0]!.purchaseRequestItemId)).toMatchObject({ quantity: 4, amount: 40, receivedQuantity: 0, closedQuantity: 0 });
+  expect(settled.receivingItems.every((item) => item.remainingQuantity === 0)).toBe(true);
   const remaining = await getOrder(page, second.id);
   expect(remaining.canReview).toBe(true);
   expect(remaining.canEdit).toBe(false);

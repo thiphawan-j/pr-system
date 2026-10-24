@@ -2,20 +2,22 @@ import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
 import { ApprovalAction, Prisma } from "@prisma/client";
+import { calculatePurchaseOrderTax, calculateTaxLine } from "@/lib/purchase-order-tax";
 import { toBangkokDateValue } from "@/lib/format";
 import type { PurchaseOrderSnapshot, SessionUser } from "@/lib/types";
 import { canApprovePurchaseRequest, isPurchasing } from "@/server/auth/authorization";
 import { getDb } from "@/server/db";
 import { createNotifications } from "@/server/notifications/notification.service";
+import { purchaseOrderChangeComment } from "@/server/purchase-orders/purchase-order-audit";
 import { getPurchaseOrderById } from "@/server/purchase-orders/purchase-order.service";
 import type { PurchaseOrderChangeInput, PurchaseOrderChangeReviewInput } from "@/server/purchase-orders/purchase-order.schemas";
-import { invariant } from "@/server/shared/errors";
+import { AppError, invariant } from "@/server/shared/errors";
 import { formatSupplierCode } from "@/server/suppliers/supplier.service";
 import { supplierContactSchema } from "@/server/suppliers/supplier.schemas";
 import { z } from "zod";
 
 const orderInclude = {
-  items: { orderBy: { position: "asc" }, include: { purchaseRequestItem: true } },
+  items: { orderBy: { position: "asc" } },
   changes: { where: { status: "PENDING" }, take: 1 },
   purchaseRequest: { include: {
     items: true,
@@ -27,7 +29,9 @@ const maximumAmount = new Prisma.Decimal("9999999999.99");
 
 function snapshot(order: Order): PurchaseOrderSnapshot {
   const contacts = z.array(supplierContactSchema).safeParse(order.supplierContacts);
+  const hasTaxMetadata = order.taxMode !== "UNSPECIFIED" || !order.vatRate.equals(7) || order.items.some((item) => item.taxMode !== null);
   return {
+    ...(hasTaxMetadata ? { taxMode: order.taxMode, vatRate: Number(order.vatRate) } : {}),
     supplierId: order.supplierId, supplierCode: order.supplierCode, supplierName: order.supplierName,
     supplierTaxId: order.supplierTaxId, supplierAddress: order.supplierAddress,
     supplierContact: order.supplierContact, supplierContactPerson: order.supplierContactPerson,
@@ -39,6 +43,7 @@ function snapshot(order: Order): PurchaseOrderSnapshot {
       id: item.id, purchaseRequestItemId: item.purchaseRequestItemId,
       itemName: item.itemName, description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: Number(item.unitPrice), amount: Number(item.amount),
+      ...(hasTaxMetadata ? { taxMode: item.taxMode } : {}),
     })),
   };
 }
@@ -62,7 +67,7 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
   const oldItems = new Map(order.items.map((item) => [item.id, item]));
   const ids = after.items.flatMap((item) => item.id ? [item.id] : []);
   invariant(new Set(ids).size === ids.length, "รายการสินค้าซ้ำกัน", 400);
-  const hasReceived = order.items.some((item) => item.purchaseRequestItem.receivedQuantity || item.purchaseRequestItem.closedQuantity);
+  const hasReceived = order.items.some((item) => item.receivedQuantity || item.closedQuantity);
   if (hasReceived) {
     invariant(order.supplierId === after.supplierId && order.supplierName === after.supplierName && order.supplierTaxId === after.supplierTaxId,
       "ไม่สามารถเปลี่ยนผู้ขายของ PO ที่มีการรับสินค้าหรือปิดยอดแล้ว", 400);
@@ -71,19 +76,22 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
     if (!item.id) continue;
     const original = oldItems.get(item.id);
     invariant(original, "ไม่พบรายการสินค้าใน PO นี้", 400);
-    const { receivedQuantity, closedQuantity } = original.purchaseRequestItem;
+    const { receivedQuantity, closedQuantity } = original;
     const settled = receivedQuantity + closedQuantity;
     if (settled > 0) {
       invariant(item.itemName === original.itemName && item.description === original.description && item.unit === original.unit &&
         new Prisma.Decimal(item.unitPrice).equals(original.unitPrice),
       "ไม่สามารถเปลี่ยนรายละเอียด หน่วย หรือราคาของสินค้าที่รับหรือปิดยอดแล้ว", 400);
+      invariant((item.taxMode ?? after.taxMode ?? "UNSPECIFIED") === (original.taxMode ?? order.taxMode) &&
+        new Prisma.Decimal(after.vatRate ?? 7).equals(order.vatRate),
+      "ไม่สามารถเปลี่ยนรูปแบบภาษีหรืออัตรา VAT ของสินค้าที่รับหรือปิดยอดแล้ว", 400);
       invariant(item.quantity === original.quantity || item.quantity >= settled,
         "จำนวนใหม่ต้องไม่น้อยกว่าจำนวนที่รับและปิดยอดแล้ว", 400);
     }
   }
   for (const original of order.items) {
     if (!ids.includes(original.id)) {
-      invariant(original.purchaseRequestItem.receivedQuantity === 0 && original.purchaseRequestItem.closedQuantity === 0,
+      invariant(original.receivedQuantity === 0 && original.closedQuantity === 0,
         "ไม่สามารถลบสินค้าที่รับหรือปิดยอดแล้ว", 400);
     }
   }
@@ -94,7 +102,12 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
   let supplier: Pick<PurchaseOrderSnapshot, "supplierId" | "supplierCode" | "supplierName" | "supplierTaxId" | "supplierAddress" | "supplierContactPerson" | "supplierContacts" | "supplierContact">;
   if ("supplierId" in input.supplier) {
     if (input.supplier.supplierId === order.supplierId) {
-      supplier = { ...before };
+      supplier = {
+        supplierId: before.supplierId, supplierCode: before.supplierCode, supplierName: before.supplierName,
+        supplierTaxId: before.supplierTaxId, supplierAddress: before.supplierAddress,
+        supplierContactPerson: before.supplierContactPerson, supplierContacts: before.supplierContacts,
+        supplierContact: before.supplierContact,
+      };
     } else {
       await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "Supplier" WHERE "id" = ${input.supplier.supplierId} FOR SHARE`);
       const registered = await transaction.supplier.findUnique({ where: { id: input.supplier.supplierId }, include: { contacts: { orderBy: { channel: "asc" } } } });
@@ -118,23 +131,36 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
   if (overrides.supplierContacts !== undefined) supplier.supplierContacts = overrides.supplierContacts;
   supplier.supplierContacts = [...supplier.supplierContacts].sort((a, b) => a.channel.localeCompare(b.channel));
   const originals = new Map(order.items.map((item) => [item.id, item]));
-  let total = new Prisma.Decimal(0);
+  const taxMode = input.taxMode ?? order.taxMode;
+  const vatRate = input.vatRate ?? Number(order.vatRate);
   const items = input.items.map((item) => {
-    const amount = new Prisma.Decimal(item.unitPrice).times(item.quantity);
+    const original = item.id ? originals.get(item.id) : undefined;
+    // Preserve an issued legacy line's authoritative stored amount when its
+    // quantity and unit price are unchanged; do not reinterpret old snapshots.
+    const amount = original && item.quantity === original.quantity && original.unitPrice.equals(item.unitPrice)
+      ? original.amount : new Prisma.Decimal(item.unitPrice).times(item.quantity);
     invariant(amount.lte(maximumAmount), "ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
-    total = total.plus(amount);
+    const override = item.taxMode === undefined ? original?.taxMode ?? null : item.taxMode;
     return {
-      ...(item.id ? { id: item.id, purchaseRequestItemId: originals.get(item.id)?.purchaseRequestItemId } : {}),
+      ...(item.id ? { id: item.id, purchaseRequestItemId: original?.purchaseRequestItemId } : {}),
       itemName: item.itemName, description: item.description ?? null, unit: item.unit ?? null,
-      quantity: item.quantity, unitPrice: item.unitPrice, amount: Number(amount),
+      quantity: item.quantity, unitPrice: item.unitPrice, amount: Number(amount), taxMode: override,
     };
   });
-  invariant(total.lte(maximumAmount), "ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
+  let tax;
+  try {
+    tax = calculatePurchaseOrderTax(items, taxMode, vatRate);
+  } catch {
+    throw new AppError("ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
+  }
+  const hasTaxMetadata = taxMode !== "UNSPECIFIED" || vatRate !== 7 || items.some((item) => item.taxMode !== null);
   const after: PurchaseOrderSnapshot = {
     ...supplier, deliveryAddress: input.deliveryAddress ?? null, paymentTerms: input.paymentTerms ?? null,
-    expectedDeliveryDate: input.expectedDeliveryDate || null, note: input.note ?? null, totalAmount: Number(total), items,
+    expectedDeliveryDate: input.expectedDeliveryDate || null, note: input.note ?? null, totalAmount: tax.totalAmount,
+    ...(hasTaxMetadata ? { taxMode, vatRate } : {}),
+    items: items.map(({ taxMode: override, ...item }) => ({ ...item, ...(hasTaxMetadata ? { taxMode: override } : {}) })),
   };
-  invariant(order.purchaseRequest.totalAmount.minus(order.totalAmount).plus(total).lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
+  invariant(order.purchaseRequest.totalAmount.minus(order.totalAmount).plus(after.totalAmount).lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
   validateItems(order, after);
   return { before, after };
 }
@@ -169,7 +195,7 @@ export async function proposePurchaseOrderChange(id: string, session: SessionUse
     await transaction.purchaseRequest.update({ where: { id: order.purchaseRequestId }, data: { receiptVersion: { increment: 1 } } });
     await transaction.approval.create({ data: {
       purchaseRequestId: order.purchaseRequestId, approverId: session.id, action: ApprovalAction.COMMENTED,
-      stepLabel: "ขอแก้ไข PO", comment: `${order.poNumber}: ${input.reason}`,
+      stepLabel: "ขอแก้ไข PO", comment: purchaseOrderChangeComment(order.poNumber, before, after, input.reason),
     } });
     return { order, reviewers: reviewers.map((reviewer) => reviewer.id) };
   }, { timeout: 15000 });
@@ -188,19 +214,21 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
   for (const old of order.items) {
     if (!oldIds.has(old.id)) {
       await transaction.purchaseOrderItem.delete({ where: { id: old.id } });
-      await transaction.purchaseRequestItem.delete({ where: { id: old.purchaseRequestItemId } });
+      if (old.purchaseRequestItemId) await transaction.purchaseRequestItem.delete({ where: { id: old.purchaseRequestItemId } });
     }
   }
   // Vacate unique positions before reordering retained and newly inserted lines.
   await transaction.purchaseOrderItem.updateMany({ where: { purchaseOrderId: order.id }, data: { position: { increment: 500 } } });
   for (const [position, item] of after.items.entries()) {
     const poFields = { itemName: item.itemName, description: item.description,
-      quantity: item.quantity, unit: item.unit, unitPrice: new Prisma.Decimal(item.unitPrice), amount: new Prisma.Decimal(item.amount) };
-    const sourceFields = { ...poFields, supplierName: after.supplierName };
+      quantity: item.quantity, unit: item.unit, unitPrice: new Prisma.Decimal(item.unitPrice), amount: new Prisma.Decimal(item.amount), taxMode: item.taxMode ?? null };
+    const sourceFields = { ...poFields, supplierName: after.supplierName, taxMode: item.taxMode ?? after.taxMode ?? "UNSPECIFIED", vatRate: after.vatRate ?? 7 };
     if (item.id) {
       const old = order.items.find((entry) => entry.id === item.id)!;
-      await transaction.purchaseRequestItem.update({ where: { id: old.purchaseRequestItemId }, data: sourceFields });
-      await transaction.purchaseOrderItem.update({ where: { id: item.id }, data: { ...poFields, position } });
+      const source = old.purchaseRequestItemId
+        ? await transaction.purchaseRequestItem.update({ where: { id: old.purchaseRequestItemId }, data: sourceFields })
+        : await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: order.purchaseRequestId } });
+      await transaction.purchaseOrderItem.update({ where: { id: item.id }, data: { ...poFields, position, purchaseRequestItemId: source.id } });
     } else {
       const source = await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: order.purchaseRequestId } });
       await transaction.purchaseOrderItem.create({ data: { ...poFields, position, purchaseOrderId: order.id, purchaseRequestItemId: source.id } });
@@ -212,14 +240,15 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
     supplierContact: after.supplierContact, supplierContactPerson: after.supplierContactPerson,
     supplierContacts: after.supplierContacts, deliveryAddress: after.deliveryAddress,
     paymentTerms: after.paymentTerms, note: after.note, totalAmount: new Prisma.Decimal(after.totalAmount),
+    taxMode: after.taxMode ?? "UNSPECIFIED", vatRate: after.vatRate ?? 7,
     expectedDeliveryDate: after.expectedDeliveryDate ? new Date(`${after.expectedDeliveryDate}T00:00:00.000Z`) : null,
     revision: { increment: 1 },
   } });
-  const aggregate = await transaction.purchaseRequestItem.aggregate({ where: { purchaseRequestId: order.purchaseRequestId }, _sum: { amount: true } });
-  const requestTotal = aggregate._sum.amount ?? new Prisma.Decimal(0);
+  const sourceItems = await transaction.purchaseRequestItem.findMany({ where: { purchaseRequestId: order.purchaseRequestId }, select: { amount: true, taxMode: true, vatRate: true } });
+  const requestTotal = sourceItems.reduce((sum, item) => sum.plus(calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate)).totalAmount), new Prisma.Decimal(0));
   invariant(requestTotal.lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
-  const sourceItems = await transaction.purchaseRequestItem.findMany({ where: { purchaseRequestId: order.purchaseRequestId }, select: { quantity: true, receivedQuantity: true, closedQuantity: true } });
-  const allSettled = sourceItems.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
+  const orderedItems = await transaction.purchaseOrderItem.findMany({ where: { purchaseOrder: { purchaseRequestId: order.purchaseRequestId } }, select: { quantity: true, receivedQuantity: true, closedQuantity: true } });
+  const allSettled = orderedItems.length > 0 && orderedItems.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
   const lastReceipt = allSettled ? await transaction.purchaseRequestReceipt.findFirst({
     where: { purchaseRequestId: order.purchaseRequestId, action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
   }) : null;
@@ -252,7 +281,9 @@ export async function reviewPurchaseOrderChange(id: string, changeId: string, se
     await transaction.approval.create({ data: {
       purchaseRequestId: current.purchaseRequestId, approverId: session.id, action: ApprovalAction.COMMENTED,
       stepLabel: input.action === "APPROVED" ? "อนุมัติแก้ไข PO" : withdraw ? "ถอนคำขอแก้ไข PO" : "ไม่อนุมัติแก้ไข PO",
-      comment: `${current.poNumber}: ${input.comment ?? change.reason}`,
+      comment: input.action === "APPROVED"
+        ? purchaseOrderChangeComment(current.poNumber, change.before as unknown as PurchaseOrderSnapshot, after, change.reason, input.comment)
+        : `${current.poNumber}\nเหตุผลที่ขอแก้ไข: ${change.reason}\nผลการพิจารณา: ${input.comment ?? change.reason}`,
     } });
     return current;
   }, { timeout: 15000 });
