@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { formatCurrency } from "@/lib/format";
-import { calculatePurchaseOrderTax, PURCHASE_PRICE_TAX_MODES, type PurchaseOrderTaxItem, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, PURCHASE_PRICE_TAX_MODES, type PurchaseDiscountType, type PurchaseOrderTaxItem, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 
 const selectClass = "h-10 w-full min-w-0 rounded-xl border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50";
 
@@ -59,19 +59,27 @@ export function PurchaseOrderItemTaxSelect({ id, value, disabled, onChange }: {
   </select>;
 }
 
-export function PurchaseOrderTaxSummary({ items, taxMode = "UNSPECIFIED", vatRate = 7, totalId }: {
+export function PurchaseOrderTaxSummary({ items, taxMode = "UNSPECIFIED", vatRate = 7, totalId, discountType = "NONE", discountValue = 0 }: {
   items: readonly PurchaseOrderTaxItem[];
   taxMode?: PurchasePriceTaxMode;
   vatRate?: number;
   totalId?: string;
+  discountType?: PurchaseDiscountType;
+  discountValue?: number | string;
 }) {
   const { dictionary, locale } = useI18n();
   const labels = dictionary.poTax;
   let totals;
-  try { totals = calculatePurchaseOrderTax(items, taxMode, vatRate); }
+  try { totals = calculatePurchaseOrderPricing(items, taxMode, vatRate, { discountType, discountValue }); }
   catch { return <p role="status" className="text-sm text-destructive">{labels.amountInvalid}</p>; }
   return <div className="min-w-0 space-y-3">
     <dl className="space-y-2 text-sm">
+      {discountType !== "NONE" || items.some((item) => item.discountType && item.discountType !== "NONE") ? <>
+        <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{dictionary.poDiscount.subtotalAmount}</dt><dd className="font-medium tabular-nums">{formatCurrency(totals.subtotalAmount, locale)}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{dictionary.poDiscount.itemDiscountAmount}</dt><dd id={totalId ? `${totalId}-item-discount` : undefined} className="font-medium tabular-nums">−{formatCurrency(totals.itemDiscountAmount, locale)}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{dictionary.poDiscount.orderDiscountAmount}</dt><dd id={totalId ? `${totalId}-order-discount` : undefined} className="font-medium tabular-nums">−{formatCurrency(totals.orderDiscountAmount, locale)}</dd></div>
+        <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{dictionary.poDiscount.discountedSubtotalAmount}</dt><dd id={totalId ? `${totalId}-after-discount` : undefined} className="font-medium tabular-nums">{formatCurrency(totals.discountedSubtotalAmount, locale)}</dd></div>
+      </> : null}
       <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{labels.netAmount}</dt><dd id={totalId ? `${totalId}-net` : undefined} className="font-medium tabular-nums">{totals.netAmount === null ? "—" : formatCurrency(totals.netAmount, locale)}</dd></div>
       <div className="flex justify-between gap-3"><dt className="text-muted-foreground">{labels.taxAmount}</dt><dd id={totalId ? `${totalId}-vat` : undefined} className="font-medium tabular-nums">{totals.taxAmount === null ? "—" : formatCurrency(totals.taxAmount, locale)}</dd></div>
       <div className="flex flex-wrap justify-between gap-3 border-t border-border/70 pt-3"><dt className="font-semibold">{labels.totalAmount}</dt><dd id={totalId} className="text-xl font-semibold text-primary tabular-nums">{formatCurrency(totals.totalAmount, locale)}</dd></div>

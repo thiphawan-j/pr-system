@@ -6,6 +6,7 @@ import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { discountDraftError, PurchaseOrderDiscountFields } from "@/components/purchase-orders/purchase-order-discount-fields";
 import { PurchaseOrderItemTaxSelect, PurchaseOrderTaxFields, PurchaseOrderTaxSummary } from "@/components/purchase-orders/purchase-order-tax-fields";
 import { SupplierCombobox } from "@/components/suppliers/supplier-combobox";
 import { Button } from "@/components/ui/button";
@@ -15,15 +16,15 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { translateMessage } from "@/lib/i18n";
-import { calculatePurchaseOrderTax, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 import { supplierContactChannels, type PurchaseOrderDetail, type SupplierContact, type SupplierDetail } from "@/lib/types";
 
-type DraftItem = { key: string; id?: string; itemName: string; description: string; unit: string; quantity: string; unitPrice: string; taxMode: PurchasePriceTaxMode | null };
+type DraftItem = { key: string; id?: string; itemName: string; description: string; unit: string; quantity: string; unitPrice: string; taxMode: PurchasePriceTaxMode | null; discountType: PurchaseDiscountType; discountValue: string };
 
 const MAX_ITEMS = 500;
 const MAX_AMOUNT_CENTS = 999999999999;
 
-function itemValues(item: DraftItem) {
+function itemValues(item: DraftItem, original?: { quantity: number; unitPrice: number; amount: number }) {
   const quantityText = item.quantity.trim();
   const priceText = item.unitPrice.trim();
   const quantity = /^\d+$/.test(quantityText) ? Number(quantityText) : Number.NaN;
@@ -32,8 +33,10 @@ function itemValues(item: DraftItem) {
   const [whole = "", fraction = ""] = priceText.split(".");
   const unitPriceCents = validPriceText ? Number(whole || "0") * 100 + Number(fraction.padEnd(2, "0")) : Number.NaN;
   const validPrice = Number.isSafeInteger(unitPriceCents) && unitPriceCents >= 0 && unitPriceCents <= MAX_AMOUNT_CENTS;
-  const amountCents = quantity * unitPriceCents;
-  const validAmount = validQuantity && validPrice && Number.isSafeInteger(amountCents) && amountCents <= MAX_AMOUNT_CENTS;
+  const keepsStoredAmount = original && validQuantity && validPrice
+    && quantity === original.quantity && unitPriceCents === Math.round(original.unitPrice * 100);
+  const amountCents = keepsStoredAmount ? Math.round(original.amount * 100) : quantity * unitPriceCents;
+  const validAmount = validQuantity && validPrice && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= MAX_AMOUNT_CENTS;
   return { quantity, validQuantity, unitPriceCents, validPrice, amountCents, validAmount };
 }
 
@@ -60,9 +63,11 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
     supplierContact: order.supplierContact ?? "", supplierContacts: order.supplierContacts,
   });
   const [headers, setHeaders] = useState({ deliveryAddress: order.deliveryAddress ?? "", paymentTerms: order.paymentTerms ?? "", expectedDeliveryDate: order.expectedDeliveryDate ?? "", note: order.note ?? "" });
-  const [items, setItems] = useState<DraftItem[]>(() => order.items.map((item) => ({ key: item.id, id: item.id, itemName: item.itemName, description: item.description ?? "", unit: item.unit ?? "", quantity: String(item.quantity), unitPrice: String(item.unitPrice), taxMode: item.taxMode ?? null })));
+  const [items, setItems] = useState<DraftItem[]>(() => order.items.map((item) => ({ key: item.id, id: item.id, itemName: item.itemName, description: item.description ?? "", unit: item.unit ?? "", quantity: String(item.quantity), unitPrice: String(item.unitPrice), taxMode: item.taxMode ?? null, discountType: item.discountType ?? "NONE", discountValue: String(item.discountValue ?? 0) })));
   const [taxMode, setTaxMode] = useState<PurchasePriceTaxMode>(order.taxMode ?? "UNSPECIFIED");
   const [vatRate, setVatRate] = useState(String(order.vatRate ?? 7));
+  const [discountType, setDiscountType] = useState<PurchaseDiscountType>(order.discountType ?? "NONE");
+  const [discountValue, setDiscountValue] = useState(String(order.discountValue ?? 0));
   const [reason, setReason] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -78,14 +83,17 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
   const pickerSuppliers: SupplierDetail[] = sourceOrder.supplierId && !suppliers.some((entry) => entry.id === sourceOrder.supplierId)
     ? [...suppliers, { id: sourceOrder.supplierId, code: sourceOrder.supplierCode ?? "", name: sourceOrder.supplierName, taxId: sourceOrder.supplierTaxId, address: sourceOrder.supplierAddress, contactPerson: sourceOrder.supplierContactPerson, paymentTerms: sourceOrder.paymentTerms, note: null, contacts: sourceOrder.supplierContacts, isActive: true, version: 0, createdAt: sourceOrder.issuedAt, updatedAt: sourceOrder.issuedAt }]
     : suppliers;
-  const values = items.map(itemValues);
+  const values = items.map((item) => itemValues(item, item.id ? originalById.get(item.id) : undefined));
   const previewCents = values.reduce((sum, value) => sum + (value.validAmount ? value.amountCents : 0), 0);
   const vatRateNumber = /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(vatRate.trim()) ? Number(vatRate) : Number.NaN;
   const validVatRate = Number.isFinite(vatRateNumber) && vatRateNumber >= 0 && vatRateNumber <= 100;
-  const taxItems = items.map((item, index) => ({ amount: values[index]!.validAmount ? values[index]!.amountCents / 100 : 0, taxMode: item.taxMode }));
-  let taxSummary: ReturnType<typeof calculatePurchaseOrderTax> | null = null;
-  try { taxSummary = calculatePurchaseOrderTax(taxItems, taxMode, validVatRate ? vatRateNumber : 7); }
+  const taxItems = items.map((item, index) => ({ amount: values[index]!.validAmount ? values[index]!.amountCents / 100 : 0, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountValue }));
+  let taxSummary: ReturnType<typeof calculatePurchaseOrderPricing> | null = null;
+  try { taxSummary = calculatePurchaseOrderPricing(taxItems, taxMode, validVatRate ? vatRateNumber : 7, { discountType, discountValue }); }
   catch { /* Invalid or overflowing drafts stay editable and display no payable total. */ }
+  let discountEligibleCents: number | undefined;
+  try { discountEligibleCents = Math.round(calculatePurchaseOrderPricing(taxItems.map((item) => ({ ...item, taxMode: "NONE" as const })), "NONE", 0).discountedSubtotalAmount * 100); }
+  catch { /* Validate each item first if a draft is incomplete. */ }
   const validTotal = validVatRate && values.every((value) => value.validAmount) && Number.isSafeInteger(previewCents) && previewCents <= MAX_AMOUNT_CENTS && taxSummary !== null;
   const previewTotal = taxSummary?.totalAmount ?? 0;
 
@@ -113,12 +121,17 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
     setItems((current) => current.map((item) => item.key === key ? { ...item, [field]: value } : item));
     const suffix = field === "itemName" ? "name" : field === "unitPrice" ? "unit-price" : field;
     clearFieldError(`po-edit-item-${suffix}-${index}`);
+    if (field === "quantity" || field === "unitPrice") {
+      clearFieldError(`po-edit-item-discount-value-${index}`);
+      clearFieldError("po-edit-discount-value");
+    }
   }
 
   function addItem() {
     const key = `new-${newItemCounter.current++}`;
     const index = items.length;
-    setItems((current) => [...current, { key, itemName: "", description: "", unit: "", quantity: "1", unitPrice: "", taxMode: null }]);
+    setItems((current) => [...current, { key, itemName: "", description: "", unit: "", quantity: "1", unitPrice: "", taxMode: null, discountType: "NONE", discountValue: "0" }]);
+    clearFieldError("po-edit-discount-value");
     requestAnimationFrame(() => focusField(`po-edit-item-name-${index}`));
   }
 
@@ -139,17 +152,21 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
       if (!value.validQuantity) { fail(`po-edit-item-quantity-${index}`, dictionary.purchaseOrders.quantityInvalid); return; }
       if (!value.validPrice) { fail(`po-edit-item-unit-price-${index}`, dictionary.purchaseOrders.priceInvalid); return; }
       if (!value.validAmount) { fail(`po-edit-item-unit-price-${index}`, labels.amountLimit); return; }
+      const invalidDiscount = discountDraftError(item.discountType, item.discountValue, value.amountCents);
+      if (invalidDiscount) { fail(`po-edit-item-discount-value-${index}`, dictionary.poDiscount[invalidDiscount]); return; }
       const original = item.id ? originalById.get(item.id) : undefined;
       if (original && value.quantity !== original.quantity && value.quantity < original.receivedQuantity + original.closedQuantity) { fail(`po-edit-item-quantity-${index}`, labels.quantityTooLow); return; }
     }
     if (!validVatRate) { fail("po-edit-vat-rate", dictionary.poTax.rateInvalid); return; }
+    const invalidOrderDiscount = discountDraftError(discountType, discountValue, discountEligibleCents);
+    if (invalidOrderDiscount) { fail("po-edit-discount-value", dictionary.poDiscount[invalidOrderDiscount]); return; }
     if (!validTotal) { fail("po-edit-add-item", labels.amountLimit); return; }
     if (!supplier.supplierName.trim()) { fail("po-edit-supplier", dictionary.suppliers.nameRequired); return; }
     if (supplier.supplierId && supplier.supplierId !== sourceOrder.supplierId && !suppliers.some((entry) => entry.id === supplier.supplierId && entry.isActive)) { fail("po-edit-supplier", dictionary.suppliers.unavailable); return; }
     const emptyContact = supplier.supplierContacts.find((contact) => !contact.value.trim());
     if (emptyContact) { fail(`po-edit-contact-${emptyContact.channel}`, dictionary.suppliers.contactRequired); return; }
     if (reason.trim().length < 5) { fail("po-edit-reason", labels.reasonRequired); return; }
-    const proposedItems = items.map((item, index) => ({ id: item.id, itemName: item.itemName, description: item.description, unit: item.unit, quantity: values[index]!.quantity, unitPrice: values[index]!.unitPriceCents / 100, taxMode: item.taxMode }));
+    const proposedItems = items.map((item, index) => ({ id: item.id, itemName: item.itemName, description: item.description, unit: item.unit, quantity: values[index]!.quantity, unitPrice: values[index]!.unitPriceCents / 100, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountType === "NONE" ? 0 : Number(item.discountValue) }));
     pendingRef.current = true;
     setIsPending(true);
     setError(null);
@@ -158,7 +175,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
       const { supplierId, ...supplierFields } = supplier;
       const response = await fetch(`/api/purchase-orders/${sourceOrder.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedVersion: sourceOrder.version, reason, supplier: { ...(supplierId ? { supplierId } : {}), ...supplierFields }, ...headers, taxMode, vatRate: vatRateNumber, items: proposedItems }),
+        body: JSON.stringify({ expectedVersion: sourceOrder.version, reason, supplier: { ...(supplierId ? { supplierId } : {}), ...supplierFields }, ...headers, taxMode, vatRate: vatRateNumber, discountType, discountValue: discountType === "NONE" ? 0 : Number(discountValue), items: proposedItems }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
@@ -236,6 +253,11 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
                   </div>
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 border-t border-border/50 pt-3">
                     <div className="min-w-0 max-w-full space-y-1.5"><Label htmlFor={`po-edit-item-tax-mode-${index}`} className="text-xs text-muted-foreground">{dictionary.poTax.itemMode}</Label><PurchaseOrderItemTaxSelect id={`po-edit-item-tax-mode-${index}`} value={item.taxMode} disabled={disabled || locked} onChange={(mode) => { setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, taxMode: mode } : entry)); clearFieldError("po-edit-add-item"); }} /></div>
+                    <div className="min-w-0 basis-64 grow">
+                      <PurchaseOrderDiscountFields typeId={`po-edit-item-discount-type-${index}`} valueId={`po-edit-item-discount-value-${index}`} title={dictionary.poDiscount.lineTitle} discountType={item.discountType} discountValue={item.discountValue} disabled={disabled || locked} error={fieldErrors[`po-edit-item-discount-value-${index}`]}
+                        onTypeChange={(type) => { setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, discountType: type, discountValue: type === "NONE" ? "0" : entry.discountValue } : entry)); clearFieldError(`po-edit-item-discount-value-${index}`); clearFieldError("po-edit-discount-value"); }}
+                        onValueChange={(value) => { setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, discountValue: value } : entry)); clearFieldError(`po-edit-item-discount-value-${index}`); clearFieldError("po-edit-discount-value"); }} />
+                    </div>
                     <details className="group min-w-0 grow basis-48">
                       <summary className="flex w-fit cursor-pointer list-none items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ChevronDown className="size-3 transition-transform group-open:rotate-180" />{labels.descriptionLabel}{item.description ? <span className="size-1 rounded-full bg-primary" aria-hidden="true" /> : null}</summary>
                       <div className="space-y-2 pt-3"><Label htmlFor={`po-edit-item-description-${index}`} className="sr-only">{labels.descriptionLabel} {index + 1}</Label><Textarea id={`po-edit-item-description-${index}`} rows={2} maxLength={2000} readOnly={locked} disabled={disabled} value={item.description} onChange={(event) => updateItem(item.key, "description", event.target.value, index)} /></div>
@@ -295,12 +317,20 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
         <Card className="border-border/70">
           <CardHeader><CardTitle>{labels.summaryTitle}</CardTitle><CardDescription>{sourceOrder.poNumber} · {labels.revision} {sourceOrder.revision}</CardDescription></CardHeader>
           <CardContent className="space-y-5">
+            <div className="space-y-2 rounded-xl border border-border/70 p-3">
+              <PurchaseOrderDiscountFields typeId="po-edit-discount-type" valueId="po-edit-discount-value" title={dictionary.poDiscount.orderTitle} discountType={discountType} discountValue={discountValue} disabled={disabled || supplierLocked} error={fieldErrors["po-edit-discount-value"]}
+                onTypeChange={(type) => { setDiscountType(type); if (type === "NONE") setDiscountValue("0"); clearFieldError("po-edit-discount-value"); }}
+                onValueChange={(value) => { setDiscountValue(value); clearFieldError("po-edit-discount-value"); }} />
+              <p className="text-xs leading-5 text-muted-foreground">{dictionary.poDiscount.basisHint}</p>
+              <p className="text-xs leading-5 text-muted-foreground">{dictionary.poDiscount.orderHint}</p>
+              {supplierLocked ? <p className="text-xs leading-5 text-muted-foreground">{dictionary.poDiscount.receivedLock}</p> : null}
+            </div>
             <dl className="space-y-3 text-sm">
               <div className="flex items-start justify-between gap-3"><dt className="text-muted-foreground">{labels.itemCount}</dt><dd className="tabular-nums">{formatNumber(items.length, locale)}</dd></div>
               <div className="flex items-start justify-between gap-3"><dt className="text-muted-foreground">{labels.totalBefore}</dt><dd className="text-right tabular-nums">{formatCurrency(sourceOrder.totalAmount, locale)}</dd></div>
               <div className="flex items-start justify-between gap-3"><dt className="text-muted-foreground">{labels.totalDifference}</dt><dd id="po-edit-total-difference" className="text-right tabular-nums">{validTotal ? `${previewTotal > sourceOrder.totalAmount ? "+" : ""}${formatCurrency(previewTotal - sourceOrder.totalAmount, locale)}` : "—"}</dd></div>
             </dl>
-            {validTotal ? <PurchaseOrderTaxSummary items={taxItems} taxMode={taxMode} vatRate={vatRateNumber} totalId="po-edit-total" /> : <div className="flex justify-between gap-2 border-t border-border/70 pt-3"><p>{labels.totalAfter}</p><p id="po-edit-total" className="text-xl font-semibold">—</p></div>}
+            {validTotal ? <PurchaseOrderTaxSummary items={taxItems} taxMode={taxMode} vatRate={vatRateNumber} discountType={discountType} discountValue={discountValue} totalId="po-edit-total" /> : <div className="flex justify-between gap-2 border-t border-border/70 pt-3"><p>{labels.totalAfter}</p><p id="po-edit-total" className="text-xl font-semibold">—</p></div>}
             <div className="space-y-2"><Label htmlFor="po-edit-reason">{labels.reason} <span aria-hidden="true" className="text-destructive">*</span></Label><Textarea id="po-edit-reason" rows={3} required maxLength={2000} disabled={disabled} value={reason} aria-invalid={Boolean(fieldErrors["po-edit-reason"])} aria-describedby={fieldErrors["po-edit-reason"] ? "po-edit-reason-error" : "po-edit-reason-hint"} onChange={(event) => { setReason(event.target.value); clearFieldError("po-edit-reason"); }} />{fieldError("po-edit-reason")}<p id="po-edit-reason-hint" className="text-xs leading-5 text-muted-foreground">{labels.reasonRequired}</p></div>
             {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             {hasConflict ? <div role="alert" className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"><p>{labels.conflict}</p><p className="text-xs text-muted-foreground">{labels.reloadHint}</p><Button id="reload-po-edit" type="button" variant="outline" disabled={disabled} onClick={() => window.location.reload()}>{labels.reload}</Button></div> : null}

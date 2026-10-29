@@ -83,3 +83,18 @@ export function taxDocumentFixture(mode: "INCLUSIVE" | "EXCLUSIVE" | "NONE" | "U
     })),
   };
 }
+
+/** Entered prices stay visible; discount/VAT amounts are independently asserted by document tests. */
+export function discountDocumentFixture(): PurchaseOrderDetail {
+  const order = taxDocumentFixture("EXCLUSIVE");
+  return {
+    ...order,
+    discountType: "AMOUNT",
+    discountValue: 90,
+    totalAmount: 866.7,
+    items: order.items.map((item) => ({
+      ...item, quantity: 1, unitPrice: 1000, amount: 1000,
+      discountType: "PERCENT", discountValue: 10, orderDiscountAmount: 90,
+    })),
+  };
+}

@@ -2,7 +2,7 @@ import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
 import { ApprovalAction, Prisma } from "@prisma/client";
-import { calculatePurchaseOrderTax, calculateTaxLine } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, calculateTaxLine } from "@/lib/purchase-order-tax";
 import { toBangkokDateValue } from "@/lib/format";
 import type { PurchaseOrderSnapshot, SessionUser } from "@/lib/types";
 import { canApprovePurchaseRequest, isPurchasing } from "@/server/auth/authorization";
@@ -29,9 +29,11 @@ const maximumAmount = new Prisma.Decimal("9999999999.99");
 
 function snapshot(order: Order): PurchaseOrderSnapshot {
   const contacts = z.array(supplierContactSchema).safeParse(order.supplierContacts);
-  const hasTaxMetadata = order.taxMode !== "UNSPECIFIED" || !order.vatRate.equals(7) || order.items.some((item) => item.taxMode !== null);
+  const hasDiscountMetadata = order.discountType !== "NONE" || !order.discountValue.equals(0) || order.items.some((item) => item.discountType !== "NONE" || !item.discountValue.equals(0) || !item.orderDiscountAmount.equals(0));
+  const hasTaxMetadata = hasDiscountMetadata || order.taxMode !== "UNSPECIFIED" || !order.vatRate.equals(7) || order.items.some((item) => item.taxMode !== null);
   return {
     ...(hasTaxMetadata ? { taxMode: order.taxMode, vatRate: Number(order.vatRate) } : {}),
+    ...(hasDiscountMetadata ? { discountType: order.discountType, discountValue: Number(order.discountValue) } : {}),
     supplierId: order.supplierId, supplierCode: order.supplierCode, supplierName: order.supplierName,
     supplierTaxId: order.supplierTaxId, supplierAddress: order.supplierAddress,
     supplierContact: order.supplierContact, supplierContactPerson: order.supplierContactPerson,
@@ -44,6 +46,7 @@ function snapshot(order: Order): PurchaseOrderSnapshot {
       itemName: item.itemName, description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: Number(item.unitPrice), amount: Number(item.amount),
       ...(hasTaxMetadata ? { taxMode: item.taxMode } : {}),
+      ...(hasDiscountMetadata ? { discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: Number(item.orderDiscountAmount) } : {}),
     })),
   };
 }
@@ -71,6 +74,8 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
   if (hasReceived) {
     invariant(order.supplierId === after.supplierId && order.supplierName === after.supplierName && order.supplierTaxId === after.supplierTaxId,
       "ไม่สามารถเปลี่ยนผู้ขายของ PO ที่มีการรับสินค้าหรือปิดยอดแล้ว", 400);
+    invariant((after.discountType ?? "NONE") === order.discountType && new Prisma.Decimal(after.discountValue ?? 0).equals(order.discountValue),
+      "ไม่สามารถเปลี่ยนส่วนลดทั้งใบของ PO ที่มีการรับสินค้าหรือปิดยอดแล้ว", 400);
   }
   for (const item of after.items) {
     if (!item.id) continue;
@@ -79,6 +84,10 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
     const { receivedQuantity, closedQuantity } = original;
     const settled = receivedQuantity + closedQuantity;
     if (settled > 0) {
+      invariant((item.discountType ?? "NONE") === original.discountType && new Prisma.Decimal(item.discountValue ?? 0).equals(original.discountValue),
+        "ไม่สามารถเปลี่ยนส่วนลดของสินค้าที่รับหรือปิดยอดแล้ว", 400);
+      invariant(new Prisma.Decimal(item.orderDiscountAmount ?? 0).equals(original.orderDiscountAmount),
+        "การแก้ไขทำให้ส่วนลดทั้งใบที่จัดสรรให้สินค้าที่รับหรือปิดยอดแล้วเปลี่ยนแปลง", 400);
       invariant(item.itemName === original.itemName && item.description === original.description && item.unit === original.unit &&
         new Prisma.Decimal(item.unitPrice).equals(original.unitPrice),
       "ไม่สามารถเปลี่ยนรายละเอียด หน่วย หรือราคาของสินค้าที่รับหรือปิดยอดแล้ว", 400);
@@ -133,6 +142,8 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
   const originals = new Map(order.items.map((item) => [item.id, item]));
   const taxMode = input.taxMode ?? order.taxMode;
   const vatRate = input.vatRate ?? Number(order.vatRate);
+  const discountType = input.discountType ?? order.discountType;
+  const discountValue = input.discountType === "NONE" ? 0 : input.discountValue ?? Number(order.discountValue);
   const items = input.items.map((item) => {
     const original = item.id ? originals.get(item.id) : undefined;
     // Preserve an issued legacy line's authoritative stored amount when its
@@ -145,20 +156,27 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
       ...(item.id ? { id: item.id, purchaseRequestItemId: original?.purchaseRequestItemId } : {}),
       itemName: item.itemName, description: item.description ?? null, unit: item.unit ?? null,
       quantity: item.quantity, unitPrice: item.unitPrice, amount: Number(amount), taxMode: override,
+      discountType: item.discountType ?? original?.discountType ?? "NONE",
+      discountValue: item.discountType === "NONE" ? 0 : item.discountValue ?? Number(original?.discountValue ?? 0),
     };
   });
   let tax;
   try {
-    tax = calculatePurchaseOrderTax(items, taxMode, vatRate);
+    tax = calculatePurchaseOrderPricing(items, taxMode, vatRate, { discountType, discountValue });
   } catch {
-    throw new AppError("ยอดเงินมากเกินขอบเขตที่รองรับ", 400);
+    throw new AppError("ส่วนลดหรือยอดเงินไม่ถูกต้อง ส่วนลดต้องไม่เกินยอดสินค้าที่เหลือ", 400);
   }
-  const hasTaxMetadata = taxMode !== "UNSPECIFIED" || vatRate !== 7 || items.some((item) => item.taxMode !== null);
+  const hasDiscountMetadata = discountType !== "NONE" || discountValue !== 0 || items.some((item) => item.discountType !== "NONE" || item.discountValue !== 0);
+  const hasTaxMetadata = hasDiscountMetadata || taxMode !== "UNSPECIFIED" || vatRate !== 7 || items.some((item) => item.taxMode !== null);
   const after: PurchaseOrderSnapshot = {
     ...supplier, deliveryAddress: input.deliveryAddress ?? null, paymentTerms: input.paymentTerms ?? null,
     expectedDeliveryDate: input.expectedDeliveryDate || null, note: input.note ?? null, totalAmount: tax.totalAmount,
     ...(hasTaxMetadata ? { taxMode, vatRate } : {}),
-    items: items.map(({ taxMode: override, ...item }) => ({ ...item, ...(hasTaxMetadata ? { taxMode: override } : {}) })),
+    ...(hasDiscountMetadata ? { discountType, discountValue } : {}),
+    items: items.map(({ taxMode: override, discountType: itemDiscountType, discountValue: itemDiscountValue, ...item }, index) => ({
+      ...item, ...(hasTaxMetadata ? { taxMode: override } : {}),
+      ...(hasDiscountMetadata ? { discountType: itemDiscountType, discountValue: itemDiscountValue, orderDiscountAmount: tax.lines[index]!.orderDiscountAmount } : {}),
+    })),
   };
   invariant(order.purchaseRequest.totalAmount.minus(order.totalAmount).plus(after.totalAmount).lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
   validateItems(order, after);
@@ -221,7 +239,8 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
   await transaction.purchaseOrderItem.updateMany({ where: { purchaseOrderId: order.id }, data: { position: { increment: 500 } } });
   for (const [position, item] of after.items.entries()) {
     const poFields = { itemName: item.itemName, description: item.description,
-      quantity: item.quantity, unit: item.unit, unitPrice: new Prisma.Decimal(item.unitPrice), amount: new Prisma.Decimal(item.amount), taxMode: item.taxMode ?? null };
+      quantity: item.quantity, unit: item.unit, unitPrice: new Prisma.Decimal(item.unitPrice), amount: new Prisma.Decimal(item.amount), taxMode: item.taxMode ?? null,
+      discountType: item.discountType ?? "NONE", discountValue: item.discountValue ?? 0, orderDiscountAmount: item.orderDiscountAmount ?? 0 };
     const sourceFields = { ...poFields, supplierName: after.supplierName, taxMode: item.taxMode ?? after.taxMode ?? "UNSPECIFIED", vatRate: after.vatRate ?? 7 };
     if (item.id) {
       const old = order.items.find((entry) => entry.id === item.id)!;
@@ -241,11 +260,12 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
     supplierContacts: after.supplierContacts, deliveryAddress: after.deliveryAddress,
     paymentTerms: after.paymentTerms, note: after.note, totalAmount: new Prisma.Decimal(after.totalAmount),
     taxMode: after.taxMode ?? "UNSPECIFIED", vatRate: after.vatRate ?? 7,
+    discountType: after.discountType ?? "NONE", discountValue: after.discountValue ?? 0,
     expectedDeliveryDate: after.expectedDeliveryDate ? new Date(`${after.expectedDeliveryDate}T00:00:00.000Z`) : null,
     revision: { increment: 1 },
   } });
-  const sourceItems = await transaction.purchaseRequestItem.findMany({ where: { purchaseRequestId: order.purchaseRequestId }, select: { amount: true, taxMode: true, vatRate: true } });
-  const requestTotal = sourceItems.reduce((sum, item) => sum.plus(calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate)).totalAmount), new Prisma.Decimal(0));
+  const sourceItems = await transaction.purchaseRequestItem.findMany({ where: { purchaseRequestId: order.purchaseRequestId }, select: { amount: true, taxMode: true, vatRate: true, discountType: true, discountValue: true, orderDiscountAmount: true } });
+  const requestTotal = sourceItems.reduce((sum, item) => sum.plus(calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate), { discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: Number(item.orderDiscountAmount) }).totalAmount), new Prisma.Decimal(0));
   invariant(requestTotal.lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
   const orderedItems = await transaction.purchaseOrderItem.findMany({ where: { purchaseOrder: { purchaseRequestId: order.purchaseRequestId } }, select: { quantity: true, receivedQuantity: true, closedQuantity: true } });
   const allSettled = orderedItems.length > 0 && orderedItems.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);

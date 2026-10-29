@@ -44,7 +44,7 @@ import {
   getUnreadNotificationCount,
   listNotificationsForUser,
 } from "@/server/notifications/notification.service";
-import { calculateTaxLine } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing } from "@/lib/purchase-order-tax";
 import { getDb } from "@/server/db";
 import { AppError, invariant } from "@/server/shared/errors";
 import type {
@@ -431,10 +431,15 @@ function toListItem(
   } satisfies PurchaseRequestListItem;
 }
 
-function taxLineDto(item: Pick<Prisma.PurchaseRequestItemGetPayload<object>, "amount" | "taxMode" | "vatRate">) {
-  if (item.taxMode === "UNSPECIFIED" && item.vatRate.equals(7)) return {};
-  const line = calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate));
-  return { taxMode: item.taxMode, vatRate: Number(item.vatRate), netAmount: line.netAmount, taxAmount: line.taxAmount, totalWithTax: line.totalAmount };
+function taxLineDto(item: Pick<Prisma.PurchaseRequestItemGetPayload<object>, "amount" | "taxMode" | "vatRate" | "discountType" | "discountValue" | "orderDiscountAmount">): Pick<PurchaseRequestDetail["items"][number], "taxMode" | "vatRate" | "netAmount" | "taxAmount" | "totalWithTax" | "discountType" | "discountValue" | "orderDiscountAmount" | "itemDiscountAmount" | "discountAmount" | "discountedAmount"> {
+  const hasDiscount = item.discountType !== "NONE" || !item.discountValue.equals(0) || !item.orderDiscountAmount.equals(0);
+  if (item.taxMode === "UNSPECIFIED" && item.vatRate.equals(7) && !hasDiscount) return {};
+  const pricing = calculatePurchaseOrderPricing([{ amount: item.amount.toString(), discountType: item.discountType, discountValue: Number(item.discountValue) }], item.taxMode, Number(item.vatRate), { discountType: item.orderDiscountAmount.equals(0) ? "NONE" : "AMOUNT", discountValue: Number(item.orderDiscountAmount) });
+  const line = pricing.lines[0]!;
+  return {
+    taxMode: item.taxMode, vatRate: Number(item.vatRate), netAmount: line.netAmount, taxAmount: line.taxAmount, totalWithTax: line.totalAmount,
+    ...(hasDiscount ? { discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: line.orderDiscountAmount, itemDiscountAmount: line.itemDiscountAmount, discountAmount: line.discountAmount, discountedAmount: line.discountedAmount } : {}),
+  };
 }
 
 function toDetail(

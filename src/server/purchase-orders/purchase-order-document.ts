@@ -2,7 +2,7 @@ import { toThaiBahtText } from "@/lib/baht-text";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getDictionary, getUnitLabel, type Locale } from "@/lib/i18n";
 import type { PurchaseOrderDocument, PurchaseOrderDocumentElement } from "@/lib/purchase-order-document";
-import { calculatePurchaseOrderTax, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 import type { PurchaseOrderDetail } from "@/lib/types";
 import { loadPurchaseOrderFonts, measurePurchaseOrderText } from "./purchase-order-pdf";
 
@@ -31,11 +31,14 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   const fonts = await loadPurchaseOrderFonts();
   const dictionary = getDictionary(locale);
   const taxLabels = dictionary.poTax;
+  const discountLabels = dictionary.poDiscount;
   const taxMode = order.taxMode ?? "UNSPECIFIED";
   const vatRate = order.vatRate ?? 7;
   const taxSummary = order.items.every((item) => typeof item.amount === "number" && Number.isFinite(item.amount))
-    ? calculatePurchaseOrderTax(order.items, taxMode, vatRate)
+    ? calculatePurchaseOrderPricing(order.items, taxMode, vatRate, order)
     : null;
+  const hasDiscount = (order.discountType ?? "NONE") !== "NONE" || (order.discountValue ?? 0) !== 0
+    || order.items.some((item) => (item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0);
   const effectiveModes = new Set(order.items.map((item) => item.taxMode ?? taxMode));
   const hasVat = effectiveModes.has("INCLUSIVE") || effectiveModes.has("EXCLUSIVE");
   const taxModeLabel = (mode: PurchasePriceTaxMode) => `${taxLabels[mode]}${mode === "INCLUSIVE" || mode === "EXCLUSIVE" ? ` ${formatNumber(vatRate, locale)}%` : ""}`;
@@ -48,6 +51,9 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   const money = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value)
     ? formatCurrency(value, locale).replace(/฿|THB/g, "").trim()
     : "-";
+  const discountDescription = (type: PurchaseDiscountType | undefined, value = 0) => type === "PERCENT"
+    ? `${formatNumber(value, locale)}%`
+    : type === "AMOUNT" ? `${money(value)} ${locale === "th" ? "บาท" : "THB"}` : discountLabels.NONE;
   const date = (value: string | null) => value ? formatDate(value, locale) : "-";
   function text(value: string, x: number, baseline: number, size = 9, bold = false, color = INK, align: "left" | "right" | "center" = "left") {
     elements.push({ type: "text", text: value, x, y: baseline, size, bold, color, align });
@@ -234,10 +240,15 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   ensureSpace(95);
   tableHeader();
   order.items.forEach((item, index) => {
+    const discount = taxSummary?.lines[index];
     const lines: TextLine[] = [
       ...wrap(safe(item.itemName), edges[2] - edges[1] - 16, 9.5, true).map((value) => ({ text: value, size: 9.5, bold: true })),
       ...(item.description ? wrap(item.description, edges[2] - edges[1] - 16, 8.5).map((value) => ({ text: value, size: 8.5, color: MUTED })) : []),
       ...((item.taxMode ?? taxMode) !== "UNSPECIFIED" || effectiveModes.size > 1 ? wrap(`VAT: ${taxModeLabel(item.taxMode ?? taxMode)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
+      ...((item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0
+        ? wrap(`${discountLabels.lineTitle}: ${discountDescription(item.discountType, item.discountValue)} = ${money(discount?.itemDiscountAmount)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
+      ...((order.discountType ?? "NONE") !== "NONE" || (order.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0
+        ? wrap(`${discountLabels.orderDiscountAmount}: ${money(discount?.orderDiscountAmount)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
     ];
     const unit = wrap(item.unit ? getUnitLabel(item.unit, locale) : "-", edges[4] - edges[3] - 12, 8.5);
     const count = Math.max(lines.length, unit.length);
@@ -270,13 +281,36 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   });
   y += 15;
   const noteWidth = 275;
-  const noteLines = wrap(safe(order.note), noteWidth, 8.7);
+  const noteLines = [
+    ...wrap(safe(order.note), noteWidth, 8.7),
+    ...(hasDiscount ? [
+      ...wrap(`${discountLabels.orderTitle}: ${discountDescription(order.discountType, order.discountValue)}`, noteWidth, 8.7),
+      ...wrap(discountLabels.basisHint, noteWidth, 8.2),
+    ] : []),
+  ];
   const totalWords = toThaiBahtText(Number.isFinite(order.totalAmount) ? order.totalAmount.toFixed(2) : null) ?? "-";
   const wordLines = wrap(`จำนวนเงิน (ตัวอักษร)  ${totalWords}`, RIGHT - M - 18, 9.5, true);
   const signatureWidth = (RIGHT - M - 36) / 3;
   const signatureNames = [safe(order.createdBy.name), "-", "-"].map((name) => wrap(`ชื่อ  ${name}`, signatureWidth - 8, 8));
   const extraNameHeight = (Math.max(...signatureNames.map((names) => names.length)) - 1) * 12;
-  const closingHeight = 214 + (wordLines.length - 1) * 15 + extraNameHeight;
+  const summaryRows = hasDiscount ? [
+    [discountLabels.subtotalAmount, money(taxSummary?.subtotalAmount)],
+    [discountLabels.itemDiscountAmount, money(taxSummary?.itemDiscountAmount)],
+    [discountLabels.orderDiscountAmount, money(taxSummary?.orderDiscountAmount)],
+    [discountLabels.discountedSubtotalAmount, money(taxSummary?.discountedSubtotalAmount)],
+    [taxLabels.netAmount, money(taxSummary?.netAmount)],
+    ["ค่าขนส่ง", "-"],
+    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
+    ["ยอดรวมตาม PO", money(order.totalAmount)],
+  ] : [
+    ["รวมค่าสินค้าตาม PO", money(taxSummary?.subtotalAmount)],
+    ["ส่วนลดท้ายเอกสาร", "-"],
+    [taxSummary && !taxSummary.hasUnspecifiedTax ? taxLabels.netAmount : "มูลค่าหลังส่วนลด", money(taxSummary?.netAmount)],
+    ["ค่าขนส่ง", "-"],
+    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
+    ["ยอดรวมตาม PO", money(order.totalAmount)],
+  ];
+  const closingHeight = 214 + (summaryRows.length - 6) * 16 + (wordLines.length - 1) * 15 + extraNameHeight;
   // Long notes flow before the closing group. Totals, baht text and signature
   // spaces always remain together on the final page.
   const separateNotes = noteLines.length * 14 + 25 > 126;
@@ -294,20 +328,14 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     noteLines.forEach((value, i) => text(value, M, y + 22 + i * 14, 8.7));
   }
   const summaryX = M + 298;
-  [
-    ["รวมค่าสินค้าตาม PO", money(taxSummary?.subtotalAmount)],
-    ["ส่วนลดท้ายเอกสาร", "-"],
-    [taxSummary && !taxSummary.hasUnspecifiedTax ? taxLabels.netAmount : "มูลค่าหลังส่วนลด", money(taxSummary?.netAmount)],
-    ["ค่าขนส่ง", "-"],
-    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
-    ["ยอดรวมตาม PO", money(order.totalAmount)],
-  ].forEach(([label, value], index) => {
+  summaryRows.forEach(([label, value], index) => {
     const baseline = summaryY + index * 16 + 4;
-    if (index === 5) rect(summaryX - 8, baseline - 13, RIGHT - summaryX + 16, 25, PALE);
-    text(label, summaryX, baseline + (index === 5 ? 3 : 0), index === 5 ? 10 : 8.5, index === 5, index === 5 ? NAVY : INK);
-    text(value, RIGHT - 2, baseline + (index === 5 ? 3 : 0), index === 5 ? 11 : 9, index === 5, index === 5 ? NAVY : INK, "right");
+    const isTotal = index === summaryRows.length - 1;
+    if (isTotal) rect(summaryX - 8, baseline - 13, RIGHT - summaryX + 16, 25, PALE);
+    text(label, summaryX, baseline + (isTotal ? 3 : 0), isTotal ? 10 : 8.5, isTotal, isTotal ? NAVY : INK);
+    text(value, RIGHT - 2, baseline + (isTotal ? 3 : 0), isTotal ? 11 : 9, isTotal, isTotal ? NAVY : INK, "right");
   });
-  y = summaryY + 104;
+  y = summaryY + summaryRows.length * 16 + 8;
   line(M, y, RIGHT, NAVY);
   wordLines.forEach((value, index) => text(value, M + 9, y + 21 + index * 15, 9.5, true, NAVY));
   y += 34 + (wordLines.length - 1) * 15;

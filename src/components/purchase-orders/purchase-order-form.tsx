@@ -6,6 +6,7 @@ import { useRef, useState, useSyncExternalStore, useTransition, type FormEvent }
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { discountDraftError, PurchaseOrderDiscountFields } from "@/components/purchase-orders/purchase-order-discount-fields";
 import { PurchaseOrderItemTaxSelect, PurchaseOrderTaxFields, PurchaseOrderTaxSummary } from "@/components/purchase-orders/purchase-order-tax-fields";
 import { SupplierCombobox } from "@/components/suppliers/supplier-combobox";
 import { Button } from "@/components/ui/button";
@@ -16,7 +17,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { getUnitLabel, translateMessage } from "@/lib/i18n";
-import { calculatePurchaseOrderTax, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 import type { PurchaseRequestDetail, SupplierDetail } from "@/lib/types";
 
 type OrderHeaders = {
@@ -37,13 +38,15 @@ type EditableItem = {
   unit: string;
   unitPrice: string;
   taxMode: PurchasePriceTaxMode | null;
+  discountType: PurchaseDiscountType;
+  discountValue: string;
 };
 
 const MAX_AMOUNT_CENTS = 999999999999;
 const MAX_QUANTITY = 2147483647;
 const MAX_ITEMS = 500;
 
-function itemValues(item: EditableItem) {
+function itemValues(item: EditableItem, original?: { quantity: number; unitPrice?: number | null; amount: number }) {
   const quantityText = item.quantity.trim();
   const priceText = item.unitPrice.trim();
   const quantity = /^\d+$/.test(quantityText) ? Number(quantityText) : Number.NaN;
@@ -52,8 +55,10 @@ function itemValues(item: EditableItem) {
   const [whole = "", fraction = ""] = priceText.split(".");
   const unitPriceCents = validPriceText ? Number(whole || "0") * 100 + Number(fraction.padEnd(2, "0")) : Number.NaN;
   const validPrice = Number.isSafeInteger(unitPriceCents) && unitPriceCents >= 0 && unitPriceCents <= MAX_AMOUNT_CENTS;
-  const amountCents = validQuantity && validPrice ? quantity * unitPriceCents : 0;
-  const validAmount = Number.isSafeInteger(amountCents) && amountCents <= MAX_AMOUNT_CENTS;
+  const keepsStoredAmount = original && validQuantity && validPrice
+    && quantity === original.quantity && unitPriceCents === Math.round((original.unitPrice ?? 0) * 100);
+  const amountCents = keepsStoredAmount ? Math.round(original.amount * 100) : validQuantity && validPrice ? quantity * unitPriceCents : 0;
+  const validAmount = validQuantity && validPrice && Number.isSafeInteger(amountCents) && amountCents >= 0 && amountCents <= MAX_AMOUNT_CENTS;
   return { quantity, validQuantity, validPrice, unitPriceCents, amountCents, validAmount };
 }
 
@@ -68,6 +73,7 @@ function normalizedItem(item: EditableItem) {
     unit: item.unit.trim() || undefined,
     unitPrice: values.unitPriceCents / 100,
     taxMode: item.taxMode,
+    ...(item.discountType !== "NONE" ? { discountType: item.discountType, discountValue: Number(item.discountValue) } : {}),
   };
 }
 
@@ -91,6 +97,8 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
     unit: item.unit ?? "",
     unitPrice: String(item.unitPrice ?? 0),
     taxMode: item.taxMode && item.taxMode !== "UNSPECIFIED" ? item.taxMode : null,
+    discountType: item.discountType ?? "NONE",
+    discountValue: String(item.discountValue ?? 0),
   })));
   const [assignments, setAssignments] = useState<Record<string, { supplierId: string; name: string }>>(() =>
     Object.fromEntries(request.items.map((item) => [item.id, { supplierId: "", name: item.supplierName ?? "" }])),
@@ -99,6 +107,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
   const supplierNames = Object.fromEntries(Object.entries(assignments).map(([id, assignment]) => [id, assignment.name]));
   const [headers, setHeaders] = useState<Record<string, OrderHeaders>>({});
   const [taxSettings, setTaxSettings] = useState<Record<string, { taxMode: PurchasePriceTaxMode; vatRate: string }>>({});
+  const [discountSettings, setDiscountSettings] = useState<Record<string, { discountType: PurchaseDiscountType; discountValue: string }>>({});
   const [isPending, setIsPending] = useState(false);
   const [isRefreshing, startRefresh] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -119,15 +128,16 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
       || normalized.quantity !== source.quantity
       || (normalized.unit ?? "") !== (source.unit ?? "").trim()
       || normalized.unitPrice !== (source.unitPrice ?? 0)
-      || normalized.taxMode !== (source.taxMode && source.taxMode !== "UNSPECIFIED" ? source.taxMode : null);
+      || normalized.taxMode !== (source.taxMode && source.taxMode !== "UNSPECIFIED" ? source.taxMode : null)
+      || item.discountType !== (source.discountType ?? "NONE")
+      || (item.discountType === "NONE" ? 0 : Number(item.discountValue)) !== (source.discountValue ?? 0);
   });
+  const draftValues = new Map(items.map((item) => [item.clientId, itemValues(item, sourceItems.get(item.sourceItemId ?? item.clientId))] as const));
   const amounts = new Map(items.map((item) => {
-    const values = itemValues(item);
-    const amount = itemsChanged ? values.amountCents / 100 : sourceItems.get(item.clientId)?.amount ?? 0;
-    return [item.clientId, values.validAmount ? amount : 0] as const;
+    const values = draftValues.get(item.clientId)!;
+    return [item.clientId, values.validAmount ? values.amountCents / 100 : 0] as const;
   }));
-  const totalCents = items.reduce((total, item) => total + itemValues(item).amountCents, 0);
-  const rawTotalCents = items.reduce((total, item) => total + Math.round((amounts.get(item.clientId) ?? 0) * 100), 0);
+  const totalCents = items.reduce((total, item) => total + draftValues.get(item.clientId)!.amountCents, 0);
   const groupedItems = new Map<string, { supplierName: string; supplier?: SupplierDetail; items: EditableItem[] }>();
   for (const item of items) {
     const supplier = supplierById.get(supplierIds[item.clientId] ?? "");
@@ -144,12 +154,28 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
     const settings = taxSettings[key] ?? { taxMode: "UNSPECIFIED" as const, vatRate: "7" };
     const rate = /^(?:\d+(?:\.\d{0,2})?|\.\d{1,2})$/.test(settings.vatRate.trim()) ? Number(settings.vatRate) : Number.NaN;
     try {
-      return [key, calculatePurchaseOrderTax(group.items.map((item) => ({ amount: amounts.get(item.clientId) ?? 0, taxMode: item.taxMode })), settings.taxMode, rate)] as const;
+      return [key, calculatePurchaseOrderPricing(group.items.map((item) => ({ amount: amounts.get(item.clientId) ?? 0, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountValue })), settings.taxMode, rate, discountSettings[key])] as const;
     } catch { return [key, null] as const; }
   }));
-  const validTaxTotals = [...groupTotals.values()].every(Boolean);
-  const totalAmount = (rawTotalCents + groups.reduce((difference, [key, group]) =>
-    difference + Math.round((groupTotals.get(key)?.totalAmount ?? 0) * 100) - group.items.reduce((sum, item) => sum + Math.round((amounts.get(item.clientId) ?? 0) * 100), 0), 0)) / 100;
+  const assignedItemIds = new Set(groups.flatMap(([, group]) => group.items.map((item) => item.clientId)));
+  const unassignedTotals = items.filter((item) => !assignedItemIds.has(item.clientId)).map((item) => {
+    try {
+      return calculatePurchaseOrderPricing([{ amount: amounts.get(item.clientId) ?? 0, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountValue }], "UNSPECIFIED", 7);
+    } catch { return null; }
+  });
+  const pricingTotals = [...groupTotals.values(), ...unassignedTotals];
+  const validTaxTotals = pricingTotals.every(Boolean);
+  const totalAmount = pricingTotals.reduce((total, pricing) => total + Math.round((pricing?.totalAmount ?? 0) * 100), 0) / 100;
+
+  function groupDiscountError(key: string, group: { items: EditableItem[] }) {
+    const discount = discountSettings[key] ?? { discountType: "NONE", discountValue: "0" };
+    let eligibleCents: number | undefined;
+    try {
+      const remaining = calculatePurchaseOrderPricing(group.items.map((item) => ({ amount: amounts.get(item.clientId) ?? 0, taxMode: "NONE" as const, discountType: item.discountType, discountValue: item.discountValue })), "NONE", 0);
+      eligibleCents = Math.round(remaining.discountedSubtotalAmount * 100);
+    } catch { /* Item validation reports an invalid line before its order discount. */ }
+    return discountDraftError(discount.discountType as PurchaseDiscountType, discount.discountValue, eligibleCents);
+  }
 
   function updateItem(clientId: string, field: keyof Omit<EditableItem, "clientId" | "sourceItemId">, value: string) {
     setItems((current) => current.map((item) => item.clientId === clientId ? { ...item, [field]: value } : item));
@@ -160,7 +186,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
     if (pendingRef.current || items.length >= MAX_ITEMS) return;
     const clientId = `new-${crypto.randomUUID()}`;
     setItems((current) => [...current, {
-      clientId, itemName: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxMode: null,
+      clientId, itemName: "", description: "", quantity: "1", unit: "", unitPrice: "0", taxMode: null, discountType: "NONE", discountValue: "0",
     }]);
     setAssignments((current) => ({ ...current, [clientId]: { supplierId: "", name: "" } }));
     setError(null);
@@ -200,7 +226,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
         showItemError(labels.itemNameRequired, `po-item-name-${item.clientId}`);
         return;
       }
-      const values = itemValues(item);
+      const values = draftValues.get(item.clientId)!;
       if (!values.validQuantity) {
         showItemError(labels.quantityInvalid, `po-item-quantity-${item.clientId}`);
         return;
@@ -211,6 +237,11 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
       }
       if (!values.validAmount) {
         showItemError(labels.amountTooLarge, `po-item-unit-price-${item.clientId}`);
+        return;
+      }
+      const invalidDiscount = discountDraftError(item.discountType, item.discountValue, values.amountCents);
+      if (invalidDiscount) {
+        showItemError(dictionary.poDiscount[invalidDiscount], `po-item-discount-value-${item.clientId}`);
         return;
       }
     }
@@ -228,6 +259,13 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
       setError(labels.supplierRequired);
       supplierInputs.current[unassigned.clientId]?.focus();
       return;
+    }
+    for (const [index, [key, group]] of groups.entries()) {
+      const invalidDiscount = groupDiscountError(key, group);
+      if (invalidDiscount) {
+        showItemError(dictionary.poDiscount[invalidDiscount], `po-group-${index}-discount-value`);
+        return;
+      }
     }
     const invalidTaxGroup = groups.find(([key]) => !groupTotals.get(key));
     if (invalidTaxGroup) {
@@ -251,6 +289,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
             itemIds: group.items.map((item) => item.clientId),
             taxMode: taxSettings[key]?.taxMode ?? "UNSPECIFIED",
             vatRate: Number(taxSettings[key]?.vatRate ?? "7"),
+            ...(discountSettings[key]?.discountType && discountSettings[key]?.discountType !== "NONE" ? { discountType: discountSettings[key]!.discountType, discountValue: Number(discountSettings[key]!.discountValue) } : {}),
             ...Object.fromEntries(Object.entries(headers[key] ?? emptyHeaders)
               .filter(([field, value]) => value.trim() && (!group.supplier || ["deliveryAddress", "expectedDeliveryDate", "note"].includes(field)))
               .map(([field, value]) => [field, value.trim()])),
@@ -301,7 +340,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
             <p className="text-muted-foreground">{labels.sameSupplierExample}</p>
           </div>
           {items.map((item, index) => {
-            const values = itemValues(item);
+            const values = draftValues.get(item.clientId)!;
             const invalidName = showItemErrors && !item.itemName.trim();
             const invalidQuantity = showItemErrors && !values.validQuantity;
             const invalidPrice = showItemErrors && !values.validPrice;
@@ -419,6 +458,10 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
                         setError(null);
                       }} />
                     </div>
+                    <PurchaseOrderDiscountFields typeId={`po-item-discount-type-${item.clientId}`} valueId={`po-item-discount-value-${item.clientId}`} title={dictionary.poDiscount.lineTitle} discountType={item.discountType} discountValue={item.discountValue} disabled={isPending || !mounted}
+                      error={showItemErrors && discountDraftError(item.discountType, item.discountValue, values.amountCents) ? dictionary.poDiscount[discountDraftError(item.discountType, item.discountValue, values.amountCents)!] : undefined}
+                      onTypeChange={(type) => { setItems((current) => current.map((entry) => entry.clientId === item.clientId ? { ...entry, discountType: type, discountValue: type === "NONE" ? "0" : entry.discountValue } : entry)); setError(null); }}
+                      onValueChange={(value) => { setItems((current) => current.map((entry) => entry.clientId === item.clientId ? { ...entry, discountValue: value } : entry)); setError(null); }} />
                   </div>
                 </div>
               </div>
@@ -452,6 +495,14 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
                 onTaxModeChange={(mode) => setTaxSettings((current) => ({ ...current, [key]: { taxMode: mode, vatRate: current[key]?.vatRate ?? "7" } }))}
                 onVatRateChange={(rate) => setTaxSettings((current) => ({ ...current, [key]: { taxMode: current[key]?.taxMode ?? "UNSPECIFIED", vatRate: rate } }))}
                 onApplyAll={() => setItems((current) => current.map((item) => group.items.some((entry) => entry.clientId === item.clientId) ? { ...item, taxMode: null } : item))} />
+              <div className="space-y-2 rounded-xl border border-border/70 p-4">
+                <PurchaseOrderDiscountFields typeId={`po-group-${index}-discount-type`} valueId={`po-group-${index}-discount-value`} title={dictionary.poDiscount.orderTitle} discountType={discountSettings[key]?.discountType ?? "NONE"} discountValue={discountSettings[key]?.discountValue ?? "0"} disabled={isPending || !mounted}
+                  error={showItemErrors && groupDiscountError(key, group) ? dictionary.poDiscount[groupDiscountError(key, group)!] : undefined}
+                  onTypeChange={(type) => { setDiscountSettings((current) => ({ ...current, [key]: { discountType: type, discountValue: type === "NONE" ? "0" : current[key]?.discountValue ?? "0" } })); setError(null); }}
+                  onValueChange={(value) => { setDiscountSettings((current) => ({ ...current, [key]: { discountType: current[key]?.discountType ?? "NONE", discountValue: value } })); setError(null); }} />
+                <p className="text-xs leading-5 text-muted-foreground">{dictionary.poDiscount.basisHint}</p>
+                <p className="text-xs leading-5 text-muted-foreground">{dictionary.poDiscount.orderHint}</p>
+              </div>
               {group.supplier ? <div id={`po-supplier-contacts-${index}`} className="space-y-1 rounded-xl border border-border/70 p-3 text-sm">
                 <p className="break-words [overflow-wrap:anywhere] font-medium">{group.supplier.code} · {group.supplier.name}</p>
                 {group.supplier.taxId ? <p>{dictionary.suppliers.taxId}: {group.supplier.taxId}</p> : null}
@@ -492,7 +543,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
                 </TableRow></TableHeader>
                 <TableBody>
                   {group.items.map((item) => {
-                    const values = itemValues(item);
+                    const values = draftValues.get(item.clientId)!;
                     return <TableRow key={item.clientId}>
                       <TableCell className="max-w-64 whitespace-normal break-words [overflow-wrap:anywhere]">{item.itemName}</TableCell>
                       <TableCell className="text-right">{formatNumber(values.validQuantity ? values.quantity : 0, locale)} {item.unit ? getUnitLabel(item.unit, locale) : ""}</TableCell>
@@ -502,7 +553,7 @@ export function PurchaseOrderForm({ request, suppliers = [] }: { request: Purcha
                   })}
                 </TableBody>
               </Table>
-              <PurchaseOrderTaxSummary items={group.items.map((item) => ({ amount: amounts.get(item.clientId) ?? 0, taxMode: item.taxMode }))} taxMode={taxSettings[key]?.taxMode ?? "UNSPECIFIED"} vatRate={Number(taxSettings[key]?.vatRate ?? "7")} totalId={`po-group-${index}-total`} />
+              <PurchaseOrderTaxSummary items={group.items.map((item) => ({ amount: amounts.get(item.clientId) ?? 0, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountValue }))} taxMode={taxSettings[key]?.taxMode ?? "UNSPECIFIED"} vatRate={Number(taxSettings[key]?.vatRate ?? "7")} discountType={discountSettings[key]?.discountType ?? "NONE"} discountValue={discountSettings[key]?.discountValue ?? "0"} totalId={`po-group-${index}-total`} />
             </CardContent>
           </Card>
         );

@@ -1,4 +1,4 @@
-import type { PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import type { PurchaseDiscountType, PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 
 export const roles = ["EMPLOYEE", "APPROVER", "PURCHASING", "ADMIN"] as const;
 export type Role = (typeof roles)[number];
@@ -167,6 +167,12 @@ export type PurchaseRequestReceivingItem = PurchaseRequestItemInput & {
   netAmount?: number | null;
   taxAmount?: number | null;
   totalWithTax?: number;
+  discountType?: PurchaseDiscountType;
+  discountValue?: number;
+  itemDiscountAmount?: number;
+  orderDiscountAmount?: number;
+  discountAmount?: number;
+  discountedAmount?: number;
 };
 
 export type PurchaseRequestDetail = {
@@ -239,6 +245,12 @@ export type CompanyProfile = CompanyIdentity & {
 };
 
 export type PurchaseOrderDetail = PurchaseOrderSummary & {
+  discountType?: PurchaseDiscountType;
+  discountValue?: number;
+  itemDiscountAmount?: number;
+  orderDiscountAmount?: number;
+  discountAmount?: number;
+  discountedSubtotalAmount?: number;
   taxMode?: PurchasePriceTaxMode;
   vatRate?: number;
   subtotalAmount?: number;
@@ -290,6 +302,12 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
     netAmount?: number | null;
     taxAmount?: number | null;
     totalWithTax?: number;
+    discountType?: PurchaseDiscountType;
+    discountValue?: number;
+    itemDiscountAmount?: number;
+    orderDiscountAmount?: number;
+    discountAmount?: number;
+    discountedAmount?: number;
   }>;
 };
 
@@ -297,6 +315,8 @@ export const purchaseOrderChangeStatuses = ["PENDING", "APPROVED", "REJECTED"] a
 export type PurchaseOrderChangeStatus = (typeof purchaseOrderChangeStatuses)[number];
 
 export type PurchaseOrderSnapshot = {
+  discountType?: PurchaseDiscountType;
+  discountValue?: number;
   taxMode?: PurchasePriceTaxMode;
   vatRate?: number;
   supplierId: string | null;
@@ -316,6 +336,9 @@ export type PurchaseOrderSnapshot = {
     id?: string;
     purchaseRequestItemId?: string | null;
     taxMode?: PurchasePriceTaxMode | null;
+    discountType?: PurchaseDiscountType;
+    discountValue?: number;
+    orderDiscountAmount?: number;
     itemName: string;
     description: string | null;
     quantity: number;

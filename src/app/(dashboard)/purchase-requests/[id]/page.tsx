@@ -426,7 +426,16 @@ export default async function PurchaseRequestDetailPage({
                       <dd className="font-semibold text-primary tabular-nums">{formatCurrency(item.amount, locale)}</dd>
                     </div>
                   </dl>
-                  {item.taxMode && item.taxMode !== "UNSPECIFIED" ? (
+                  {(item.discountAmount ?? 0) > 0 ? (
+                    <dl className="grid grid-cols-2 gap-4 border-t border-border/70 p-4 sm:grid-cols-3 sm:px-5">
+                      {[
+                        { label: dictionary.poDiscount.itemDiscountAmount, value: item.itemDiscountAmount },
+                        { label: dictionary.poDiscount.orderDiscountAmount, value: item.orderDiscountAmount },
+                        { label: dictionary.poDiscount.discountedSubtotalAmount, value: item.discountedAmount },
+                      ].map((value) => <div key={value.label} className="min-w-0 space-y-1"><dt className="text-xs text-muted-foreground">{value.label}</dt><dd className="font-medium tabular-nums">{value.value == null ? "—" : formatCurrency(value.value, locale)}</dd></div>)}
+                    </dl>
+                  ) : null}
+                  {(item.taxMode && item.taxMode !== "UNSPECIFIED") || (item.discountAmount ?? 0) > 0 ? (
                     <dl className="grid grid-cols-2 gap-4 border-t border-border/70 bg-primary/5 p-4 sm:grid-cols-3 sm:px-5">
                       {[
                         { label: dictionary.poTax.netAmount, value: item.netAmount },

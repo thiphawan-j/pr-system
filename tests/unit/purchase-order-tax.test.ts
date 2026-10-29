@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { calculatePurchaseOrderTax, calculateTaxLine } from "../../src/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, calculatePurchaseOrderTax, calculateTaxLine } from "../../src/lib/purchase-order-tax";
 
 test("exclusive and inclusive prices produce the same payable total without adding VAT twice", () => {
   assert.deepEqual(calculateTaxLine("100.00", "EXCLUSIVE", 7), { netAmount: 100, taxAmount: 7, totalAmount: 107 });
@@ -50,4 +50,82 @@ test("invalid precision, rates, and payable overflows fail instead of rounding s
   }
   assert.throws(() => calculateTaxLine("9999999999.99", "EXCLUSIVE", 7));
   assert.throws(() => calculatePurchaseOrderTax([{ amount: "9999999999.99" }, { amount: "0.01" }], "NONE"));
+});
+
+test("item discounts reduce the entered price before adding or splitting VAT", () => {
+  assert.deepEqual(calculateTaxLine(100, "EXCLUSIVE", 7, { discountType: "PERCENT", discountValue: 10 }), { netAmount: 90, taxAmount: 6.3, totalAmount: 96.3 });
+  assert.deepEqual(calculateTaxLine(107, "INCLUSIVE", 7, { discountType: "AMOUNT", discountValue: 10.7 }), { netAmount: 90, taxAmount: 6.3, totalAmount: 96.3 });
+  assert.deepEqual(calculateTaxLine(100, "UNSPECIFIED", 7, { discountType: "AMOUNT", discountValue: 10 }), { netAmount: null, taxAmount: null, totalAmount: 90 });
+});
+
+test("item discounts apply before the PO discount and stored PR allocations reproduce each payable line", () => {
+  const result = calculatePurchaseOrderPricing([
+    { amount: 100, discountType: "PERCENT", discountValue: 10 }, { amount: 100 },
+  ], "EXCLUSIVE", 7, { discountType: "PERCENT", discountValue: 10 });
+  assert.equal(result.subtotalAmount, 200);
+  assert.equal(result.itemDiscountAmount, 10);
+  assert.equal(result.orderDiscountAmount, 19);
+  assert.equal(result.discountAmount, 29);
+  assert.equal(result.discountedSubtotalAmount, 171);
+  assert.equal(result.netAmount, 171);
+  assert.equal(result.taxAmount, 11.97);
+  assert.equal(result.totalAmount, 182.97);
+  assert.deepEqual(result.lines.map((line) => line.orderDiscountAmount), [9, 10]);
+  assert.deepEqual(calculateTaxLine(100, "EXCLUSIVE", 7, { discountType: "PERCENT", discountValue: 10, orderDiscountAmount: 9 }), {
+    netAmount: result.lines[0]!.netAmount, taxAmount: result.lines[0]!.taxAmount, totalAmount: result.lines[0]!.totalAmount,
+  });
+});
+
+test("a shared percentage or amount preserves mixed inclusive and exclusive price bases", () => {
+  for (const discount of [{ discountType: "PERCENT" as const, discountValue: 10 }, { discountType: "AMOUNT" as const, discountValue: 20.7 }]) {
+    const result = calculatePurchaseOrderPricing([{ amount: 100 }, { amount: 107, taxMode: "INCLUSIVE" }], "EXCLUSIVE", 7, discount);
+    assert.deepEqual(result.lines.map((line) => line.orderDiscountAmount), [10, 10.7]);
+    assert.equal(result.netAmount, 180);
+    assert.equal(result.taxAmount, 12.6);
+    assert.equal(result.totalAmount, 192.6);
+  }
+});
+
+test("PO discount cents use stable largest remainders and never allocate to zero-value rows", () => {
+  const equal = calculatePurchaseOrderPricing([{ amount: 1 }, { amount: 1 }, { amount: 1 }], "NONE", 7, { discountType: "AMOUNT", discountValue: 0.01 });
+  assert.deepEqual(equal.lines.map((line) => line.orderDiscountAmount), [0.01, 0, 0]);
+  assert.equal(equal.totalAmount, 2.99);
+  const varied = calculatePurchaseOrderPricing([{ amount: 0 }, { amount: 1 }, { amount: 2 }], "NONE", 7, { discountType: "AMOUNT", discountValue: 0.02 });
+  assert.deepEqual(varied.lines.map((line) => line.orderDiscountAmount), [0, 0.01, 0.01]);
+  assert.equal(varied.totalAmount, 2.98);
+});
+
+test("fully discounted rows contribute zero weight and full discounts produce actual zero tax", () => {
+  const result = calculatePurchaseOrderPricing([{ amount: 100, discountType: "PERCENT", discountValue: 100 }, { amount: 100 }], "EXCLUSIVE", 7, { discountType: "AMOUNT", discountValue: 100 });
+  assert.deepEqual(result.lines.map((line) => line.orderDiscountAmount), [0, 100]);
+  assert.equal(result.discountAmount, 200);
+  assert.equal(result.netAmount, 0);
+  assert.equal(result.taxAmount, 0);
+  assert.equal(result.totalAmount, 0);
+  assert.equal(calculatePurchaseOrderPricing([{ amount: 0 }], "NONE", 7, { discountType: "PERCENT", discountValue: 100 }).totalAmount, 0);
+});
+
+test("unknown VAT remains unknown after discounts and legacy no-discount result shapes stay unchanged", () => {
+  const result = calculatePurchaseOrderTax([{ amount: 100, discountType: "PERCENT", discountValue: 10 }]);
+  assert.equal(result.netAmount, null);
+  assert.equal(result.taxAmount, null);
+  assert.equal(result.totalAmount, 90);
+  assert.equal(result.discountAmount, 10);
+  assert.equal(result.discountedSubtotalAmount, 90);
+  assert.deepEqual(calculatePurchaseOrderTax([{ amount: 100, discountType: "NONE", discountValue: 0 }], "NONE", 7, { discountType: "NONE", discountValue: 0 }), {
+    subtotalAmount: 100, netAmount: 100, taxAmount: 0, totalAmount: 100, hasUnspecifiedTax: false,
+  });
+});
+
+test("invalid discounts reject excessive, negative, fractional-precision and disabled nonzero amounts", () => {
+  for (const discount of [
+    { discountType: "AMOUNT" as const, discountValue: 100.01 },
+    { discountType: "PERCENT" as const, discountValue: 100.01 },
+    { discountType: "AMOUNT" as const, discountValue: -1 },
+    { discountType: "PERCENT" as const, discountValue: 1.001 },
+    { discountType: "NONE" as const, discountValue: 1 },
+  ]) assert.throws(() => calculatePurchaseOrderPricing([{ amount: 100 }], "NONE", 7, discount));
+  assert.throws(() => calculatePurchaseOrderPricing([{ amount: 100, discountType: "AMOUNT", discountValue: 20 }], "NONE", 7, { discountType: "AMOUNT", discountValue: 81 }));
+  assert.throws(() => calculateTaxLine(100, "NONE", 7, { discountType: "PERCENT", discountValue: 50, orderDiscountAmount: 50.01 }));
+  assert.throws(() => calculatePurchaseOrderPricing([{ amount: 0 }], "NONE", 7, { discountType: "AMOUNT", discountValue: 0.01 }));
 });

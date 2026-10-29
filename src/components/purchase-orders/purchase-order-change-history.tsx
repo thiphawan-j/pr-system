@@ -8,16 +8,21 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from "@/lib/format";
 import { getUnitLabel } from "@/lib/i18n";
-import { calculatePurchaseOrderTax, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
 import type { PurchaseOrderChange, PurchaseOrderSnapshot } from "@/lib/types";
 
 function Snapshot({ value, title }: { value: PurchaseOrderSnapshot; title: string }) {
   const { dictionary, locale } = useI18n();
   const labels = dictionary.purchaseOrders;
   const taxLabels = dictionary.poTax;
+  const discountLabels = dictionary.poDiscount;
   const taxMode = value.taxMode ?? "UNSPECIFIED";
   const vatRate = value.vatRate ?? 7;
-  const taxSummary = calculatePurchaseOrderTax(value.items, taxMode, vatRate);
+  const taxSummary = calculatePurchaseOrderPricing(value.items, taxMode, vatRate, value);
+  const hasDiscount = (value.discountType ?? "NONE") !== "NONE" || (value.discountValue ?? 0) !== 0
+    || value.items.some((item) => (item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0);
+  const discountDescription = (type: PurchaseDiscountType | undefined, amount = 0) => type === "PERCENT"
+    ? `${formatNumber(amount, locale)}%` : type === "AMOUNT" ? formatCurrency(amount, locale) : discountLabels.NONE;
   const modeLabel = (mode: PurchasePriceTaxMode) => `${taxLabels[mode]}${mode === "INCLUSIVE" || mode === "EXCLUSIVE" ? ` ${formatNumber(vatRate, locale)}%` : ""}`;
   const fields: Array<[string, ReactNode]> = [
     [labels.supplierName, value.supplierName],
@@ -33,6 +38,7 @@ function Snapshot({ value, title }: { value: PurchaseOrderSnapshot; title: strin
     [labels.note, value.note],
     [taxLabels.headerMode, modeLabel(taxMode)],
     ...(value.vatRate !== undefined ? [[taxLabels.vatRate, `${formatNumber(value.vatRate, locale)}%`] satisfies [string, ReactNode]] : []),
+    ...(hasDiscount ? [[discountLabels.orderTitle, discountDescription(value.discountType, value.discountValue)] satisfies [string, ReactNode]] : []),
   ];
   return (
     <section className="min-w-0 space-y-4 rounded-xl border border-border/70 p-4">
@@ -43,13 +49,22 @@ function Snapshot({ value, title }: { value: PurchaseOrderSnapshot; title: strin
       <Table>
         <TableHeader><TableRow><TableHead>{dictionary.purchaseRequests.itemList}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.quantityUnit}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.unitPrice}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.lineTotal}</TableHead></TableRow></TableHeader>
         <TableBody>{value.items.map((item, index) => <TableRow key={item.id ?? index}>
-          <TableCell className="min-w-40 whitespace-normal align-top"><p className="font-medium break-words">{item.itemName}</p>{item.description ? <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{item.description}</p> : null}<p className="mt-1 text-xs text-muted-foreground">{item.taxMode == null ? `${taxLabels.inherit}: ` : ""}{modeLabel(item.taxMode ?? taxMode)}</p></TableCell>
+          <TableCell className="min-w-40 whitespace-normal align-top"><p className="font-medium break-words">{item.itemName}</p>{item.description ? <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{item.description}</p> : null}<p className="mt-1 text-xs text-muted-foreground">{item.taxMode == null ? `${taxLabels.inherit}: ` : ""}{modeLabel(item.taxMode ?? taxMode)}</p>
+            {(item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0 ? <p className="mt-1 text-xs text-muted-foreground">{discountLabels.lineTitle}: {discountDescription(item.discountType, item.discountValue)} = {formatCurrency(taxSummary.lines[index]!.itemDiscountAmount, locale)}</p> : null}
+            {(value.discountType ?? "NONE") !== "NONE" || (value.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0 ? <p className="mt-1 text-xs text-muted-foreground">{discountLabels.orderDiscountAmount}: {formatCurrency(taxSummary.lines[index]!.orderDiscountAmount, locale)}</p> : null}
+          </TableCell>
           <TableCell className="text-right align-top">{formatNumber(item.quantity, locale)} {item.unit ? getUnitLabel(item.unit, locale) : ""}</TableCell>
           <TableCell className="text-right align-top">{formatCurrency(item.unitPrice, locale)}</TableCell>
           <TableCell className="text-right align-top">{formatCurrency(item.amount, locale)}</TableCell>
         </TableRow>)}</TableBody>
       </Table>
       <dl className="ml-auto grid max-w-sm grid-cols-[1fr_auto] gap-x-4 gap-y-2 text-sm">
+        {hasDiscount ? <>
+          <dt>{discountLabels.subtotalAmount}</dt><dd className="text-right">{formatCurrency(taxSummary.subtotalAmount, locale)}</dd>
+          <dt>{discountLabels.itemDiscountAmount}</dt><dd className="text-right">{formatCurrency(taxSummary.itemDiscountAmount, locale)}</dd>
+          <dt>{discountLabels.orderDiscountAmount}</dt><dd className="text-right">{formatCurrency(taxSummary.orderDiscountAmount, locale)}</dd>
+          <dt>{discountLabels.discountedSubtotalAmount}</dt><dd className="text-right">{formatCurrency(taxSummary.discountedSubtotalAmount, locale)}</dd>
+        </> : null}
         <dt>{taxLabels.netAmount}</dt><dd className="text-right">{taxSummary.netAmount === null ? "—" : formatCurrency(taxSummary.netAmount, locale)}</dd>
         <dt>{taxLabels.taxAmount}</dt><dd className="text-right">{taxSummary.taxAmount === null ? "—" : formatCurrency(taxSummary.taxAmount, locale)}</dd>
         <dt className="font-semibold">{dictionary.common.totalAmount}</dt><dd className="text-right font-semibold">{formatCurrency(value.totalAmount, locale)}</dd>

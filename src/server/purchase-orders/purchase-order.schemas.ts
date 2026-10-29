@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { PURCHASE_PRICE_TAX_MODES } from "@/lib/purchase-order-tax";
+import { PURCHASE_DISCOUNT_TYPES, PURCHASE_PRICE_TAX_MODES } from "@/lib/purchase-order-tax";
 import { supplierContactSchema } from "@/server/suppliers/supplier.schemas";
 
 const optionalText = (max: number) => z.string().trim().max(max).optional()
@@ -7,8 +7,13 @@ const optionalText = (max: number) => z.string().trim().max(max).optional()
 
 const taxModeSchema = z.enum(PURCHASE_PRICE_TAX_MODES);
 const vatRateSchema = z.number().finite().min(0).max(100).multipleOf(0.01, "อัตราภาษีต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง");
+const discountFields = {
+  discountType: z.enum(PURCHASE_DISCOUNT_TYPES).optional(),
+  discountValue: z.number().finite().nonnegative("ส่วนลดต้องไม่ติดลบ").max(9999999999.99).multipleOf(0.01, "ส่วนลดต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง").optional(),
+};
 
 const orderFields = {
+  ...discountFields,
   taxMode: taxModeSchema.optional(),
   vatRate: vatRateSchema.optional(),
   deliveryAddress: optionalText(2000),
@@ -31,6 +36,7 @@ const manualOrderSchema = z.object({
 }).strict();
 
 const preparationItemSchema = z.object({
+  ...discountFields,
   clientId: z.string().min(1).max(100),
   sourceItemId: z.string().min(1).max(100).optional(),
   taxMode: taxModeSchema.nullable().optional(),
@@ -48,6 +54,11 @@ export const purchaseOrderConversionSchema = z.object({
   items: z.array(preparationItemSchema).min(1, "ต้องมีอย่างน้อย 1 รายการ").max(500).optional(),
   expectedUpdatedAt: z.iso.datetime({ offset: true, error: "ข้อมูล PR มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่" }).optional(),
 }).strict().superRefine(({ orders, items, expectedUpdatedAt }, context) => {
+  for (const [index, item] of [...orders, ...(items ?? [])].entries()) {
+    if (item.discountType === "PERCENT" && (item.discountValue ?? 0) > 100 || item.discountType === "NONE" && (item.discountValue ?? 0) !== 0) {
+      context.addIssue({ code: "custom", path: [index < orders.length ? "orders" : "items", index < orders.length ? index : index - orders.length, "discountValue"], message: "ส่วนลดต้องถูกต้อง และเปอร์เซ็นต์ต้องไม่เกิน 100" });
+    }
+  }
   const suppliers = orders.map((order) => "supplierId" in order
     ? `registered:${order.supplierId}`
     : `manual:${order.supplierName.normalize("NFKC").toLowerCase()}`);
@@ -87,6 +98,7 @@ const supplierOverrides = {
 };
 
 export const purchaseOrderChangeSchema = z.object({
+  ...discountFields,
   expectedVersion: z.number().int().nonnegative().max(2147483646),
   taxMode: taxModeSchema.optional(),
   vatRate: vatRateSchema.optional(),
@@ -100,6 +112,7 @@ export const purchaseOrderChangeSchema = z.object({
   expectedDeliveryDate: z.union([z.iso.date("กรุณาระบุวันที่ส่งมอบที่ถูกต้อง"), z.literal("")]).optional(),
   note: optionalText(2000),
   items: z.array(z.object({
+    ...discountFields,
     id: z.string().min(1).max(100).optional(),
     taxMode: taxModeSchema.nullable().optional(),
     itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า").max(200),
@@ -108,7 +121,13 @@ export const purchaseOrderChangeSchema = z.object({
     unit: optionalText(50),
     unitPrice: z.number().finite().nonnegative().max(9999999999.99).multipleOf(0.01, "ราคาต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง"),
   }).strict()).min(1, "PO ต้องมีสินค้าอย่างน้อยหนึ่งรายการ").max(500),
-}).strict();
+}).strict().superRefine((input, context) => {
+  for (const [index, item] of [input, ...input.items].entries()) {
+    if (item.discountType === "PERCENT" && (item.discountValue ?? 0) > 100 || item.discountType === "NONE" && (item.discountValue ?? 0) !== 0) {
+      context.addIssue({ code: "custom", path: index === 0 ? ["discountValue"] : ["items", index - 1, "discountValue"], message: "ส่วนลดต้องถูกต้อง และเปอร์เซ็นต์ต้องไม่เกิน 100" });
+    }
+  }
+});
 
 export const purchaseOrderChangeReviewSchema = z.object({
   expectedVersion: z.number().int().nonnegative().max(2147483646),

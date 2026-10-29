@@ -5,10 +5,10 @@ import { PDFDocument } from "pdf-lib";
 import { toThaiBahtText } from "../../src/lib/baht-text";
 import { getDictionary } from "../../src/lib/i18n";
 import type { PurchaseOrderDocument, PurchaseOrderDocumentText } from "../../src/lib/purchase-order-document";
-import { calculatePurchaseOrderTax } from "../../src/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, calculatePurchaseOrderTax } from "../../src/lib/purchase-order-tax";
 import { buildPurchaseOrderDocument } from "../../src/server/purchase-orders/purchase-order-document";
 import { createPurchaseOrderPdf, loadPurchaseOrderFonts, measurePurchaseOrderText } from "../../src/server/purchase-orders/purchase-order-pdf";
-import { documentOrderFixture, emptyOptionalDocumentFixture, taxDocumentFixture } from "../fixtures/purchase-order-document";
+import { discountDocumentFixture, documentOrderFixture, emptyOptionalDocumentFixture, taxDocumentFixture } from "../fixtures/purchase-order-document";
 
 function textOf(document: PurchaseOrderDocument, page?: number) {
   return (page === undefined ? document.pages : [document.pages[page]]).flatMap((item) => item.elements.filter((element): element is PurchaseOrderDocumentText => element.type === "text"));
@@ -113,6 +113,94 @@ test("no-VAT means an actual zero tax while unspecified and mixed unknown prices
   assert.equal(summaryValue(document, "มูลค่าหลังส่วนลด"), "-");
   assert.equal(summaryValue(document, "ยอดรวมตาม PO"), "207.00");
   assert(textOf(document).some((item) => item.text === `VAT: ${labels.UNSPECIFIED}`));
+});
+
+test("line percentages and fixed order discounts are disclosed before exclusive VAT without rewriting entered prices", async () => {
+  for (const locale of ["th", "en"] as const) {
+    const order = discountDocumentFixture();
+    const document = await buildPurchaseOrderDocument(order, locale);
+    const labels = getDictionary(locale);
+    assert.equal(summaryValue(document, labels.poDiscount.subtotalAmount), "1,000.00");
+    assert.equal(summaryValue(document, labels.poDiscount.itemDiscountAmount), "100.00");
+    assert.equal(summaryValue(document, labels.poDiscount.orderDiscountAmount), "90.00");
+    assert.equal(summaryValue(document, labels.poDiscount.discountedSubtotalAmount), "810.00");
+    assert.equal(summaryValue(document, labels.poTax.netAmount), "810.00");
+    assert.equal(summaryValue(document, `${labels.poTax.taxAmount} 7%`), "56.70");
+    assert.equal(summaryValue(document, "ยอดรวมตาม PO"), "866.70");
+    const content = textOf(document).map((item) => item.text).join("").replace(/\s/g, "");
+    assert(content.includes(`${labels.poDiscount.lineTitle}:10%=100.00`.replace(/\s/g, "")));
+    assert(content.includes(`${labels.poDiscount.orderDiscountAmount}:90.00`.replace(/\s/g, "")));
+    assert(content.includes(labels.poDiscount.basisHint.replace(/\s/g, "")));
+    assert(textOf(document).some((item) => item.text === "1,000.00"));
+    // Render the stored issued total even if a historical snapshot differs by a cent.
+    order.totalAmount = 866.69;
+    assert.equal(summaryValue(await buildPurchaseOrderDocument(order, locale), "ยอดรวมตาม PO"), "866.69");
+  }
+});
+
+test("fixed line and percentage order discounts reduce inclusive prices before VAT is split out", async () => {
+  const order = discountDocumentFixture();
+  order.taxMode = "INCLUSIVE";
+  order.discountType = "PERCENT";
+  order.discountValue = 10;
+  order.items[0] = { ...order.items[0]!, unitPrice: 1070, amount: 1070, discountType: "AMOUNT", discountValue: 107, orderDiscountAmount: 96.3 };
+  const document = await buildPurchaseOrderDocument(order, "th");
+  const labels = getDictionary("th");
+  assert.equal(summaryValue(document, labels.poDiscount.subtotalAmount), "1,070.00");
+  assert.equal(summaryValue(document, labels.poDiscount.itemDiscountAmount), "107.00");
+  assert.equal(summaryValue(document, labels.poDiscount.orderDiscountAmount), "96.30");
+  assert.equal(summaryValue(document, labels.poDiscount.discountedSubtotalAmount), "866.70");
+  assert.equal(summaryValue(document, labels.poTax.netAmount), "810.00");
+  assert.equal(summaryValue(document, `${labels.poTax.taxAmount} 7%`), "56.70");
+  assert.equal(summaryValue(document, "ยอดรวมตาม PO"), "866.70");
+  const content = textOf(document).map((item) => item.text).join("").replace(/\s/g, "");
+  assert(content.includes(`${labels.poDiscount.orderTitle}:10%`.replace(/\s/g, "")));
+});
+
+test("mixed tax prices disclose each allocated order share and combine discounted net and VAT once", async () => {
+  const order = discountDocumentFixture();
+  const source = order.items[0]!;
+  order.discountValue = 24.7;
+  order.totalAmount = 227.97;
+  order.items = [
+    { ...source, id: "discount-exclusive", unitPrice: 100, amount: 100, taxMode: "EXCLUSIVE", discountType: "PERCENT", discountValue: 10, orderDiscountAmount: 9 },
+    { ...source, id: "discount-inclusive", unitPrice: 107, amount: 107, taxMode: "INCLUSIVE", discountType: "NONE", discountValue: 0, orderDiscountAmount: 10.7 },
+    { ...source, id: "discount-no-vat", unitPrice: 50, amount: 50, taxMode: "NONE", discountType: "NONE", discountValue: 0, orderDiscountAmount: 5 },
+  ];
+  order.itemCount = order.items.length;
+  const document = await buildPurchaseOrderDocument(order, "th");
+  const labels = getDictionary("th");
+  assert.equal(summaryValue(document, labels.poDiscount.subtotalAmount), "257.00");
+  assert.equal(summaryValue(document, labels.poDiscount.itemDiscountAmount), "10.00");
+  assert.equal(summaryValue(document, labels.poDiscount.orderDiscountAmount), "24.70");
+  assert.equal(summaryValue(document, labels.poDiscount.discountedSubtotalAmount), "222.30");
+  assert.equal(summaryValue(document, labels.poTax.netAmount), "216.00");
+  assert.equal(summaryValue(document, `${labels.poTax.taxAmount} 7%`), "11.97");
+  assert.equal(summaryValue(document, "ยอดรวมตาม PO"), "227.97");
+  const content = textOf(document).map((item) => item.text).join("").replace(/\s/g, "");
+  for (const share of ["9.00", "10.70", "5.00"]) {
+    assert(content.includes(`${labels.poDiscount.orderDiscountAmount}:${share}`.replace(/\s/g, "")));
+  }
+});
+
+test("a full percentage discount prints actual zero payable and no extra VAT, while legacy defaults stay visually unchanged", async () => {
+  const order = discountDocumentFixture();
+  order.discountType = "PERCENT";
+  order.discountValue = 100;
+  order.items[0] = { ...order.items[0]!, unitPrice: 100, amount: 100, discountType: "NONE", discountValue: 0, orderDiscountAmount: 100 };
+  order.totalAmount = 0;
+  const document = await buildPurchaseOrderDocument(order, "th");
+  const labels = getDictionary("th");
+  assert.equal(summaryValue(document, labels.poDiscount.itemDiscountAmount), "0.00");
+  assert.equal(summaryValue(document, labels.poDiscount.orderDiscountAmount), "100.00");
+  assert.equal(summaryValue(document, labels.poTax.netAmount), "0.00");
+  assert.equal(summaryValue(document, `${labels.poTax.taxAmount} 7%`), "0.00");
+  assert.equal(summaryValue(document, "ยอดรวมตาม PO"), "0.00");
+  assert(textOf(document).some((item) => item.text === "จำนวนเงิน (ตัวอักษร)  ศูนย์บาทถ้วน"));
+  const legacy = documentOrderFixture();
+  const baseline = await buildPurchaseOrderDocument(legacy, "th");
+  const explicit = { ...legacy, discountType: "NONE" as const, discountValue: 0, items: legacy.items.map((item) => ({ ...item, discountType: "NONE" as const, discountValue: 0, orderDiscountAmount: 0 })) };
+  assert.deepEqual(await buildPurchaseOrderDocument(explicit, "th"), baseline);
 });
 
 test("buyer identity uses the issued company snapshot and keeps supplier and amounts intact", async () => {
@@ -233,6 +321,43 @@ test("long PO with mixed tax prices repeats headings, wraps inside margins, and 
   const pdf = await PDFDocument.load(await createPurchaseOrderPdf(document));
   assert.equal(pdf.getPageCount(), document.pages.length);
   for (const page of pdf.getPages()) assert.deepEqual(page.getSize(), { width: 595.28, height: 841.89 });
+});
+
+test("long discounted PO keeps every item discount, totals, baht words and signatures within A4 pages", async () => {
+  const order = documentOrderFixture(45, true);
+  order.taxMode = "INCLUSIVE";
+  order.vatRate = 7;
+  order.discountType = "PERCENT";
+  order.discountValue = 3.25;
+  order.items = order.items.map((item, index) => ({
+    ...item, taxMode: index % 3 === 0 ? "EXCLUSIVE" : index % 3 === 1 ? "NONE" : null,
+    discountType: index % 2 === 0 ? "PERCENT" : "AMOUNT", discountValue: index % 2 === 0 ? 5 : 0.25,
+  }));
+  const pricing = calculatePurchaseOrderPricing(order.items, order.taxMode, order.vatRate, order);
+  order.items = order.items.map((item, index) => ({ ...item, orderDiscountAmount: pricing.lines[index]!.orderDiscountAmount }));
+  order.totalAmount = pricing.totalAmount;
+  const document = await buildPurchaseOrderDocument(order, "th");
+  const fonts = await loadPurchaseOrderFonts();
+  const discountLabels = getDictionary("th").poDiscount;
+  assert(document.pages.length >= 3);
+  for (const [index, page] of document.pages.entries()) {
+    const texts = textOf(document, index);
+    assert(texts.some((item) => item.text === `หน้า ${index + 1} / ${document.pages.length}`));
+    if (texts.some((item) => item.text.includes("DOC-0"))) assert(texts.some((item) => item.text === "รายการสินค้า / รายละเอียด"));
+    for (const item of texts) {
+      const width = measurePurchaseOrderText(item.text, item.size, Boolean(item.bold), fonts);
+      const left = item.x - (item.align === "right" ? width : item.align === "center" ? width / 2 : 0);
+      assert(left >= 35 && left + width <= document.width - 26, `horizontal overflow: ${item.text}`);
+      assert(item.y >= 0 && item.y <= document.height - 12, `vertical overflow: ${item.text}`);
+    }
+    assert(page.elements.length > 8);
+  }
+  for (let number = 1; number <= order.items.length; number++) assert(textOf(document).some((item) => item.text.includes(`DOC-${String(number).padStart(3, "0")}`)));
+  assert.equal(textOf(document).filter((item) => item.text === discountLabels.orderDiscountAmount).length, 1);
+  const finalText = textOf(document, document.pages.length - 1).map((item) => item.text).join("\n");
+  for (const value of ["ยอดรวมตาม PO", "จำนวนเงิน (ตัวอักษร)", "ผู้จัดทำ", "ผู้อนุมัติ", "ผู้รับคำสั่งซื้อ (ผู้จำหน่าย)"]) assert(finalText.includes(value));
+  const pdf = await PDFDocument.load(await createPurchaseOrderPdf(document));
+  assert.equal(pdf.getPageCount(), document.pages.length);
 });
 
 test("empty optional fields remain blank, missing amounts differ from actual zero", async () => {

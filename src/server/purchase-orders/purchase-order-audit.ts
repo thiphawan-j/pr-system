@@ -1,4 +1,4 @@
-import { calculatePurchaseOrderTax, calculateTaxLine, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, calculateTaxLine, type PurchasePriceTaxMode, type PurchaseDiscountType } from "@/lib/purchase-order-tax";
 import type { PurchaseOrderSnapshot } from "@/lib/types";
 
 type Item = PurchaseOrderSnapshot["items"][number];
@@ -7,9 +7,14 @@ function taxModeLabel(mode: PurchasePriceTaxMode) {
   return { UNSPECIFIED: "ไม่ได้ระบุ", INCLUSIVE: "รวม VAT แล้ว", EXCLUSIVE: "ยังไม่รวม VAT", NONE: "ไม่มี VAT" }[mode];
 }
 
+function discountLabel(type: PurchaseDiscountType = "NONE", value = 0) {
+  return type === "NONE" ? "ไม่มีส่วนลด" : `${value.toFixed(2)} ${type === "PERCENT" ? "%" : "บาท"}`;
+}
+
 function itemSummary(item: Item, order: PurchaseOrderSnapshot) {
   const mode = item.taxMode ?? order.taxMode ?? "UNSPECIFIED";
-  const tax = calculateTaxLine(item.amount, mode, order.vatRate ?? 7);
+  const tax = calculateTaxLine(item.amount, mode, order.vatRate ?? 7, { discountType: item.discountType, discountValue: item.discountValue, orderDiscountAmount: item.orderDiscountAmount });
+  const hasDiscount = (item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0 || (order.discountType ?? "NONE") !== "NONE";
   return [
     `ชื่อสินค้า: ${item.itemName}`,
     `รายละเอียด: ${item.description ?? "—"}`,
@@ -17,7 +22,8 @@ function itemSummary(item: Item, order: PurchaseOrderSnapshot) {
     `หน่วย: ${item.unit ?? "—"}`,
     `ราคาต่อหน่วย: ${item.unitPrice.toFixed(2)} บาท`,
     `ยอดรวม: ${item.amount.toFixed(2)} บาท`,
-    ...(order.taxMode !== undefined || item.taxMode !== undefined ? [
+    ...(hasDiscount ? [`ส่วนลดรายการ: ${discountLabel(item.discountType, item.discountValue)}`, `ส่วนลดทั้งใบที่จัดสรร: ${(item.orderDiscountAmount ?? 0).toFixed(2)} บาท`] : []),
+    ...(order.taxMode !== undefined || item.taxMode !== undefined || hasDiscount ? [
       `รูปแบบภาษี: ${taxModeLabel(mode)}${item.taxMode == null ? " (ตามทั้งใบ)" : " (กำหนดเฉพาะรายการ)"}`,
       `อัตรา VAT: ${(order.vatRate ?? 7).toFixed(2)}%`,
       `ยอดสุทธิ: ${tax.netAmount === null ? "ไม่ได้ระบุ" : `${tax.netAmount.toFixed(2)} บาท`}`,
@@ -53,11 +59,16 @@ export function purchaseOrderChangeComment(
     changes.push(`รูปแบบภาษีทั้งใบ: ${taxModeLabel(before.taxMode ?? "UNSPECIFIED")} → ${taxModeLabel(after.taxMode ?? "UNSPECIFIED")}`);
   }
   if ((before.vatRate ?? 7) !== (after.vatRate ?? 7)) changes.push(`อัตรา VAT: ${(before.vatRate ?? 7).toFixed(2)}% → ${(after.vatRate ?? 7).toFixed(2)}%`);
-  if (before.taxMode !== undefined || after.taxMode !== undefined || before.items.some((item) => item.taxMode != null) || after.items.some((item) => item.taxMode != null)) {
-    const totals = (order: PurchaseOrderSnapshot) => calculatePurchaseOrderTax(order.items, order.taxMode ?? "UNSPECIFIED", order.vatRate ?? 7);
+  const hasDiscount = before.discountType !== undefined || after.discountType !== undefined || before.items.some((item) => item.discountType !== undefined) || after.items.some((item) => item.discountType !== undefined);
+  if ((before.discountType ?? "NONE") !== (after.discountType ?? "NONE") || (before.discountValue ?? 0) !== (after.discountValue ?? 0)) {
+    changes.push(`ส่วนลดทั้งใบ: ${discountLabel(before.discountType, before.discountValue)} → ${discountLabel(after.discountType, after.discountValue)}`);
+  }
+  if (before.taxMode !== undefined || after.taxMode !== undefined || before.items.some((item) => item.taxMode != null) || after.items.some((item) => item.taxMode != null) || hasDiscount) {
+    const totals = (order: PurchaseOrderSnapshot) => calculatePurchaseOrderPricing(order.items, order.taxMode ?? "UNSPECIFIED", order.vatRate ?? 7, order);
     const oldTax = totals(before);
     const newTax = totals(after);
     const money = (value: number | null) => value === null ? "ไม่ได้ระบุ" : `${value.toFixed(2)} บาท`;
+    if (hasDiscount) changes.push(`ส่วนลดรายการรวม: ${money(oldTax.itemDiscountAmount)} → ${money(newTax.itemDiscountAmount)}`, `ส่วนลดทั้งใบรวม: ${money(oldTax.orderDiscountAmount)} → ${money(newTax.orderDiscountAmount)}`, `ส่วนลดรวม: ${money(oldTax.discountAmount)} → ${money(newTax.discountAmount)}`);
     changes.push(`ยอดสุทธิ: ${money(oldTax.netAmount)} → ${money(newTax.netAmount)}`, `VAT: ${money(oldTax.taxAmount)} → ${money(newTax.taxAmount)}`);
   }
   changes.push(`ยอดรวม PO: ${before.totalAmount.toFixed(2)} → ${after.totalAmount.toFixed(2)} บาท`);

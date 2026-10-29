@@ -90,6 +90,12 @@ enum PurchasePriceTaxMode {
   NONE
 }
 
+enum PurchaseDiscountType {
+  NONE
+  AMOUNT
+  PERCENT
+}
+
 enum PurchaseOrderChangeStatus {
   PENDING
   APPROVED
@@ -196,6 +202,9 @@ model PurchaseRequestItem {
   amount            Decimal                      @db.Decimal(12, 2)
   taxMode           PurchasePriceTaxMode         @default(UNSPECIFIED)
   vatRate           Decimal                      @default(7) @db.Decimal(5, 2)
+  discountType      PurchaseDiscountType         @default(NONE)
+  discountValue     Decimal                      @default(0) @db.Decimal(12, 2)
+  orderDiscountAmount Decimal                    @default(0) @db.Decimal(12, 2)
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
   receiptItems      PurchaseRequestReceiptItem[]
@@ -263,6 +272,8 @@ model PurchaseOrder {
   totalAmount           Decimal               @db.Decimal(12, 2)
   taxMode               PurchasePriceTaxMode  @default(UNSPECIFIED)
   vatRate               Decimal               @default(7) @db.Decimal(5, 2)
+  discountType          PurchaseDiscountType  @default(NONE)
+  discountValue         Decimal               @default(0) @db.Decimal(12, 2)
   version               Int                   @default(0)
   revision              Int                   @default(0)
   createdAt             DateTime              @default(now())
@@ -342,6 +353,9 @@ model PurchaseOrderItem {
   unitPrice             Decimal             @db.Decimal(12, 2)
   amount                Decimal             @db.Decimal(12, 2)
   taxMode               PurchasePriceTaxMode?
+  discountType          PurchaseDiscountType  @default(NONE)
+  discountValue         Decimal               @default(0) @db.Decimal(12, 2)
+  orderDiscountAmount   Decimal               @default(0) @db.Decimal(12, 2)
   receiptItems          PurchaseRequestReceiptItem[]
 
   @@unique([purchaseOrderId, position])
