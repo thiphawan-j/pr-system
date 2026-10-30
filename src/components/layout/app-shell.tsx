@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 import { LayoutGrid, PlusCircle } from "lucide-react";
 
 import { LanguageToggle } from "@/components/i18n/language-toggle";

@@ -34,6 +34,7 @@ export function SharePurchaseRequestButton({
   const { dictionary } = useI18n();
   const labels = dictionary.sharePurchaseRequest;
   const inputRef = useRef<HTMLInputElement>(null);
+  const pendingRef = useRef(false);
   const [isOpen, setIsOpen] = useState(false);
   const [shareUrl, setShareUrl] = useState("");
   const [canNativeShare, setCanNativeShare] = useState(false);
@@ -61,6 +62,8 @@ export function SharePurchaseRequestButton({
   }
 
   async function copyLink() {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setIsCopying(true);
     setFeedback(null);
     try {
@@ -75,11 +78,14 @@ export function SharePurchaseRequestButton({
       setFeedback("copyFailed");
       selectLink();
     } finally {
+      pendingRef.current = false;
       setIsCopying(false);
     }
   }
 
   async function shareViaDevice() {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setIsSharing(true);
     setFeedback(null);
     try {
@@ -96,6 +102,7 @@ export function SharePurchaseRequestButton({
         selectLink();
       }
     } finally {
+      pendingRef.current = false;
       setIsSharing(false);
     }
   }
@@ -156,10 +163,11 @@ export function SharePurchaseRequestButton({
               type="button"
               variant="outline"
               disabled={isBusy || !shareUrl}
+              loading={isSharing}
               aria-busy={isSharing}
               onClick={shareViaDevice}
             >
-              <Share2 />
+              {!isSharing ? <Share2 /> : null}
               {isSharing ? labels.sharing : labels.nativeShare}
             </Button>
           ) : null}
@@ -167,10 +175,11 @@ export function SharePurchaseRequestButton({
             id="copy-share-pr-link"
             type="button"
             disabled={isBusy || !shareUrl}
+            loading={isCopying}
             aria-busy={isCopying}
             onClick={copyLink}
           >
-            <Copy />
+            {!isCopying ? <Copy /> : null}
             {isCopying ? labels.copying : labels.copyLink}
           </Button>
         </DialogFooter>

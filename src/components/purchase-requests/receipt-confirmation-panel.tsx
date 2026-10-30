@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { CircleAlert } from "lucide-react";
 import { toast } from "sonner";
 
@@ -43,6 +43,9 @@ export function ReceiptConfirmationPanel({
   );
   const [closeReason, setCloseReason] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
+  const [pendingAction, setPendingAction] = useState<"RECEIVED" | "CLOSE_REMAINDER" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [closeError, setCloseError] = useState<string | null>(null);
   const { dictionary, locale } = useI18n();
@@ -54,6 +57,7 @@ export function ReceiptConfirmationPanel({
   const outstandingItems = items.filter((item) => item.remainingQuantity > 0);
 
   function submitReceipt(action: "RECEIVED" | "CLOSE_REMAINDER") {
+    if (pendingRef.current || busy) return;
     const isClosure = action === "CLOSE_REMAINDER";
     const selectedQuantities = isClosure ? closeQuantities : quantities;
     const setCurrentError = isClosure ? setCloseError : setError;
@@ -102,9 +106,12 @@ export function ReceiptConfirmationPanel({
       }
     }
 
+    setPendingAction(action);
     setCurrentError(null);
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
+      let saved = false;
       try {
         const response = await fetch(`/api/purchase-requests/${requestId}/receipts`, {
           method: "POST",
@@ -126,12 +133,15 @@ export function ReceiptConfirmationPanel({
           if (response.status === 409) router.refresh();
           return;
         }
+        saved = true;
         toast.success(isClosure ? labels.closeSaved : labels.receiptSaved);
         router.refresh();
       } catch {
         setCurrentError(dictionary.approval.updateError);
       } finally {
+        pendingRef.current = false;
         setIsPending(false);
+        if (!saved) setPendingAction(null);
       }
     });
   }
@@ -146,7 +156,7 @@ export function ReceiptConfirmationPanel({
         <CardContent className="space-y-5">
           <div className="space-y-2 sm:max-w-xs">
             <Label htmlFor="received-date">{dictionary.common.receivedDate}</Label>
-            <Input id="received-date" type="date" required disabled={isPending} value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} />
+            <Input id="received-date" type="date" required disabled={busy} value={receivedDate} onChange={(event) => setReceivedDate(event.target.value)} />
           </div>
           <div className="space-y-3">
             {items.map((item) => (
@@ -160,7 +170,7 @@ export function ReceiptConfirmationPanel({
                 </div>
                 <div className="min-w-0 space-y-2">
                   <Label className="block leading-5 [overflow-wrap:anywhere]" htmlFor={`receipt-quantity-${item.id}`}>{labels.receiveNow} · {item.itemName}</Label>
-                  <Input id={`receipt-quantity-${item.id}`} type="number" min="0" max={2147483647 - item.receivedQuantity} step="1" disabled={isPending} value={quantities[item.id] ?? "0"} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
+                  <Input id={`receipt-quantity-${item.id}`} type="number" min="0" max={2147483647 - item.receivedQuantity} step="1" disabled={busy} value={quantities[item.id] ?? "0"} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
                 </div>
               </div>
             ))}
@@ -173,31 +183,31 @@ export function ReceiptConfirmationPanel({
               </Alert>
               <div className="space-y-2">
                 <Label htmlFor="over-receipt-reason">{labels.overReceiptReason}</Label>
-                <Textarea id="over-receipt-reason" required aria-required="true" maxLength={2000} disabled={isPending} value={overReceiptReason} onChange={(event) => setOverReceiptReason(event.target.value)} placeholder={labels.overReceiptReasonPlaceholder} />
+                <Textarea id="over-receipt-reason" required aria-required="true" maxLength={2000} disabled={busy} value={overReceiptReason} onChange={(event) => setOverReceiptReason(event.target.value)} placeholder={labels.overReceiptReasonPlaceholder} />
               </div>
             </div>
           ) : null}
           <div className="space-y-2">
             <Label htmlFor="receipt-comment">{dictionary.common.comment}</Label>
-            <Textarea id="receipt-comment" rows={3} maxLength={2000} disabled={isPending} value={comment} onChange={(event) => setComment(event.target.value)} placeholder={dictionary.approval.receivedCommentPlaceholder} />
+            <Textarea id="receipt-comment" rows={3} maxLength={2000} disabled={busy} value={comment} onChange={(event) => setComment(event.target.value)} placeholder={dictionary.approval.receivedCommentPlaceholder} />
           </div>
           <fieldset className="min-w-0 rounded-xl border border-border/70 p-4">
             <legend className="px-1 text-xs text-muted-foreground">{labels.optionalRoundReferences}</legend>
             <div className="grid gap-4 sm:grid-cols-2">
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="round-receipt-number">{dictionary.common.receiptNumber}</Label>
-                <Input id="round-receipt-number" maxLength={200} disabled={isPending} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} placeholder={dictionary.approval.receiptNumberPlaceholder} />
+                <Input id="round-receipt-number" maxLength={200} disabled={busy} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} placeholder={dictionary.approval.receiptNumberPlaceholder} />
               </div>
               <div className="min-w-0 space-y-2">
                 <Label htmlFor="round-tax-invoice-number">{dictionary.common.taxInvoiceNumber}</Label>
-                <Input id="round-tax-invoice-number" maxLength={200} disabled={isPending} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} placeholder={dictionary.approval.taxInvoiceNumberPlaceholder} />
+                <Input id="round-tax-invoice-number" maxLength={200} disabled={busy} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} placeholder={dictionary.approval.taxInvoiceNumberPlaceholder} />
               </div>
             </div>
           </fieldset>
           {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
           <div className="flex justify-end border-t border-border/70 pt-4">
-            <Button type="button" className="w-full rounded-xl sm:w-auto sm:min-w-44" disabled={isPending} onClick={() => submitReceipt("RECEIVED")}>
-              {isPending ? dictionary.common.saving : dictionary.approval.confirmReceived}
+            <Button type="button" className="w-full rounded-xl sm:w-auto sm:min-w-44" loading={busy && pendingAction === "RECEIVED"} disabled={busy} onClick={() => submitReceipt("RECEIVED")}>
+              {busy && pendingAction === "RECEIVED" ? dictionary.common.saving : dictionary.approval.confirmReceived}
             </Button>
           </div>
         </CardContent>
@@ -215,17 +225,17 @@ export function ReceiptConfirmationPanel({
                   <Label className="block leading-5 [overflow-wrap:anywhere]" htmlFor={`close-quantity-${item.id}`}>{labels.closeQuantity} · {item.itemName}</Label>
                   <p className="text-xs text-muted-foreground">{labels.remaining}: {formatNumber(item.remainingQuantity, locale)}</p>
                 </div>
-                <Input id={`close-quantity-${item.id}`} type="number" min="0" max={item.remainingQuantity} step="1" disabled={isPending} value={closeQuantities[item.id] ?? "0"} onChange={(event) => setCloseQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
+                <Input id={`close-quantity-${item.id}`} type="number" min="0" max={item.remainingQuantity} step="1" disabled={busy} value={closeQuantities[item.id] ?? "0"} onChange={(event) => setCloseQuantities((current) => ({ ...current, [item.id]: event.target.value }))} />
               </div>
             ))}
             <div className="space-y-2">
               <Label htmlFor="close-remainder-reason">{labels.closeReason}</Label>
-              <Textarea id="close-remainder-reason" required aria-required="true" rows={3} maxLength={2000} disabled={isPending} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} placeholder={labels.closeReasonPlaceholder} />
+              <Textarea id="close-remainder-reason" required aria-required="true" rows={3} maxLength={2000} disabled={busy} value={closeReason} onChange={(event) => setCloseReason(event.target.value)} placeholder={labels.closeReasonPlaceholder} />
             </div>
             {closeError ? <p role="alert" className="text-sm text-destructive">{closeError}</p> : null}
             <div className="flex justify-end border-t border-border/70 pt-4">
-              <Button type="button" variant="outline" className="w-full rounded-xl sm:w-auto sm:min-w-44" disabled={isPending} onClick={() => submitReceipt("CLOSE_REMAINDER")}>
-                {isPending ? dictionary.common.saving : labels.closeOutstanding}
+              <Button type="button" variant="outline" className="w-full rounded-xl sm:w-auto sm:min-w-44" loading={busy && pendingAction === "CLOSE_REMAINDER"} disabled={busy} onClick={() => submitReceipt("CLOSE_REMAINDER")}>
+                {busy && pendingAction === "CLOSE_REMAINDER" ? dictionary.common.saving : labels.closeOutstanding}
               </Button>
             </div>
           </CardContent>

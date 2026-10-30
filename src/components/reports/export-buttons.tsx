@@ -1,6 +1,6 @@
 import { FileSpreadsheet, FileText } from "lucide-react";
 
-import { Button } from "@/components/ui/button";
+import { DownloadButton } from "@/components/shared/download-button";
 import type { Dictionary } from "@/lib/i18n";
 
 type ExportButtonsProps = {
@@ -11,18 +11,14 @@ type ExportButtonsProps = {
 export function ExportButtons({ queryString, dictionary }: ExportButtonsProps) {
   return (
     <div className="flex flex-col gap-3 sm:flex-row">
-      <Button asChild variant="outline" className="rounded-xl">
-        <a href={`/api/reports/export/excel?${queryString}`}>
+      <DownloadButton href={`/api/reports/export/excel?${queryString}`} filename="purchase-request-report.xlsx" className="rounded-xl">
           <FileSpreadsheet />
           {dictionary.reports.exportExcel}
-        </a>
-      </Button>
-      <Button asChild variant="outline" className="rounded-xl">
-        <a href={`/api/reports/export/pdf?${queryString}`}>
+      </DownloadButton>
+      <DownloadButton href={`/api/reports/export/pdf?${queryString}`} filename="purchase-request-report.pdf" className="rounded-xl">
           <FileText />
           {dictionary.reports.exportPdf}
-        </a>
-      </Button>
+      </DownloadButton>
     </div>
   );
 }

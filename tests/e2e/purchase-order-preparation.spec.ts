@@ -121,12 +121,13 @@ test("Purchasing synchronizes prepared items to PR and PO with Timeline history 
   const conversion = page.waitForResponse((response) => response.url().endsWith(`/purchase-requests/${original.id}/purchase-orders`)
     && response.request().method() === "POST");
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const response = await conversion;
   const orders = await issued(response);
   const submitted = response.request().postDataJSON() as Preparation;
   expect(submitted.expectedUpdatedAt).toBe(original.orderPreparationVersion);
   expect(submitted.items).toHaveLength(3);
-  expect(submitted.orders).toEqual([{ supplierName, itemIds: [first!.id, retained!.id, clientId], taxMode: "UNSPECIFIED", vatRate: 7 }]);
+  expect(submitted.orders).toEqual([{ supplierName, itemIds: [first!.id, retained!.id, clientId], deliveryRecipientId: original.requester.id, taxMode: "UNSPECIFIED", vatRate: 7 }]);
   expect(orders).toHaveLength(1);
   await expect(page).toHaveURL(new RegExp(`/purchase-requests/${original.id}$`));
   const ordered = await getRequest(page, original.id);
@@ -196,7 +197,7 @@ test("Admin can replace all source lines and exact decimal totals persist in bot
   expect(current.approvals.filter((approval) => approval.stepLabel === "ปรับรายการก่อนออก PO")).toHaveLength(1);
 });
 
-test("foreign source lines, duplicate identities and incomplete supplier allocation reject atomically", async ({ page }) => {
+test("foreign source lines and duplicate identities reject atomically while unselected prepared rows remain pending", async ({ page }) => {
   const request = await createRequest(page);
   const other = await createRequest(page);
   const base = preparation(request);
@@ -204,7 +205,6 @@ test("foreign source lines, duplicate identities and incomplete supplier allocat
     { ...base, items: base.items.map((item, index) => index === 0 ? { ...item, sourceItemId: other.items[0]!.id } : item) },
     { ...base, items: base.items.map((item, index) => index === 1 ? { ...item, sourceItemId: base.items[0]!.sourceItemId } : item) },
     { ...base, items: base.items.map((item, index) => index === 1 ? { ...item, clientId: base.items[0]!.clientId } : item) },
-    { ...base, orders: [{ supplierName: "Missing a line", itemIds: base.orders[0]!.itemIds.slice(0, 2) }] },
     { ...base, orders: [{ supplierName: "Unknown allocation", itemIds: [...base.orders[0]!.itemIds.slice(0, 2), "not-in-prepared-lines"] }] },
     { ...base, orders: [{ supplierName: "Repeated allocation", itemIds: [...base.orders[0]!.itemIds, base.items[0]!.clientId] }] },
     { ...base, items: [], orders: [] },
@@ -216,6 +216,16 @@ test("foreign source lines, duplicate identities and incomplete supplier allocat
   ];
   for (const payload of invalid) await rejectWithoutChanges(page, request, payload);
   expect(await getRequest(page, other.id)).toEqual(other);
+  const itemIds = base.orders[0]!.itemIds.slice(0, 2);
+  const [partial] = await issued(await convert(page, request, {
+    ...base, orders: [{ supplierName: "Selected prepared supplier", itemIds }],
+  }));
+  const after = await getRequest(page, request.id);
+  expect(after.items).toHaveLength(request.items.length);
+  expect(after.totalAmount).toBe(request.totalAmount);
+  expect(after.orderableItemCount).toBe(1);
+  expect(after.items.filter((item) => item.canOrder).map((item) => item.id)).toEqual([base.items[2]!.sourceItemId]);
+  expect((await getOrder(page, partial!.id)).items.map((item) => item.purchaseRequestItemId).sort()).toEqual([...itemIds].sort());
 });
 
 test("invalid quantities, prices, injected totals and line or PO overflow leave the approved snapshot untouched", async ({ page }) => {
@@ -299,7 +309,9 @@ test("the form validates before posting and retains stale edits until an explici
   let posted = 0;
   const isConversion = (request: { url(): string; method(): string }) => request.url()
     .endsWith(`/purchase-requests/${original.id}/purchase-orders`) && request.method() === "POST";
-  page.on("request", (request) => { if (isConversion(request)) posted += 1; });
+  const isPreview = (request: { url(): string; method(): string }) => request.url()
+    .endsWith(`/purchase-requests/${original.id}/purchase-orders/preview`) && request.method() === "POST";
+  page.on("request", (request) => { if (isConversion(request) || isPreview(request)) posted += 1; });
   await name.fill("   ");
   await create.click();
   await expect(name).toBeFocused();
@@ -330,7 +342,7 @@ test("the form validates before posting and retains stale edits until an explici
   }), 200);
   const latest = await getRequest(page, original.id);
   expect(latest.orderPreparationVersion).not.toBe(original.orderPreparationVersion);
-  const rejected = page.waitForResponse((response) => isConversion(response.request()));
+  const rejected = page.waitForResponse((response) => isPreview(response.request()));
   await create.click();
   await expectStatus(await rejected, 409);
   await expect(name).toHaveValue(draftName);
@@ -351,6 +363,7 @@ test("the form validates before posting and retains stale edits until an explici
   await expect(reload).toHaveCount(0);
   const fresh = page.waitForResponse((response) => isConversion(response.request()));
   await create.click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const response = await fresh;
   const orders = await issued(response);
   expect(response.request().postDataJSON()).toMatchObject({ expectedUpdatedAt: latest.orderPreparationVersion });
@@ -358,8 +371,8 @@ test("the form validates before posting and retains stale edits until an explici
   expect(orders).toHaveLength(2);
   const current = await getRequest(page, original.id);
   expect(current.status).toBe("ORDERED");
-  expect(current.items).toEqual(original.items);
+  expect(current.items).toEqual(original.items.map((item) => ({ ...item, canOrder: false })));
   expect(current.approvals.some((approval) => approval.comment === comment)).toBe(true);
   expect(current.approvals.filter((approval) => approval.stepLabel === "ปรับรายการก่อนออก PO")).toHaveLength(0);
-  expect(posted).toBe(2);
+  expect(posted).toBe(3);
 });

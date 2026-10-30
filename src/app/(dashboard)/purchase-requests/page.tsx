@@ -1,6 +1,7 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 import { Search } from "lucide-react";
 
+import { NavigationForm, NavigationSubmitButton } from "@/components/loading/navigation-form";
 import { PurchaseRequestList } from "@/components/purchase-requests/purchase-request-list";
 import { PurchaseRequestStatusFilter } from "@/components/purchase-requests/purchase-request-status-filter";
 import { Button } from "@/components/ui/button";
@@ -95,7 +96,7 @@ export default async function PurchaseRequestsPage({
           <CardTitle>{dictionary.purchaseRequests.filtersTitle}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 lg:grid-cols-6">
+          <NavigationForm className="grid gap-4 lg:grid-cols-6">
             {filters.preset ? (
               <input type="hidden" name="preset" value={filters.preset} />
             ) : null}
@@ -202,9 +203,9 @@ export default async function PurchaseRequestsPage({
             </div>
 
             <div className="grid grid-cols-2 items-end gap-2 lg:col-span-2">
-              <Button type="submit" className="h-10 w-full rounded-xl">
+              <NavigationSubmitButton className="h-10 w-full rounded-xl">
                 {dictionary.common.search}
-              </Button>
+              </NavigationSubmitButton>
               <Button
                 asChild
                 variant="outline"
@@ -215,7 +216,7 @@ export default async function PurchaseRequestsPage({
                 </Link>
               </Button>
             </div>
-          </form>
+          </NavigationForm>
         </CardContent>
       </Card>
 

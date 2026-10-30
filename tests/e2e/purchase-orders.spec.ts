@@ -110,7 +110,7 @@ test("conversion splits all approved items by supplier and persists exact source
   const ordered = await getRequest(page, request.id);
   expect(ordered.status).toBe("ORDERED");
   expect(ordered.orderedAt).toBeTruthy();
-  expect(ordered.items).toEqual(request.items);
+  expect(ordered.items).toEqual(request.items.map((item) => ({ ...item, canOrder: false })));
   expect(ordered.receiptVersion).toBe(request.receiptVersion);
   expect(ordered.purchaseOrders).toEqual(expect.arrayContaining(orders));
   expect(ordered.approvals.filter((approval) => approval.action === "ORDERED")).toHaveLength(1);
@@ -141,7 +141,7 @@ test("Purchasing can group source items into one supplier PO with trimmed delive
     itemCount: 3,
     totalAmount: request.totalAmount,
   });
-  expect((await getRequest(page, request.id)).items).toEqual(request.items);
+  expect((await getRequest(page, request.id)).items).toEqual(request.items.map((item) => ({ ...item, canOrder: false })));
 });
 
 test("Admin can issue POs and their read access follows the source PR visibility", async ({ page }) => {
@@ -206,14 +206,22 @@ test("unapproved, returned, rejected and cancelled PRs never create POs or order
   }
 });
 
-test("missing item allocations reject the entire supplier batch without issuing a partial PO", async ({ page }) => {
+test("selected supplier allocations issue a partial PO and leave unselected rows ready for a later PO", async ({ page }) => {
   const request = await createApprovedRequest(page);
   const validFirst = defaultOrders(request)[0]!;
-  await rejectWithoutChanges(page, request, convert(page, request, [validFirst]));
   await rejectWithoutChanges(page, request, convert(page, request, []));
   await rejectWithoutChanges(page, request, convert(page, request, [
     validFirst, { supplierName: "Empty Supplier", itemIds: [] },
   ]));
+  const [partialOrder] = await issuedOrders(await convert(page, request, [validFirst]));
+  expect((await getOrder(page, partialOrder!.id)).items.map((item) => item.purchaseRequestItemId).sort()).toEqual([...validFirst.itemIds].sort());
+  const partial = await getRequest(page, request.id);
+  expect(partial.items).toEqual(request.items.map((item) => ({ ...item, canOrder: !validFirst.itemIds.includes(item.id) })));
+  expect(partial.totalAmount).toBe(request.totalAmount);
+  expect(partial.orderableItemCount).toBe(request.items.length - validFirst.itemIds.length);
+  expect(partial.receivedAt).toBeNull();
+  expect(partial.purchaseOrders).toHaveLength(1);
+  await rejectWithoutChanges(page, partial, convert(page, partial, [validFirst]), 409);
 });
 
 test("a source item cannot appear twice within a PO or across supplier POs", async ({ page }) => {
@@ -235,7 +243,7 @@ test("a later foreign or unknown item allocation cannot commit earlier valid sup
   for (const itemId of [other.items[0]!.id, "nonexistent-source-item"]) {
     await rejectWithoutChanges(page, request, convert(page, request, [
       orders[0]!, { ...orders[1]!, itemIds: [itemId] },
-    ]));
+    ]), 409);
     expect(await getRequest(page, other.id)).toEqual(other);
   }
 });
@@ -346,8 +354,16 @@ test("cancellation is reflected on every issued PO while preserving its supplier
     const current = await getOrder(page, original.id);
     expect(current).toEqual({
       ...original,
+      status: "CANCELLED",
+      canCancel: false,
       canEdit: false,
+      version: original.version + 1,
+      cancelledAt: expect.any(String),
+      cancelledBy: { id: expect.any(String), name: expect.any(String) },
+      cancellationReason: "Both suppliers confirmed that the purchase can be cancelled",
+      cancellationReference: summaries.map((order) => order.poNumber).join(", "),
       purchaseRequest: { ...original.purchaseRequest, status: "CANCELLED", canCloseOrder: false },
+      purchaseRequests: original.purchaseRequests?.map((source) => ({ ...source, status: "CANCELLED", canCloseOrder: false })),
     });
   }
   await page.goto(`/purchase-orders/${summaries[0]!.id}`);
@@ -412,6 +428,7 @@ test("Purchasing converts supplier groups in the browser and opens a printable P
     response.url().endsWith(`/purchase-requests/${request.id}/purchase-orders`) && response.request().method() === "POST",
   );
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const summaries = await issuedOrders(await conversionResponse);
   expect(summaries).toHaveLength(2);
   expect(summaries.map((order) => order.supplierName).sort()).toEqual(["Alpha Supplies", "Gamma Supplies"]);

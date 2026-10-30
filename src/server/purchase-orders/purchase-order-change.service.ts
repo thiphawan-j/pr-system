@@ -5,12 +5,16 @@ import { ApprovalAction, Prisma } from "@prisma/client";
 import { calculatePurchaseOrderPricing, calculateTaxLine } from "@/lib/purchase-order-tax";
 import { toBangkokDateValue } from "@/lib/format";
 import type { PurchaseOrderSnapshot, SessionUser } from "@/lib/types";
-import { canApprovePurchaseRequest, isPurchasing } from "@/server/auth/authorization";
+import { isPurchasing } from "@/server/auth/authorization";
 import { getDb } from "@/server/db";
 import { createNotifications } from "@/server/notifications/notification.service";
 import { purchaseOrderChangeComment } from "@/server/purchase-orders/purchase-order-audit";
+import { assertCanViewOrderSources, canReviewOrderSources, orderSources } from "@/server/purchase-orders/purchase-order-access";
+import { lockPurchaseRequests, refreshPurchaseRequestsAfterOrderChange } from "@/server/purchase-orders/purchase-order-state";
 import { getPurchaseOrderById } from "@/server/purchase-orders/purchase-order.service";
 import type { PurchaseOrderChangeInput, PurchaseOrderChangeReviewInput } from "@/server/purchase-orders/purchase-order.schemas";
+import { resolvePurchaseOrderRecipient } from "@/server/purchase-orders/purchase-order-recipient";
+import { purchaseOrderSupplierKey } from "@/server/purchase-orders/purchase-order-share.service";
 import { AppError, invariant } from "@/server/shared/errors";
 import { formatSupplierCode } from "@/server/suppliers/supplier.service";
 import { supplierContactSchema } from "@/server/suppliers/supplier.schemas";
@@ -20,6 +24,10 @@ const orderInclude = {
   items: { orderBy: { position: "asc" } },
   changes: { where: { status: "PENDING" }, take: 1 },
   purchaseRequest: { include: {
+    items: true,
+    approvals: { where: { action: "APPROVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
+  } },
+  purchaseRequests: { orderBy: { id: "asc" }, include: {
     items: true,
     approvals: { where: { action: "APPROVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1 },
   } },
@@ -39,10 +47,13 @@ function snapshot(order: Order): PurchaseOrderSnapshot {
     supplierContact: order.supplierContact, supplierContactPerson: order.supplierContactPerson,
     supplierContacts: contacts.success ? contacts.data.sort((a, b) => a.channel.localeCompare(b.channel)) : [],
     deliveryAddress: order.deliveryAddress, paymentTerms: order.paymentTerms,
+    deliveryRecipientId: order.deliveryRecipientId, deliveryRecipientName: order.deliveryRecipientName,
+    deliveryRecipientPhone: order.deliveryRecipientPhone,
     expectedDeliveryDate: order.expectedDeliveryDate ? toBangkokDateValue(order.expectedDeliveryDate) : null,
     note: order.note, totalAmount: Number(order.totalAmount),
     items: order.items.map((item) => ({
       id: item.id, purchaseRequestItemId: item.purchaseRequestItemId,
+      ...(orderSources(order).length > 1 ? { sourcePurchaseRequestId: item.sourcePurchaseRequestId } : {}),
       itemName: item.itemName, description: item.description, quantity: item.quantity,
       unit: item.unit, unitPrice: Number(item.unitPrice), amount: Number(item.amount),
       ...(hasTaxMetadata ? { taxMode: item.taxMode } : {}),
@@ -52,18 +63,30 @@ function snapshot(order: Order): PurchaseOrderSnapshot {
 }
 
 async function lockedOrder(transaction: Prisma.TransactionClient, id: string) {
-  const reference = await transaction.purchaseOrder.findUnique({ where: { id }, select: { purchaseRequestId: true } });
+  const reference = await transaction.purchaseOrder.findUnique({ where: { id }, select: { purchaseRequestId: true, purchaseRequests: { select: { id: true } } } });
   invariant(reference, "ไม่พบเอกสาร PO ที่ต้องการ", 404);
-  // The PR row is the common lock for receipts, cancellations, and all its POs.
-  await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseRequest" WHERE "id" = ${reference.purchaseRequestId} FOR UPDATE`);
+  await lockPurchaseRequests(transaction, [reference.purchaseRequestId, ...reference.purchaseRequests.map((source) => source.id)]);
+  await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseOrder" WHERE "id" = ${id} FOR UPDATE`);
   const order = await transaction.purchaseOrder.findUnique({ where: { id }, include: orderInclude });
   invariant(order, "ไม่พบเอกสาร PO ที่ต้องการ", 404);
   return order;
 }
 
 function assertEditable(order: Order) {
-  invariant(order.purchaseRequest.status === "ORDERED" && !order.purchaseRequest.receivedAt,
+  const sources = orderSources(order);
+  invariant(order.status === "ISSUED" && sources.every((source) => source.status === "ORDERED" || source.status === "COMPLETED")
+    && sources.some((source) => source.status === "ORDERED" && !source.receivedAt),
     "แก้ไข PO ได้เฉพาะ PR ที่สั่งซื้อแล้วและยังรับสินค้าไม่ครบ", 400);
+}
+
+function snapshotSourceId(order: Order, item: PurchaseOrderSnapshot["items"][number]) {
+  const original = item.id ? order.items.find((old) => old.id === item.id) : undefined;
+  const sources = orderSources(order);
+  const sourceId = item.sourcePurchaseRequestId ?? original?.sourcePurchaseRequestId
+    ?? (sources.length === 1 ? sources[0]!.id : undefined);
+  invariant(sourceId && sources.some((source) => source.id === sourceId), "กรุณาเลือก PR ต้นทางของสินค้าใน PO นี้", 400);
+  invariant(!original || original.sourcePurchaseRequestId === sourceId, "ไม่สามารถเปลี่ยน PR ต้นทางของสินค้าเดิมได้", 400);
+  return sourceId;
 }
 
 function validateItems(order: Order, after: PurchaseOrderSnapshot) {
@@ -78,6 +101,20 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
       "ไม่สามารถเปลี่ยนส่วนลดทั้งใบของ PO ที่มีการรับสินค้าหรือปิดยอดแล้ว", 400);
   }
   for (const item of after.items) {
+    const sourceId = snapshotSourceId(order, item);
+    const source = orderSources(order).find((request) => request.id === sourceId)!;
+    if (source.status === "COMPLETED") {
+      const original = item.id ? oldItems.get(item.id) : undefined;
+      invariant(original && item.quantity === original.quantity && item.itemName === original.itemName
+        && item.description === original.description && item.unit === original.unit
+        && new Prisma.Decimal(item.unitPrice).equals(original.unitPrice)
+        && (item.discountType ?? "NONE") === original.discountType
+        && new Prisma.Decimal(item.discountValue ?? 0).equals(original.discountValue)
+        && new Prisma.Decimal(item.orderDiscountAmount ?? 0).equals(original.orderDiscountAmount)
+        && (item.taxMode ?? after.taxMode ?? "UNSPECIFIED") === (original.taxMode ?? order.taxMode)
+        && new Prisma.Decimal(after.vatRate ?? 7).equals(order.vatRate),
+      "ไม่สามารถเพิ่มหรือเปลี่ยนรายการของ PR ที่ปิดงานแล้ว", 400);
+    }
     if (!item.id) continue;
     const original = oldItems.get(item.id);
     invariant(original, "ไม่พบรายการสินค้าใน PO นี้", 400);
@@ -100,14 +137,23 @@ function validateItems(order: Order, after: PurchaseOrderSnapshot) {
   }
   for (const original of order.items) {
     if (!ids.includes(original.id)) {
+      invariant(orderSources(order).find((source) => source.id === original.sourcePurchaseRequestId)?.status !== "COMPLETED",
+        "ไม่สามารถลบรายการของ PR ที่ปิดงานแล้ว", 400);
       invariant(original.receivedQuantity === 0 && original.closedQuantity === 0,
         "ไม่สามารถลบสินค้าที่รับหรือปิดยอดแล้ว", 400);
     }
+  }
+  const replacedSourceIds = new Set(order.items.flatMap((item) => item.purchaseRequestItemId ? [item.purchaseRequestItemId] : []));
+  for (const source of orderSources(order)) {
+    const untouchedCount = source.items.filter((item) => !replacedSourceIds.has(item.id)).length;
+    const retainedCount = after.items.filter((item) => snapshotSourceId(order, item) === source.id).length;
+    invariant(untouchedCount + retainedCount > 0, "PR ต้นทางแต่ละใบต้องมีสินค้าอย่างน้อยหนึ่งรายการ", 400);
   }
 }
 
 async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Order, input: PurchaseOrderChangeInput) {
   const before = snapshot(order);
+  const recipient = await resolvePurchaseOrderRecipient(transaction, input.deliveryRecipientId, order);
   let supplier: Pick<PurchaseOrderSnapshot, "supplierId" | "supplierCode" | "supplierName" | "supplierTaxId" | "supplierAddress" | "supplierContactPerson" | "supplierContacts" | "supplierContact">;
   if ("supplierId" in input.supplier) {
     if (input.supplier.supplierId === order.supplierId) {
@@ -146,6 +192,7 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
   const discountValue = input.discountType === "NONE" ? 0 : input.discountValue ?? Number(order.discountValue);
   const items = input.items.map((item) => {
     const original = item.id ? originals.get(item.id) : undefined;
+    const sourcePurchaseRequestId = snapshotSourceId(order, { ...item, description: item.description ?? null, unit: item.unit ?? null, amount: 0 });
     // Preserve an issued legacy line's authoritative stored amount when its
     // quantity and unit price are unchanged; do not reinterpret old snapshots.
     const amount = original && item.quantity === original.quantity && original.unitPrice.equals(item.unitPrice)
@@ -154,6 +201,7 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
     const override = item.taxMode === undefined ? original?.taxMode ?? null : item.taxMode;
     return {
       ...(item.id ? { id: item.id, purchaseRequestItemId: original?.purchaseRequestItemId } : {}),
+      ...(orderSources(order).length > 1 ? { sourcePurchaseRequestId } : {}),
       itemName: item.itemName, description: item.description ?? null, unit: item.unit ?? null,
       quantity: item.quantity, unitPrice: item.unitPrice, amount: Number(amount), taxMode: override,
       discountType: item.discountType ?? original?.discountType ?? "NONE",
@@ -169,7 +217,7 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
   const hasDiscountMetadata = discountType !== "NONE" || discountValue !== 0 || items.some((item) => item.discountType !== "NONE" || item.discountValue !== 0);
   const hasTaxMetadata = hasDiscountMetadata || taxMode !== "UNSPECIFIED" || vatRate !== 7 || items.some((item) => item.taxMode !== null);
   const after: PurchaseOrderSnapshot = {
-    ...supplier, deliveryAddress: input.deliveryAddress ?? null, paymentTerms: input.paymentTerms ?? null,
+    ...supplier, ...recipient, deliveryAddress: input.deliveryAddress ?? null, paymentTerms: input.paymentTerms ?? null,
     expectedDeliveryDate: input.expectedDeliveryDate || null, note: input.note ?? null, totalAmount: tax.totalAmount,
     ...(hasTaxMetadata ? { taxMode, vatRate } : {}),
     ...(hasDiscountMetadata ? { discountType, discountValue } : {}),
@@ -178,7 +226,19 @@ async function proposedSnapshot(transaction: Prisma.TransactionClient, order: Or
       ...(hasDiscountMetadata ? { discountType: itemDiscountType, discountValue: itemDiscountValue, orderDiscountAmount: tax.lines[index]!.orderDiscountAmount } : {}),
     })),
   };
-  invariant(order.purchaseRequest.totalAmount.minus(order.totalAmount).plus(after.totalAmount).lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
+  // Keep every PR within its limit, including its unissued and sibling-PO rows.
+  // The full combined PO total must never be added to each origin separately.
+  const replacedSourceIds = new Set(order.items.flatMap((item) => item.purchaseRequestItemId ? [item.purchaseRequestItemId] : []));
+  for (const source of orderSources(order)) {
+    const untouched = source.items.filter((item) => !replacedSourceIds.has(item.id));
+    let sourceTotal = untouched.reduce((sum, item) => sum.plus(calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate), {
+      discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: Number(item.orderDiscountAmount),
+    }).totalAmount), new Prisma.Decimal(0));
+    after.items.forEach((item, index) => {
+      if (snapshotSourceId(order, item) === source.id) sourceTotal = sourceTotal.plus(tax.lines[index]!.totalAmount);
+    });
+    invariant(sourceTotal.lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
+  }
   validateItems(order, after);
   return { before, after };
 }
@@ -189,19 +249,38 @@ async function sendChangeNotification(userIds: string[], order: Order, title: st
   }))).catch((error: unknown) => console.error("[purchase-order-change-notification]", error));
 }
 
+async function recordChangeTimeline(
+  transaction: Prisma.TransactionClient, order: Order, session: SessionUser,
+  before: PurchaseOrderSnapshot, after: PurchaseOrderSnapshot, reason: string,
+  stepLabel: string, reviewComment?: string | null, rejected = false,
+) {
+  const sources = orderSources(order);
+  await transaction.purchaseRequest.updateMany({ where: { id: { in: sources.map((source) => source.id) } }, data: { receiptVersion: { increment: 1 } } });
+  for (const source of sources) {
+    await transaction.approval.create({ data: {
+      purchaseRequestId: source.id, approverId: session.id, action: ApprovalAction.COMMENTED, stepLabel,
+      comment: rejected ? `${order.poNumber}\nเหตุผลที่ขอแก้ไข: ${reason}\nผลการพิจารณา: ${reviewComment ?? reason}`
+        : purchaseOrderChangeComment(order.poNumber, before, after, reason, reviewComment, sources.length > 1 ? source.id : undefined),
+    } });
+  }
+}
+
 export async function proposePurchaseOrderChange(id: string, session: SessionUser, input: PurchaseOrderChangeInput) {
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่แก้ไข PO ได้", 403);
   const result = await getDb().$transaction(async (transaction) => {
     const order = await lockedOrder(transaction, id);
+    assertCanViewOrderSources(session, orderSources(order));
     assertEditable(order);
     invariant(order.version === input.expectedVersion, "PO มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
     invariant(order.changes.length === 0, "PO นี้มีฉบับแก้ไขรอตรวจอยู่แล้ว", 409);
     const { before, after } = await proposedSnapshot(transaction, order, input);
     invariant(!isDeepStrictEqual(before, after), "กรุณาแก้ไขข้อมูลก่อนส่งตรวจ", 400);
+    const originalApprovers = new Set(orderSources(order).map((source) => source.approvals[0]?.approverId));
+    const commonApprover = originalApprovers.size === 1 ? orderSources(order)[0]?.approvals[0]?.approverId : undefined;
     const reviewers = await transaction.user.findMany({ where: {
       isActive: true, id: { not: session.id }, OR: [
         { role: "ADMIN" }, { role: "APPROVER", department: "บริหาร/จัดการ" },
-        ...(order.purchaseRequest.approvals[0] ? [{ id: order.purchaseRequest.approvals[0].approverId, role: { in: ["APPROVER", "ADMIN"] as ("APPROVER" | "ADMIN")[] } }] : []),
+        ...(commonApprover ? [{ id: commonApprover, role: { in: ["APPROVER", "ADMIN"] as ("APPROVER" | "ADMIN")[] } }] : []),
       ],
     }, select: { id: true } });
     invariant(reviewers.length > 0, "ไม่พบผู้อนุมัติที่สามารถตรวจการแก้ไข PO นี้ได้", 400);
@@ -210,11 +289,7 @@ export async function proposePurchaseOrderChange(id: string, session: SessionUse
       purchaseOrderId: id, submittedById: session.id, baseVersion: order.version, reason: input.reason,
       before: before as unknown as Prisma.InputJsonObject, after: after as unknown as Prisma.InputJsonObject,
     } });
-    await transaction.purchaseRequest.update({ where: { id: order.purchaseRequestId }, data: { receiptVersion: { increment: 1 } } });
-    await transaction.approval.create({ data: {
-      purchaseRequestId: order.purchaseRequestId, approverId: session.id, action: ApprovalAction.COMMENTED,
-      stepLabel: "ขอแก้ไข PO", comment: purchaseOrderChangeComment(order.poNumber, before, after, input.reason),
-    } });
+    await recordChangeTimeline(transaction, order, session, before, after, input.reason, "ขอแก้ไข PO");
     return { order, reviewers: reviewers.map((reviewer) => reviewer.id) };
   }, { timeout: 15000 });
   await sendChangeNotification(result.reviewers, result.order, "PO รอตรวจการแก้ไข", `${result.order.poNumber}: ${input.reason}`);
@@ -223,6 +298,12 @@ export async function proposePurchaseOrderChange(id: string, session: SessionUse
 
 async function applySnapshot(transaction: Prisma.TransactionClient, order: Order, after: PurchaseOrderSnapshot) {
   validateItems(order, after);
+  // A newly selected employee must still be eligible when the amendment is
+  // approved. Keep their proposed name/phone snapshot rather than refreshing
+  // historical document text after a profile rename.
+  if (after.deliveryRecipientId != null && after.deliveryRecipientId !== order.deliveryRecipientId) {
+    await resolvePurchaseOrderRecipient(transaction, after.deliveryRecipientId);
+  }
   if (after.supplierId && after.supplierId !== order.supplierId) {
     await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "Supplier" WHERE "id" = ${after.supplierId} FOR SHARE`);
     invariant((await transaction.supplier.findUnique({ where: { id: after.supplierId } }))?.isActive,
@@ -232,12 +313,25 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
   for (const old of order.items) {
     if (!oldIds.has(old.id)) {
       await transaction.purchaseOrderItem.delete({ where: { id: old.id } });
-      if (old.purchaseRequestItemId) await transaction.purchaseRequestItem.delete({ where: { id: old.purchaseRequestItemId } });
+      if (old.purchaseRequestItemId) {
+        invariant(await transaction.purchaseOrderItem.count({ where: { purchaseRequestItemId: old.purchaseRequestItemId, purchaseOrder: { status: "ISSUED" } } }) === 0,
+          "รายการ PR นี้ถูกใช้ใน PO อื่นแล้ว", 409);
+        // Cancelled documents retain their own immutable commercial snapshots.
+        await transaction.purchaseOrderItem.updateMany({ where: { purchaseRequestItemId: old.purchaseRequestItemId, purchaseOrder: { status: "CANCELLED" } }, data: { purchaseRequestItemId: null } });
+        await transaction.purchaseRequestItem.delete({ where: { id: old.purchaseRequestItemId } });
+      }
     }
   }
   // Vacate unique positions before reordering retained and newly inserted lines.
   await transaction.purchaseOrderItem.updateMany({ where: { purchaseOrderId: order.id }, data: { position: { increment: 500 } } });
   for (const [position, item] of after.items.entries()) {
+    const sourcePurchaseRequestId = snapshotSourceId(order, item);
+    if (item.id && orderSources(order).find((source) => source.id === sourcePurchaseRequestId)?.status === "COMPLETED") {
+      // Validation already freezes every commercial field of a completed
+      // origin. Keep its PR snapshot intact, including legacy supplier fields.
+      await transaction.purchaseOrderItem.update({ where: { id: item.id }, data: { position } });
+      continue;
+    }
     const poFields = { itemName: item.itemName, description: item.description,
       quantity: item.quantity, unit: item.unit, unitPrice: new Prisma.Decimal(item.unitPrice), amount: new Prisma.Decimal(item.amount), taxMode: item.taxMode ?? null,
       discountType: item.discountType ?? "NONE", discountValue: item.discountValue ?? 0, orderDiscountAmount: item.orderDiscountAmount ?? 0 };
@@ -246,11 +340,11 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
       const old = order.items.find((entry) => entry.id === item.id)!;
       const source = old.purchaseRequestItemId
         ? await transaction.purchaseRequestItem.update({ where: { id: old.purchaseRequestItemId }, data: sourceFields })
-        : await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: order.purchaseRequestId } });
+        : await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: sourcePurchaseRequestId } });
       await transaction.purchaseOrderItem.update({ where: { id: item.id }, data: { ...poFields, position, purchaseRequestItemId: source.id } });
     } else {
-      const source = await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: order.purchaseRequestId } });
-      await transaction.purchaseOrderItem.create({ data: { ...poFields, position, purchaseOrderId: order.id, purchaseRequestItemId: source.id } });
+      const source = await transaction.purchaseRequestItem.create({ data: { ...sourceFields, purchaseRequestId: sourcePurchaseRequestId } });
+      await transaction.purchaseOrderItem.create({ data: { ...poFields, position, purchaseOrderId: order.id, sourcePurchaseRequestId, purchaseRequestItemId: source.id } });
     }
   }
   await transaction.purchaseOrder.update({ where: { id: order.id }, data: {
@@ -258,23 +352,20 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
     supplierTaxId: after.supplierTaxId, supplierAddress: after.supplierAddress,
     supplierContact: after.supplierContact, supplierContactPerson: after.supplierContactPerson,
     supplierContacts: after.supplierContacts, deliveryAddress: after.deliveryAddress,
+    // Pending amendments created before recipient fields existed must leave
+    // the currently stored recipient unchanged when approved.
+    ...(after.deliveryRecipientId === undefined ? {} : {
+      deliveryRecipientId: after.deliveryRecipientId,
+      deliveryRecipientName: after.deliveryRecipientName ?? null,
+      deliveryRecipientPhone: after.deliveryRecipientPhone ?? null,
+    }),
     paymentTerms: after.paymentTerms, note: after.note, totalAmount: new Prisma.Decimal(after.totalAmount),
     taxMode: after.taxMode ?? "UNSPECIFIED", vatRate: after.vatRate ?? 7,
     discountType: after.discountType ?? "NONE", discountValue: after.discountValue ?? 0,
     expectedDeliveryDate: after.expectedDeliveryDate ? new Date(`${after.expectedDeliveryDate}T00:00:00.000Z`) : null,
     revision: { increment: 1 },
   } });
-  const sourceItems = await transaction.purchaseRequestItem.findMany({ where: { purchaseRequestId: order.purchaseRequestId }, select: { amount: true, taxMode: true, vatRate: true, discountType: true, discountValue: true, orderDiscountAmount: true } });
-  const requestTotal = sourceItems.reduce((sum, item) => sum.plus(calculateTaxLine(item.amount.toString(), item.taxMode, Number(item.vatRate), { discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: Number(item.orderDiscountAmount) }).totalAmount), new Prisma.Decimal(0));
-  invariant(requestTotal.lte(maximumAmount), "ยอดรวม PR มากเกินขอบเขตที่รองรับ", 400);
-  const orderedItems = await transaction.purchaseOrderItem.findMany({ where: { purchaseOrder: { purchaseRequestId: order.purchaseRequestId } }, select: { quantity: true, receivedQuantity: true, closedQuantity: true } });
-  const allSettled = orderedItems.length > 0 && orderedItems.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
-  const lastReceipt = allSettled ? await transaction.purchaseRequestReceipt.findFirst({
-    where: { purchaseRequestId: order.purchaseRequestId, action: "RECEIVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-  }) : null;
-  await transaction.purchaseRequest.update({ where: { id: order.purchaseRequestId }, data: {
-    totalAmount: requestTotal, receivedAt: allSettled ? lastReceipt?.receivedDate ?? null : null,
-  } });
+  await refreshPurchaseRequestsAfterOrderChange(transaction, orderSources(order).map((source) => source.id));
 }
 
 export async function reviewPurchaseOrderChange(id: string, changeId: string, session: SessionUser, input: PurchaseOrderChangeReviewInput) {
@@ -282,32 +373,43 @@ export async function reviewPurchaseOrderChange(id: string, changeId: string, se
   await getPurchaseOrderById(id, session);
   const order = await getDb().$transaction(async (transaction) => {
     const current = await lockedOrder(transaction, id);
+    assertCanViewOrderSources(session, orderSources(current));
     const change = await transaction.purchaseOrderChange.findFirst({ where: { id: changeId, purchaseOrderId: id } });
     invariant(change, "ไม่พบฉบับแก้ไข PO ที่ต้องการ", 404);
-    const reviewer = canApprovePurchaseRequest(session, current.purchaseRequest.approvals[0]?.approverId);
+    const reviewer = canReviewOrderSources(session, orderSources(current));
     const withdraw = input.action === "REJECTED" && session.id === change.submittedById;
     invariant(withdraw || (reviewer && session.id !== change.submittedById), "คุณไม่มีสิทธิ์พิจารณาการแก้ไข PO นี้ หรือกำลังอนุมัติงานของตนเอง", 403);
     // Another PO's approved revision can settle the PR while this revision is
     // already pending. It must remain resolvable so receiving is not held forever.
-    invariant(current.purchaseRequest.status === "ORDERED", "PR สถานะนี้ไม่สามารถพิจารณาการแก้ไข PO ได้", 400);
+    invariant(current.status === "ISSUED" && orderSources(current).every((source) => source.status === "ORDERED" || source.status === "COMPLETED"), "PR สถานะนี้ไม่สามารถพิจารณาการแก้ไข PO ได้", 400);
     invariant(current.version === input.expectedVersion && change.status === "PENDING", "PO มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
     const after = change.after as unknown as PurchaseOrderSnapshot;
-    if (input.action === "APPROVED") await applySnapshot(transaction, current, after);
+    if (input.action === "APPROVED") {
+      await applySnapshot(transaction, current, after);
+      // A former supplier's capability must never expose another supplier's
+      // order, even if a later amendment changes the supplier back again.
+      if (purchaseOrderSupplierKey(current) !== purchaseOrderSupplierKey(after)) {
+        await transaction.purchaseOrderShare.updateMany({
+          where: { purchaseOrderId: id, revokedAt: null },
+          data: { revokedAt: new Date(), revokedById: session.id },
+        });
+      }
+    }
     await transaction.purchaseOrder.update({ where: { id }, data: { version: { increment: 1 } } });
     await transaction.purchaseOrderChange.update({ where: { id: changeId }, data: {
       status: input.action, reviewedById: session.id, reviewedAt: new Date(), reviewComment: input.comment ?? null,
     } });
-    await transaction.purchaseRequest.update({ where: { id: current.purchaseRequestId }, data: { receiptVersion: { increment: 1 } } });
-    await transaction.approval.create({ data: {
-      purchaseRequestId: current.purchaseRequestId, approverId: session.id, action: ApprovalAction.COMMENTED,
-      stepLabel: input.action === "APPROVED" ? "อนุมัติแก้ไข PO" : withdraw ? "ถอนคำขอแก้ไข PO" : "ไม่อนุมัติแก้ไข PO",
-      comment: input.action === "APPROVED"
-        ? purchaseOrderChangeComment(current.poNumber, change.before as unknown as PurchaseOrderSnapshot, after, change.reason, input.comment)
-        : `${current.poNumber}\nเหตุผลที่ขอแก้ไข: ${change.reason}\nผลการพิจารณา: ${input.comment ?? change.reason}`,
-    } });
+    await recordChangeTimeline(transaction, current, session, change.before as unknown as PurchaseOrderSnapshot, after,
+      change.reason, input.action === "APPROVED" ? "อนุมัติแก้ไข PO" : withdraw ? "ถอนคำขอแก้ไข PO" : "ไม่อนุมัติแก้ไข PO",
+      input.comment, input.action !== "APPROVED");
     return current;
   }, { timeout: 15000 });
-  await sendChangeNotification([order.createdById, ...order.changes.map((change) => change.submittedById), order.purchaseRequest.requesterId], order,
+  await sendChangeNotification([order.createdById, ...order.changes.map((change) => change.submittedById)], order,
     input.action === "APPROVED" ? "อนุมัติการแก้ไข PO แล้ว" : "ฉบับแก้ไข PO ถูกปฏิเสธหรือถอนแล้ว", `${order.poNumber}${input.comment ? `: ${input.comment}` : ""}`);
+  await createNotifications(orderSources(order).map((source) => ({
+    userId: source.requesterId,
+    title: input.action === "APPROVED" ? "อนุมัติการแก้ไข PO แล้ว" : "ฉบับแก้ไข PO ถูกปฏิเสธหรือถอนแล้ว",
+    message: `${order.poNumber} · ${source.prNumber}`, link: `/purchase-requests/${source.id}`, type: "INFO" as const,
+  }))).catch((error: unknown) => console.error("[purchase-order-change-notification]", error));
   return getPurchaseOrderById(id, session);
 }

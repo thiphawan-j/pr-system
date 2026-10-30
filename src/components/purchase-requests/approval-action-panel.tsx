@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -30,6 +30,9 @@ export function ApprovalActionPanel({
 }: ApprovalActionPanelProps) {
   const router = useRouter();
   const [pendingAction, setPendingAction] = useState<ApprovalAction | null>(null);
+  const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
   const { dictionary, locale } = useI18n();
   const form = useForm<ApprovalFormValues, undefined, ApprovalFormPayload>({
     resolver: zodResolver(approvalDecisionSchema),
@@ -40,8 +43,10 @@ export function ApprovalActionPanel({
   });
 
   function submit(action: ApprovalAction) {
+    if (pendingRef.current || busy) return;
+    pendingRef.current = true;
     form.setValue("action", action);
-    form.handleSubmit((values: ApprovalFormPayload) => {
+    void form.handleSubmit((values: ApprovalFormPayload) => {
       const controller = new AbortController();
       const timeoutId = window.setTimeout(
         () => controller.abort(),
@@ -49,7 +54,9 @@ export function ApprovalActionPanel({
       );
 
       setPendingAction(action);
+      setIsPending(true);
       startTransition(async () => {
+        let saved = false;
         try {
           const response = await fetch(
             `/api/purchase-requests/${requestId}/approval`,
@@ -71,6 +78,7 @@ export function ApprovalActionPanel({
             return;
           }
 
+          saved = true;
           toast.success(dictionary.approval.saveSuccess);
           router.refresh();
         } catch {
@@ -79,10 +87,17 @@ export function ApprovalActionPanel({
           );
         } finally {
           window.clearTimeout(timeoutId);
-          setPendingAction(null);
+          pendingRef.current = false;
+          setIsPending(false);
+          if (!saved) setPendingAction(null);
         }
       });
-    })();
+    }, () => { pendingRef.current = false; })().catch(() => {
+      pendingRef.current = false;
+      setIsPending(false);
+      setPendingAction(null);
+      toast.error(dictionary.approval.saveError);
+    });
   }
 
   return (
@@ -98,6 +113,7 @@ export function ApprovalActionPanel({
           <Textarea
             id="approval-comment"
             rows={4}
+            disabled={busy}
             placeholder={dictionary.approval.decisionPlaceholder}
             {...form.register("comment")}
           />
@@ -112,10 +128,11 @@ export function ApprovalActionPanel({
           <Button
             type="button"
             className="rounded-xl"
-            disabled={pendingAction !== null}
+            disabled={busy}
+            loading={busy && pendingAction === "APPROVED"}
             onClick={() => submit("APPROVED")}
           >
-            {pendingAction === "APPROVED"
+            {busy && pendingAction === "APPROVED"
               ? dictionary.common.saving
               : dictionary.approval.approve}
           </Button>
@@ -123,10 +140,11 @@ export function ApprovalActionPanel({
             type="button"
             variant="secondary"
             className="rounded-xl"
-            disabled={pendingAction !== null}
+            disabled={busy}
+            loading={busy && pendingAction === "RETURNED"}
             onClick={() => submit("RETURNED")}
           >
-            {pendingAction === "RETURNED"
+            {busy && pendingAction === "RETURNED"
               ? dictionary.common.saving
               : dictionary.approval.return}
           </Button>
@@ -134,10 +152,11 @@ export function ApprovalActionPanel({
             type="button"
             variant="destructive"
             className="rounded-xl"
-            disabled={pendingAction !== null}
+            disabled={busy}
+            loading={busy && pendingAction === "REJECTED"}
             onClick={() => submit("REJECTED")}
           >
-            {pendingAction === "REJECTED"
+            {busy && pendingAction === "REJECTED"
               ? dictionary.common.saving
               : dictionary.approval.reject}
           </Button>

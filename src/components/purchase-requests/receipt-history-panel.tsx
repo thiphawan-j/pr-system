@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { History } from "lucide-react";
 import { toast } from "sonner";
 
@@ -22,8 +22,12 @@ function RoundReferences({ requestId, receipt, expectedVersion }: { requestId: s
   const [receiptNumber, setReceiptNumber] = useState(receipt.receiptNumber ?? "");
   const [taxInvoiceNumber, setTaxInvoiceNumber] = useState(receipt.taxInvoiceNumber ?? "");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
 
   function handleSubmit() {
+    if (pendingRef.current || busy) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
       try {
@@ -43,6 +47,7 @@ function RoundReferences({ requestId, receipt, expectedVersion }: { requestId: s
       } catch {
         toast.error(dictionary.approval.updateError);
       } finally {
+        pendingRef.current = false;
         setIsPending(false);
       }
     });
@@ -54,14 +59,14 @@ function RoundReferences({ requestId, receipt, expectedVersion }: { requestId: s
       <div className="mt-3 space-y-3">
         <div className="space-y-2">
           <Label htmlFor={`history-receipt-number-${receipt.id}`}>{dictionary.common.receiptNumber}</Label>
-          <Input id={`history-receipt-number-${receipt.id}`} disabled={isPending} maxLength={200} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
+          <Input id={`history-receipt-number-${receipt.id}`} disabled={busy} maxLength={200} value={receiptNumber} onChange={(event) => setReceiptNumber(event.target.value)} />
         </div>
         <div className="space-y-2">
           <Label htmlFor={`history-tax-invoice-${receipt.id}`}>{dictionary.common.taxInvoiceNumber}</Label>
-          <Input id={`history-tax-invoice-${receipt.id}`} disabled={isPending} maxLength={200} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} />
+          <Input id={`history-tax-invoice-${receipt.id}`} disabled={busy} maxLength={200} value={taxInvoiceNumber} onChange={(event) => setTaxInvoiceNumber(event.target.value)} />
         </div>
-        <Button type="button" size="sm" variant="outline" disabled={isPending || (!receiptNumber.trim() && !taxInvoiceNumber.trim())} onClick={handleSubmit}>
-          {isPending ? dictionary.common.saving : dictionary.receiptWorkflow.saveReferences}
+        <Button type="button" size="sm" variant="outline" loading={busy} disabled={busy || (!receiptNumber.trim() && !taxInvoiceNumber.trim())} onClick={handleSubmit}>
+          {busy ? dictionary.common.saving : dictionary.receiptWorkflow.saveReferences}
         </Button>
       </div>
     </details>

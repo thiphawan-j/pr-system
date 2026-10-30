@@ -2,8 +2,8 @@
 
 import { zodResolver } from "@hookform/resolvers/zod";
 import { UserPlus } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -43,7 +43,9 @@ const defaultValues = {
 
 export function UserCreateForm() {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
   const form = useForm<CreateUserFormValues, undefined, CreateUserPayload>({
     resolver: zodResolver(createUserSchema),
@@ -59,29 +61,37 @@ export function UserCreateForm() {
   });
 
   function onSubmit(values: CreateUserPayload) {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch("/api/admin/users", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      });
-      const payload = await response.json().catch(() => null);
+      try {
+        const response = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
+        const payload = await response.json().catch(() => null);
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.admin.createError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.admin.createError,
+          );
+          return;
+        }
+
+        toast.success(dictionary.admin.createSuccess);
+        form.reset(defaultValues);
+        router.refresh();
+      } catch {
+        toast.error(dictionary.admin.createError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(dictionary.admin.createSuccess);
-      form.reset(defaultValues);
-      router.refresh();
     });
   }
 
@@ -281,10 +291,10 @@ export function UserCreateForm() {
           <div className="md:col-span-2">
             <Button
               type="submit"
-              disabled={isPending}
+              loading={isPending}
               className="w-full rounded-xl sm:w-auto"
             >
-              <UserPlus />
+              {!isPending ? <UserPlus /> : null}
               {isPending
                 ? dictionary.admin.creatingUser
                 : dictionary.admin.createUser}

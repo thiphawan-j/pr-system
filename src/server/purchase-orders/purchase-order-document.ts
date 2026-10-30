@@ -1,9 +1,8 @@
 import { toThaiBahtText } from "@/lib/baht-text";
 import { formatCurrency, formatDate, formatNumber } from "@/lib/format";
 import { getDictionary, getUnitLabel, type Locale } from "@/lib/i18n";
-import type { PurchaseOrderDocument, PurchaseOrderDocumentElement } from "@/lib/purchase-order-document";
+import type { PurchaseOrderDocument, PurchaseOrderDocumentData, PurchaseOrderDocumentElement } from "@/lib/purchase-order-document";
 import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
-import type { PurchaseOrderDetail } from "@/lib/types";
 import { loadPurchaseOrderFonts, measurePurchaseOrderText } from "./purchase-order-pdf";
 
 const W = 595.28;
@@ -27,9 +26,12 @@ type TextLine = { text: string; size: number; bold?: boolean; color?: string };
  * The payable amount remains the stored PO total, including for legacy orders
  * whose VAT treatment was never recorded.
  */
-export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, locale: Locale): Promise<PurchaseOrderDocument> {
+export async function buildPurchaseOrderDocument(order: PurchaseOrderDocumentData, locale: Locale, options: { draft?: boolean } = {}): Promise<PurchaseOrderDocument> {
   const fonts = await loadPurchaseOrderFonts();
   const dictionary = getDictionary(locale);
+  const documentNumber = options.draft ? dictionary.poPreview.draft : order.poNumber;
+  const sources = order.purchaseRequests?.length ? order.purchaseRequests : [order.purchaseRequest];
+  const sourceById = new Map(sources.map((source) => [source.id, source]));
   const taxLabels = dictionary.poTax;
   const discountLabels = dictionary.poDiscount;
   const taxMode = order.taxMode ?? "UNSPECIFIED";
@@ -43,7 +45,7 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   const hasVat = effectiveModes.has("INCLUSIVE") || effectiveModes.has("EXCLUSIVE");
   const taxModeLabel = (mode: PurchasePriceTaxMode) => `${taxLabels[mode]}${mode === "INCLUSIVE" || mode === "EXCLUSIVE" ? ` ${formatNumber(vatRate, locale)}%` : ""}`;
   const priceTaxHint = effectiveModes.size > 1 ? taxLabels.mixed : taxModeLabel(effectiveModes.values().next().value ?? taxMode);
-  const document: PurchaseOrderDocument = { width: W, height: H, poNumber: order.poNumber, pages: [] };
+  const document: PurchaseOrderDocument = { width: W, height: H, poNumber: documentNumber, pages: [] };
   let elements: PurchaseOrderDocumentElement[] = [];
   let y = 0;
   const width = (value: string, size: number, bold = false) => measurePurchaseOrderText(value, size, bold, fonts);
@@ -54,6 +56,8 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   const discountDescription = (type: PurchaseDiscountType | undefined, value = 0) => type === "PERCENT"
     ? `${formatNumber(value, locale)}%`
     : type === "AMOUNT" ? `${money(value)} ${locale === "th" ? "บาท" : "THB"}` : discountLabels.NONE;
+  const deduction = (value: number | null | undefined) => typeof value === "number" && Number.isFinite(value)
+    ? `${value > 0 ? "-" : ""}${money(value)}` : "-";
   const date = (value: string | null) => value ? formatDate(value, locale) : "-";
   function text(value: string, x: number, baseline: number, size = 9, bold = false, color = INK, align: "left" | "right" | "center" = "left") {
     elements.push({ type: "text", text: value, x, y: baseline, size, bold, color, align });
@@ -98,9 +102,13 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     elements = [];
     document.pages.push({ elements });
     rect(0, 0, W, H, "#ffffff");
+    if (options.draft) {
+      rect(M, 8, RIGHT - M, 18, "#fff4d6", "#e5c56f");
+      text(dictionary.poPreview.draftNotice, W / 2, 20, 8.5, true, NAVY, "center");
+    }
     if (continuation) {
       text("ใบสั่งซื้อ / PURCHASE ORDER", M, 49, 15, true, NAVY);
-      text(order.poNumber, RIGHT, 48, 11, true, NAVY, "right");
+      text(documentNumber, RIGHT, 48, 11, true, NAVY, "right");
       text(`วันที่เอกสาร ${date(order.issuedAt)}  |  ฉบับแก้ไข ${formatNumber(order.revision, locale)}`, RIGHT, 65, 8, false, MUTED, "right");
       line(M, 76, RIGHT, NAVY);
       y = 94;
@@ -114,7 +122,7 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   text("ผู้ซื้อ / BUYER", M + 12, 50, 9, true, MUTED);
   text("ใบสั่งซื้อ", RIGHT, 65, 25, true, NAVY, "right");
   text("PURCHASE ORDER", RIGHT, 84, 11, true, NAVY, "right");
-  text(order.poNumber, RIGHT, 108, 11, true, NAVY, "right");
+  text(documentNumber, RIGHT, 108, 11, true, NAVY, "right");
   text(`วันที่เอกสาร  ${date(order.issuedAt)}`, RIGHT, 124, 9, false, INK, "right");
   text(`ฉบับแก้ไข  ${formatNumber(order.revision, locale)}`, RIGHT, 138, 8, false, MUTED, "right");
   if (order.buyerCompany) {
@@ -151,8 +159,9 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   line(M, y, RIGHT, NAVY);
   y += 10;
   const notices: string[] = [];
-  if (order.purchaseRequest.status === "CANCELLED") notices.push(`${dictionary.purchaseOrders.cancelledTitle}: ${dictionary.purchaseOrders.cancelledDescription}`);
-  if (order.purchaseRequest.status === "CANCEL_REQUESTED") notices.push(`${dictionary.purchaseOrders.cancellationPendingTitle}: ${dictionary.purchaseOrders.cancellationPendingDescription}`);
+  if (sources.some((source) => source.status === "CANCELLED")) notices.push(`${dictionary.purchaseOrders.cancelledTitle}: ${dictionary.purchaseOrders.cancelledDescription}`);
+  else if (order.status === "CANCELLED") notices.push(`${dictionary.poCombined.cancelledTitle}: ${dictionary.poCombined.cancelledDescription}`);
+  if (order.status !== "CANCELLED" && sources.some((source) => source.status === "CANCEL_REQUESTED")) notices.push(`${dictionary.purchaseOrders.cancellationPendingTitle}: ${dictionary.purchaseOrders.cancellationPendingDescription}`);
   if (order.pendingChangeId) notices.push(`${dictionary.poChanges.pendingTitle}: ${dictionary.poChanges.pendingDescription}`);
   for (const notice of notices) {
     const lines = wrap(notice, RIGHT - M - 16, 8.5, true);
@@ -161,11 +170,22 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     lines.forEach((value, i) => text(value, M + 8, y + 15 + i * 14, 8.5, true));
     y += lines.length * 14 + 22;
   }
+  if (sources.length > 1) {
+    ensureSpace(40);
+    text(dictionary.poCombined.selectedRequests, M, y + 12, 8.5, true, MUTED);
+    y += 28;
+    for (const value of wrap(sources.map((source) => source.prNumber).join(", "), RIGHT - M, 9, true)) {
+      ensureSpace(16);
+      text(value, M, y, 9, true, NAVY);
+      y += 14;
+    }
+    y += 10;
+  }
   ensureSpace(58);
   rect(M, y, RIGHT - M, 40, PALE);
   const refWidth = (RIGHT - M) / 3;
   [
-    ["อ้างอิงใบขอซื้อ (PR)", order.purchaseRequest.prNumber],
+    ["อ้างอิงใบขอซื้อ (PR)", sources.length > 1 ? `${formatNumber(sources.length, locale)} PR` : order.purchaseRequest.prNumber],
     ["ใบเสนอราคาผู้จำหน่าย", "-"],
     ["สกุลเงิน", "THB (บาท)"], // THB is the existing application's currency.
   ].forEach(([label, value], index) => {
@@ -192,8 +212,8 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     ...field("สถานที่รับสินค้า", null),
     ...field("ที่อยู่จัดส่ง", order.deliveryAddress),
     ...field("กำหนดส่งสินค้า", date(order.expectedDeliveryDate)),
-    ...field("ผู้รับสินค้า", null),
-    ...field("โทร", null),
+    ...field("ผู้รับสินค้า", order.deliveryRecipientName),
+    ...field("โทร", order.deliveryRecipientPhone),
   ];
   for (let i = 0; i < Math.max(supplier.length, delivery.length); i++) {
     ensureSpace(15);
@@ -220,14 +240,15 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   // downloadable PDF in sync even for unbroken codes and multi-page items.
   const edges = [M, M + 28, M + 261, M + 313, M + 358, M + 437, RIGHT];
   const rowHeight = 13;
+  const tableHint = locale === "th"
+    ? `ราคาต่อหน่วย: ${priceTaxHint}  |  ${hasDiscount ? "จำนวนเงินก่อนส่วนลด" : "จำนวนเงิน"}: บาท`
+    : `Unit prices: ${priceTaxHint}  |  ${hasDiscount ? "Amounts before discounts" : "Amounts"}: THB`;
+  const tableHintLines = wrap(tableHint, RIGHT - M - 112, 7.8);
+  const tableHeaderHeight = 36 + (tableHintLines.length - 1) * 12;
   function tableHeader() {
     text("รายการสั่งซื้อ", M, y, 10, true, NAVY);
-    const hint = locale === "th"
-      ? `ราคาต่อหน่วย: ${priceTaxHint}  |  จำนวนเงิน: บาท`
-      : `Unit prices: ${priceTaxHint}  |  Amounts: THB`;
-    const hints = wrap(hint, RIGHT - M - 100, 7.8);
-    hints.forEach((value, index) => text(value, RIGHT, y + index * 12, 7.8, false, MUTED, "right"));
-    y += 9 + (hints.length - 1) * 12;
+    tableHintLines.forEach((value, index) => text(value, RIGHT, y + index * 12, 7.8, false, MUTED, "right"));
+    y += 9 + (tableHintLines.length - 1) * 12;
     rect(M, y, RIGHT - M, 27, NAVY);
     ["ลำดับ", "รายการสินค้า / รายละเอียด", "จำนวน", "หน่วย", "ราคา/หน่วย", "จำนวนเงิน"].forEach((label, index) => {
       const center = index === 0 || index === 3;
@@ -237,23 +258,22 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
     y += 27;
   }
   function tablePage() { newPage(); tableHeader(); }
-  ensureSpace(95);
+  ensureSpace(tableHeaderHeight + rowHeight * 2 + 16);
   tableHeader();
   order.items.forEach((item, index) => {
     const discount = taxSummary?.lines[index];
     const lines: TextLine[] = [
       ...wrap(safe(item.itemName), edges[2] - edges[1] - 16, 9.5, true).map((value) => ({ text: value, size: 9.5, bold: true })),
+      ...(sources.length > 1 ? wrap(`${dictionary.poCombined.source}: ${item.sourcePrNumber ?? sourceById.get(item.sourcePurchaseRequestId ?? "")?.prNumber ?? "-"}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
       ...(item.description ? wrap(item.description, edges[2] - edges[1] - 16, 8.5).map((value) => ({ text: value, size: 8.5, color: MUTED })) : []),
-      ...((item.taxMode ?? taxMode) !== "UNSPECIFIED" || effectiveModes.size > 1 ? wrap(`VAT: ${taxModeLabel(item.taxMode ?? taxMode)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
+      ...(effectiveModes.size > 1 ? wrap(`VAT: ${taxModeLabel(item.taxMode ?? taxMode)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
       ...((item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0
-        ? wrap(`${discountLabels.lineTitle}: ${discountDescription(item.discountType, item.discountValue)} = ${money(discount?.itemDiscountAmount)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
-      ...((order.discountType ?? "NONE") !== "NONE" || (order.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0
-        ? wrap(`${discountLabels.orderDiscountAmount}: ${money(discount?.orderDiscountAmount)}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: MUTED })) : []),
+        ? wrap(`${discountLabels.lineTitle}: ${discountDescription(item.discountType, item.discountValue)}${item.discountType === "PERCENT" ? ` (${money(discount?.itemDiscountAmount)} ${locale === "th" ? "บาท" : "THB"})` : ""}`, edges[2] - edges[1] - 16, 8).map((value) => ({ text: value, size: 8, color: NAVY })) : []),
     ];
     const unit = wrap(item.unit ? getUnitLabel(item.unit, locale) : "-", edges[4] - edges[3] - 12, 8.5);
     const count = Math.max(lines.length, unit.length);
     const height = count * rowHeight + 16;
-    if (y + height > BOTTOM && height <= BOTTOM - 130) tablePage();
+    if (y + height > BOTTOM && height <= BOTTOM - 94 - tableHeaderHeight) tablePage();
     let offset = 0;
     while (offset < count) {
       if (y + rowHeight + 16 > BOTTOM) tablePage();
@@ -279,41 +299,61 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
       offset += take;
     }
   });
-  y += 15;
-  const noteWidth = 275;
-  const noteLines = [
-    ...wrap(safe(order.note), noteWidth, 8.7),
-    ...(hasDiscount ? [
-      ...wrap(`${discountLabels.orderTitle}: ${discountDescription(order.discountType, order.discountValue)}`, noteWidth, 8.7),
-      ...wrap(discountLabels.basisHint, noteWidth, 8.2),
-    ] : []),
-  ];
+  y += 18;
+  const summaryX = M + 298;
+  const summaryCardX = summaryX - 8;
+  const noteWidth = summaryCardX - M - 24;
+  const noteLines = wrap(safe(order.note), noteWidth, 8.7);
   const totalWords = toThaiBahtText(Number.isFinite(order.totalAmount) ? order.totalAmount.toFixed(2) : null) ?? "-";
   const wordLines = wrap(`จำนวนเงิน (ตัวอักษร)  ${totalWords}`, RIGHT - M - 18, 9.5, true);
   const signatureWidth = (RIGHT - M - 36) / 3;
   const signatureNames = [safe(order.createdBy.name), "-", "-"].map((name) => wrap(`ชื่อ  ${name}`, signatureWidth - 8, 8));
   const extraNameHeight = (Math.max(...signatureNames.map((names) => names.length)) - 1) * 12;
-  const summaryRows = hasDiscount ? [
-    [discountLabels.subtotalAmount, money(taxSummary?.subtotalAmount)],
-    [discountLabels.itemDiscountAmount, money(taxSummary?.itemDiscountAmount)],
-    [discountLabels.orderDiscountAmount, money(taxSummary?.orderDiscountAmount)],
-    [discountLabels.discountedSubtotalAmount, money(taxSummary?.discountedSubtotalAmount)],
-    [taxLabels.netAmount, money(taxSummary?.netAmount)],
-    ["ค่าขนส่ง", "-"],
-    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
-    ["ยอดรวมตาม PO", money(order.totalAmount)],
-  ] : [
-    ["รวมค่าสินค้าตาม PO", money(taxSummary?.subtotalAmount)],
-    ["ส่วนลดท้ายเอกสาร", "-"],
-    [taxSummary && !taxSummary.hasUnspecifiedTax ? taxLabels.netAmount : "มูลค่าหลังส่วนลด", money(taxSummary?.netAmount)],
-    ["ค่าขนส่ง", "-"],
-    [taxSummary && !taxSummary.hasUnspecifiedTax ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}` : "ภาษีมูลค่าเพิ่ม", money(taxSummary?.taxAmount)],
-    ["ยอดรวมตาม PO", money(order.totalAmount)],
-  ];
-  const closingHeight = 214 + (summaryRows.length - 6) * 16 + (wordLines.length - 1) * 15 + extraNameHeight;
+  type SummaryRow = { label: string; value: string; caption?: string; total?: boolean };
+  const summaryRows: SummaryRow[] = [{
+    label: hasDiscount ? discountLabels.subtotalAmount : "รวมค่าสินค้าตาม PO",
+    value: money(taxSummary?.subtotalAmount),
+  }];
+  const hasItemDiscount = order.items.some((item) => (item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0);
+  const hasOrderDiscount = (order.discountType ?? "NONE") !== "NONE" || (order.discountValue ?? 0) !== 0
+    || order.items.some((item) => (item.orderDiscountAmount ?? 0) !== 0);
+  if (hasItemDiscount) summaryRows.push({ label: discountLabels.itemDiscountAmount, value: deduction(taxSummary?.itemDiscountAmount) });
+  if (hasOrderDiscount) summaryRows.push({
+    label: discountLabels.orderDiscountAmount,
+    value: deduction(taxSummary?.orderDiscountAmount),
+    ...(order.discountType === "PERCENT" ? { caption: discountDescription(order.discountType, order.discountValue) } : {}),
+  });
+  // The entered-price basis differs from the pre-VAT base for inclusive or
+  // mixed prices. Exclusive prices need one base row, rather than duplicates.
+  if (hasDiscount && taxSummary && (taxSummary.netAmount === null
+    || Math.round(taxSummary.discountedSubtotalAmount * 100) !== Math.round(taxSummary.netAmount * 100))) {
+    summaryRows.push({ label: discountLabels.discountedSubtotalAmount, value: money(taxSummary.discountedSubtotalAmount) });
+  }
+  summaryRows.push(
+    { label: taxLabels.netAmount, value: money(taxSummary?.netAmount) },
+    { label: taxSummary && !taxSummary.hasUnspecifiedTax
+      ? `${taxLabels.taxAmount}${hasVat ? ` ${formatNumber(vatRate, locale)}%` : ""}`
+      : locale === "th" ? "ภาษีมูลค่าเพิ่ม" : taxLabels.taxAmount, value: money(taxSummary?.taxAmount) },
+    { label: "ยอดรวมตาม PO", value: money(order.totalAmount), total: true },
+  );
+  const amountX = RIGHT - 10;
+  const summaryLayout = summaryRows.map((row) => {
+    const valueSize = row.total ? 11 : 9;
+    const labelSize = row.total ? 10 : 8.5;
+    const labelWidth = amountX - summaryX - width(row.value, valueSize, Boolean(row.total)) - 12;
+    const labels = wrap(row.label, labelWidth, labelSize, Boolean(row.total));
+    const height = Math.max(row.total ? 26 : 16, labels.length * 12 + (row.caption ? 12 : 0) + 4);
+    return { ...row, labels, height, valueSize, labelSize };
+  });
+  const summaryCardHeight = 24 + summaryLayout.reduce((sum, row) => sum + row.height, 0);
+  const inlineNotesHeight = 44 + noteLines.length * 14;
+  const separateNotes = inlineNotesHeight > Math.max(126, summaryCardHeight);
+  const sectionHeight = Math.max(summaryCardHeight, separateNotes ? 0 : inlineNotesHeight);
+  const wordsHeight = 30 + (wordLines.length - 1) * 15;
+  const signaturesHeight = 80 + extraNameHeight;
+  const closingHeight = sectionHeight + 8 + wordsHeight + signaturesHeight;
   // Long notes flow before the closing group. Totals, baht text and signature
   // spaces always remain together on the final page.
-  const separateNotes = noteLines.length * 14 + 25 > 126;
   if (separateNotes) {
     ensureSpace(38);
     text("หมายเหตุและเงื่อนไขการสั่งซื้อ", M, y, 9, true, NAVY);
@@ -324,21 +364,25 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   ensureSpace(closingHeight);
   const summaryY = y;
   if (!separateNotes) {
-    text("หมายเหตุและเงื่อนไขการสั่งซื้อ", M, y + 3, 9, true, NAVY);
-    noteLines.forEach((value, i) => text(value, M, y + 22 + i * 14, 8.7));
+    text("หมายเหตุและเงื่อนไขการสั่งซื้อ", M, y + 18, 9, true, NAVY);
+    noteLines.forEach((value, i) => text(value, M, y + 40 + i * 14, 8.7));
   }
-  const summaryX = M + 298;
-  summaryRows.forEach(([label, value], index) => {
-    const baseline = summaryY + index * 16 + 4;
-    const isTotal = index === summaryRows.length - 1;
-    if (isTotal) rect(summaryX - 8, baseline - 13, RIGHT - summaryX + 16, 25, PALE);
-    text(label, summaryX, baseline + (isTotal ? 3 : 0), isTotal ? 10 : 8.5, isTotal, isTotal ? NAVY : INK);
-    text(value, RIGHT - 2, baseline + (isTotal ? 3 : 0), isTotal ? 11 : 9, isTotal, isTotal ? NAVY : INK, "right");
+  rect(summaryCardX, summaryY, RIGHT - summaryCardX, summaryCardHeight, "#f7f9fa", RULE);
+  text(locale === "th" ? "สรุปยอดสั่งซื้อ" : "Order summary", summaryX, summaryY + 16, 9.5, true, NAVY);
+  let rowY = summaryY + 24;
+  summaryLayout.forEach((row) => {
+    if (row.total) rect(summaryCardX, rowY, RIGHT - summaryCardX, row.height, NAVY);
+    const baseline = rowY + (row.total ? 18 : 11);
+    row.labels.forEach((label, index) => text(label, summaryX, baseline + index * 12,
+      row.labelSize, row.total, row.total ? "#ffffff" : INK));
+    text(row.value, amountX, baseline, row.valueSize, row.total, row.total ? "#ffffff" : INK, "right");
+    if (row.caption) text(row.caption, summaryX, baseline + row.labels.length * 12, 7.5, false, MUTED);
+    rowY += row.height;
   });
-  y = summaryY + summaryRows.length * 16 + 8;
+  y = summaryY + sectionHeight + 8;
   line(M, y, RIGHT, NAVY);
-  wordLines.forEach((value, index) => text(value, M + 9, y + 21 + index * 15, 9.5, true, NAVY));
-  y += 34 + (wordLines.length - 1) * 15;
+  wordLines.forEach((value, index) => text(value, M + 9, y + 18 + index * 15, 9.5, true, NAVY));
+  y += wordsHeight;
   ["ผู้จัดทำ", "ผู้อนุมัติ", "ผู้รับคำสั่งซื้อ (ผู้จำหน่าย)"].forEach((label, index) => {
     const x = M + index * (signatureWidth + 18);
     text(label, x + signatureWidth / 2, y + 12, 9, true, NAVY, "center");
@@ -351,7 +395,7 @@ export async function buildPurchaseOrderDocument(order: PurchaseOrderDetail, loc
   for (const [index, page] of document.pages.entries()) {
     elements = page.elements;
     line(M, 809);
-    text(order.poNumber, M, 825, 7.5, false, MUTED);
+    text(documentNumber, M, 825, 7.5, false, MUTED);
     text(`หน้า ${index + 1} / ${document.pages.length}`, RIGHT, 825, 8, false, MUTED, "right");
   }
   return document;

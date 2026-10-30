@@ -102,6 +102,11 @@ enum PurchaseOrderChangeStatus {
   REJECTED
 }
 
+enum PurchaseOrderStatus {
+  ISSUED
+  CANCELLED
+}
+
 model User {
   id                            String                      @id @default(cuid())
   employeeCode                  String                      @unique
@@ -124,8 +129,12 @@ model User {
   uploadedAttachments           PurchaseRequestAttachment[] @relation("UploadedPurchaseRequestAttachments")
   recordedReceipts              PurchaseRequestReceipt[]
   createdPurchaseOrders         PurchaseOrder[]
+  deliveryPurchaseOrders        PurchaseOrder[]             @relation("PurchaseOrderDeliveryRecipient")
+  cancelledPurchaseOrders       PurchaseOrder[]             @relation("CancelledPurchaseOrders")
   submittedPurchaseOrderChanges PurchaseOrderChange[]       @relation("SubmittedPurchaseOrderChanges")
   reviewedPurchaseOrderChanges  PurchaseOrderChange[]       @relation("ReviewedPurchaseOrderChanges")
+  createdPurchaseOrderShares    PurchaseOrderShare[]        @relation("CreatedPurchaseOrderShares")
+  revokedPurchaseOrderShares    PurchaseOrderShare[]        @relation("RevokedPurchaseOrderShares")
 }
 
 model PurchaseRequest {
@@ -162,7 +171,9 @@ model PurchaseRequest {
   approvals               Approval[]
   attachments             PurchaseRequestAttachment[]
   receipts                PurchaseRequestReceipt[]
-  purchaseOrders          PurchaseOrder[]
+  primaryPurchaseOrders   PurchaseOrder[]                  @relation("PrimaryPurchaseRequest")
+  purchaseOrders          PurchaseOrder[]                  @relation("PurchaseOrderSources")
+  sourcedPurchaseOrderItems PurchaseOrderItem[]
 
   @@index([requesterId, status])
   @@index([department, status])
@@ -208,7 +219,7 @@ model PurchaseRequestItem {
   createdAt         DateTime                     @default(now())
   updatedAt         DateTime                     @updatedAt
   receiptItems      PurchaseRequestReceiptItem[]
-  purchaseOrderItem PurchaseOrderItem?
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@index([purchaseRequestId])
 }
@@ -251,10 +262,17 @@ model PurchaseOrder {
   id                    String                @id @default(cuid())
   poNumber              String                @unique
   purchaseRequestId     String
-  purchaseRequest       PurchaseRequest       @relation(fields: [purchaseRequestId], references: [id], onDelete: Restrict)
+  purchaseRequest       PurchaseRequest       @relation("PrimaryPurchaseRequest", fields: [purchaseRequestId], references: [id], onDelete: Restrict)
+  purchaseRequests      PurchaseRequest[]     @relation("PurchaseOrderSources")
   createdById           String
   createdBy             User                  @relation(fields: [createdById], references: [id], onDelete: Restrict)
   issuedAt              DateTime              @default(now())
+  status                PurchaseOrderStatus   @default(ISSUED)
+  cancelledAt           DateTime?
+  cancelledById         String?
+  cancelledBy           User?                 @relation("CancelledPurchaseOrders", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancellationReason    String?
+  cancellationReference String?
   buyerCompany          Json?
   supplierName          String
   supplierId            String?
@@ -266,6 +284,10 @@ model PurchaseOrder {
   supplierAddress       String?
   supplierContact       String?
   deliveryAddress       String?
+  deliveryRecipientId    String?
+  deliveryRecipient     User?                 @relation("PurchaseOrderDeliveryRecipient", fields: [deliveryRecipientId], references: [id], onDelete: SetNull)
+  deliveryRecipientName String?
+  deliveryRecipientPhone String?
   paymentTerms          String?
   expectedDeliveryDate  DateTime?
   note                  String?
@@ -279,10 +301,32 @@ model PurchaseOrder {
   createdAt             DateTime              @default(now())
   items                 PurchaseOrderItem[]
   changes               PurchaseOrderChange[]
+  share                 PurchaseOrderShare?
 
   @@index([purchaseRequestId, issuedAt])
   @@index([createdById])
   @@index([supplierId])
+  @@index([deliveryRecipientId])
+  @@index([status, issuedAt])
+  @@index([cancelledById])
+}
+
+model PurchaseOrderShare {
+  id              String        @id @default(cuid())
+  purchaseOrderId String        @unique
+  purchaseOrder   PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  token           String        @unique
+  supplierKey     String
+  createdById     String
+  createdBy       User          @relation("CreatedPurchaseOrderShares", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime      @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+  revokedById     String?
+  revokedBy       User?         @relation("RevokedPurchaseOrderShares", fields: [revokedById], references: [id], onDelete: SetNull)
+
+  @@index([createdById])
+  @@index([revokedById])
 }
 
 model PurchaseOrderChange {
@@ -341,7 +385,9 @@ model PurchaseOrderItem {
   id                    String              @id @default(cuid())
   purchaseOrderId       String
   purchaseOrder         PurchaseOrder       @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
-  purchaseRequestItemId String?             @unique
+  sourcePurchaseRequestId String
+  sourcePurchaseRequest PurchaseRequest     @relation(fields: [sourcePurchaseRequestId], references: [id], onDelete: Restrict)
+  purchaseRequestItemId String?
   purchaseRequestItem   PurchaseRequestItem? @relation(fields: [purchaseRequestItemId], references: [id], onDelete: Restrict)
   position              Int
   itemName              String
@@ -359,6 +405,8 @@ model PurchaseOrderItem {
   receiptItems          PurchaseRequestReceiptItem[]
 
   @@unique([purchaseOrderId, position])
+  @@index([purchaseRequestItemId])
+  @@index([sourcePurchaseRequestId, purchaseOrderId])
 }
 
 model PurchaseOrderNumberSequence {

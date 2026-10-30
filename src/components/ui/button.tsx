@@ -2,6 +2,8 @@ import * as React from "react"
 import { cva, type VariantProps } from "class-variance-authority"
 import { Slot } from "radix-ui"
 
+import { BusySpinner } from "@/components/ui/busy-spinner"
+import type { ActivityKind } from "@/components/loading/app-activity"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -46,10 +48,16 @@ function Button({
   variant = "default",
   size = "default",
   asChild = false,
+  loading = false,
+  loadingKind = "process",
+  disabled,
+  children,
   ...props
 }: React.ComponentProps<"button"> &
   VariantProps<typeof buttonVariants> & {
     asChild?: boolean
+    loading?: boolean
+    loadingKind?: ActivityKind
   }) {
   const Comp = asChild ? Slot.Root : "button"
 
@@ -58,9 +66,15 @@ function Button({
       data-slot="button"
       data-variant={variant}
       data-size={size}
+      data-loading={loading || undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
-    />
+      disabled={disabled || loading}
+      aria-busy={loading || props["aria-busy"] || undefined}
+    >
+      {loading ? <BusySpinner kind={loadingKind} /> : null}
+      {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : children}
+    </Comp>
   )
 }
 

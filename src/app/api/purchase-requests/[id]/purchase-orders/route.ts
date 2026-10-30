@@ -2,6 +2,7 @@ import { requireSession } from "@/server/auth/session";
 import { isPurchasing } from "@/server/auth/authorization";
 import { purchaseOrderConversionSchema } from "@/server/purchase-orders/purchase-order.schemas";
 import { convertPurchaseRequestToOrders } from "@/server/purchase-orders/purchase-order.service";
+import { PurchaseOrderPreviewChangedError } from "@/server/purchase-orders/purchase-order-creation.service";
 import { invariant, toErrorResponse } from "@/server/shared/errors";
 
 export async function POST(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -13,6 +14,9 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const purchaseOrders = await convertPurchaseRequestToOrders(id, session, payload);
     return Response.json({ purchaseOrders }, { status: 201 });
   } catch (error) {
+    if (error instanceof PurchaseOrderPreviewChangedError) {
+      return Response.json({ error: error.message, code: error.code }, { status: 409 });
+    }
     return toErrorResponse(error);
   }
 }

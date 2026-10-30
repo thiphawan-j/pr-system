@@ -1,4 +1,5 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
+import { DownloadButton } from "@/components/shared/download-button";
 import {
   ArrowLeft,
   Ban,
@@ -112,6 +113,7 @@ export default async function PurchaseRequestDetailPage({
     !request.receivedAt &&
     request.receipts.length === 0 &&
     !request.hasPendingPurchaseOrderChange &&
+    !request.hasSharedPurchaseOrder &&
     canHandleCancellation
   ) {
     cancellationMode = "CANCEL_ORDERED";
@@ -126,7 +128,7 @@ export default async function PurchaseRequestDetailPage({
   const canProgress =
     request.status === "APPROVED" &&
     (session.role === "PURCHASING" || session.role === "ADMIN");
-  const canConfirmReceipt = request.status === "ORDERED" && !request.hasPendingPurchaseOrderChange;
+  const canConfirmReceipt = request.status === "ORDERED" && !request.hasPendingPurchaseOrderChange && request.receivingItems.length > 0;
   const isPurchasing = session.role === "PURCHASING" || session.role === "ADMIN";
   const canCloseOutstanding =
     isPurchasing && request.receivingItems.some((item) => item.receivedQuantity > 0);
@@ -368,6 +370,29 @@ export default async function PurchaseRequestDetailPage({
             </CardContent>
           </Card>
 
+          {request.status === "ORDERED" && (request.orderableItemCount ?? 0) > 0 ? (
+            <Card className="border-primary/25" id="order-pending-items">
+              <CardHeader><CardTitle>{locale === "th" ? "รายการที่ยังรอเปิด PO" : "Items awaiting a PO"}</CardTitle></CardHeader>
+              <CardContent className="space-y-3">
+                <p className="text-sm text-muted-foreground">{locale === "th"
+                  ? `ยังมี ${request.orderableItemCount} รายการที่ไม่ได้เปิด PO รับของครบเฉพาะ PO ที่ออกแล้วจะยังไม่ปิด PR นี้`
+                  : `${request.orderableItemCount} items still await a PO. Receiving the issued orders does not complete this PR.`}</p>
+                {isPurchasing ? <div className="flex flex-wrap gap-2">
+                  <Button asChild><Link id="convert-remaining-pr-to-po" href={`/purchase-requests/${request.id}/purchase-orders/new`}>{locale === "th" ? "เปิด PO สำหรับรายการที่เหลือ" : "Order remaining items"}</Link></Button>
+                  <Button asChild variant="outline"><Link href={`/purchase-orders/new?requestId=${request.id}`}>{locale === "th" ? "รวมกับ PR ใบอื่น" : "Combine with other PRs"}</Link></Button>
+                </div> : null}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {request.hasSharedPurchaseOrder && canHandleCancellation ? (
+            <Alert className="border-border/70">
+              <CircleAlert className="size-4" />
+              <AlertTitle>{locale === "th" ? "PR นี้มี PO ที่รวมกับ PR ใบอื่น" : "This PR shares a PO with other requests"}</AlertTitle>
+              <AlertDescription>{locale === "th" ? "หากต้องการยกเลิกการสั่งซื้อ ให้เปิด PO แล้วเลือกยกเลิกเฉพาะ PO เพื่อเก็บ PR ต้นทางไว้" : "To cancel the order while retaining its source requests, open the PO and cancel that PO."}</AlertDescription>
+            </Alert>
+          ) : null}
+
           {request.purchaseOrders.length > 0 ? (
             <Card className="border-border/70">
               <CardHeader><CardTitle role="heading" aria-level={2}>{dictionary.purchaseOrders.linkedTitle}</CardTitle></CardHeader>
@@ -375,8 +400,10 @@ export default async function PurchaseRequestDetailPage({
                 {request.purchaseOrders.map((order) => (
                   <div key={order.id} className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-border/70 p-4">
                     <div className="min-w-0 space-y-1">
-                      <Link href={`/purchase-orders/${order.id}`} className="font-semibold text-primary underline underline-offset-4">{order.poNumber}</Link>
+                      {order.canView === false ? <p className="font-semibold">{order.poNumber}</p> : <Link href={`/purchase-orders/${order.id}`} className="font-semibold text-primary underline underline-offset-4">{order.poNumber}</Link>}
                       <p className="text-sm text-muted-foreground">{order.supplierName} · {formatDate(order.issuedAt, locale)}</p>
+                      {order.status === "CANCELLED" ? <p className="text-sm text-destructive">{locale === "th" ? "ยกเลิก PO แล้ว" : "PO cancelled"}</p> : null}
+                      {order.canView === false ? <p className="text-xs text-muted-foreground">{locale === "th" ? "แสดงยอดเฉพาะรายการใน PR นี้ การเปิด PO รวมต้องมีสิทธิ์ดู PR ต้นทางทุกใบ" : "Amount shown covers this PR only. Viewing the combined PO requires access to every source PR."}</p> : null}
                     </div>
                     <p className="font-medium tabular-nums">{formatCurrency(order.totalAmount, locale)}</p>
                   </div>
@@ -498,7 +525,7 @@ export default async function PurchaseRequestDetailPage({
           ) : null}
 
           {canApprove ? <ApprovalActionPanel requestId={request.id} /> : null}
-          {canProgress ? <PurchasingProgressPanel requestId={request.id} status={request.status} /> : null}
+          {canProgress ? <PurchasingProgressPanel requestId={request.id} status={request.status} allowExternalOrder={request.purchaseOrders.length === 0} /> : null}
           {canConfirmReceipt ? (
             <ReceiptConfirmationPanel
               key={request.receiptVersion}
@@ -574,12 +601,10 @@ export default async function PurchaseRequestDetailPage({
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
                     <AttachmentPreviewButton requestId={request.id} attachment={attachment} />
-                    <Button asChild variant="outline" size="sm" className="rounded-xl">
-                      <a href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}>
+                    <DownloadButton variant="outline" size="sm" className="rounded-xl" filename={attachment.originalName} href={`/api/purchase-requests/${request.id}/attachments/${attachment.id}`}>
                         <Download />
                         {dictionary.purchaseRequests.downloadAttachment}
-                      </a>
-                    </Button>
+                    </DownloadButton>
                   </div>
                 </div>
               )) : (

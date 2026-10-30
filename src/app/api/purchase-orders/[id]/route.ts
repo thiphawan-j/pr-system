@@ -22,7 +22,8 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     const payload = purchaseOrderChangeSchema.parse(await request.json());
     const order = await proposePurchaseOrderChange(id, session, payload);
     revalidatePath(`/purchase-orders/${id}`);
-    revalidatePath(`/purchase-requests/${order.purchaseRequest.id}`);
+    for (const source of order.purchaseRequests ?? [order.purchaseRequest]) revalidatePath(`/purchase-requests/${source.id}`);
+    revalidatePath("/purchase-orders/new");
     return Response.json(order);
   } catch (error) {
     return toErrorResponse(error);

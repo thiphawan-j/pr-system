@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 import { CheckCircle2, Clock3, ReceiptText, XCircle } from "lucide-react";
 
 import { MonthlySpendChart } from "@/components/dashboard/monthly-spend-chart";

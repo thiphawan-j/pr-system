@@ -59,6 +59,7 @@ test("the browser creates mixed VAT discounts and approves revised per-item and 
   await expect(page.locator("#po-preparation-total")).toContainText("182.97");
   const issuance = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/purchase-requests/${request.id}/purchase-orders`));
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const issuedResponse = await issuance;
   await expectStatus(issuedResponse, 201);
   const { purchaseOrders } = await issuedResponse.json() as { purchaseOrders: PurchaseOrderSummary[] };
@@ -166,6 +167,7 @@ test("creation keeps fully discounted items and rejects an order discount above 
   await expect(page.locator("#po-preparation-total")).toContainText("0.00");
   const issuance = page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith(`/purchase-requests/${request.id}/purchase-orders`));
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const response = await issuance;
   await expectStatus(response, 201);
   const { purchaseOrders } = await response.json() as { purchaseOrders: PurchaseOrderSummary[] };

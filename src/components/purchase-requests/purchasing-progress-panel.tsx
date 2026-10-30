@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useState } from "react";
+import Link from "@/components/loading/navigation-link";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -16,6 +16,7 @@ import type { PurchaseRequestStatus } from "@/lib/types";
 type PurchasingProgressPanelProps = {
   requestId: string;
   status: PurchaseRequestStatus;
+  allowExternalOrder?: boolean;
 };
 
 type PurchasingAction = "ORDERED" | "REQUEST_REVISION" | "REQUEST_CLARIFICATION";
@@ -23,11 +24,14 @@ type PurchasingAction = "ORDERED" | "REQUEST_REVISION" | "REQUEST_CLARIFICATION"
 export function PurchasingProgressPanel({
   requestId,
   status,
+  allowExternalOrder = true,
 }: PurchasingProgressPanelProps) {
   const router = useRouter();
   const [comment, setComment] = useState("");
   const [pendingAction, setPendingAction] = useState<PurchasingAction | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
   const { dictionary, locale } = useI18n();
 
   useEffect(() => {
@@ -35,38 +39,48 @@ export function PurchasingProgressPanel({
   }, [status]);
 
   function handleSubmit(action: PurchasingAction) {
+    if (pendingRef.current || busy) return;
     if (action !== "ORDERED" && !comment.trim()) {
       toast.error(dictionary.approval.purchasingCommentRequired);
       return;
     }
 
     setPendingAction(action);
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(`/api/purchase-requests/${requestId}/status`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          action,
-          comment,
-        }),
-      });
-      const payload = await response.json().catch(() => null);
-      setIsPending(false);
-      setPendingAction(null);
+      let saved = false;
+      try {
+        const response = await fetch(`/api/purchase-requests/${requestId}/status`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action,
+            comment,
+          }),
+        });
+        const payload = await response.json().catch(() => null);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.approval.updateError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.approval.updateError,
+          );
+          return;
+        }
+
+        saved = true;
+        toast.success(dictionary.approval.updateSuccess);
+        setComment("");
+        router.refresh();
+      } catch {
+        toast.error(dictionary.approval.updateError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
+        if (!saved) setPendingAction(null);
       }
-
-      toast.success(dictionary.approval.updateSuccess);
-      setComment("");
-      router.refresh();
     });
   }
 
@@ -81,6 +95,7 @@ export function PurchasingProgressPanel({
           <Textarea
             id="purchasing-comment"
             rows={4}
+            disabled={busy}
             value={comment}
             onChange={(event) => setComment(event.target.value)}
             placeholder={dictionary.approval.purchasingCommentPlaceholder}
@@ -93,7 +108,7 @@ export function PurchasingProgressPanel({
                 variant="outline"
                 size="sm"
                 className="rounded-full"
-                disabled={isPending}
+                disabled={busy}
                 onClick={() =>
                   setComment((currentComment) =>
                     currentComment ? `${currentComment}\n${example}` : example,
@@ -110,34 +125,38 @@ export function PurchasingProgressPanel({
             <Link
               id="convert-pr-to-po"
               href={`/purchase-requests/${requestId}/purchase-orders/new`}
-              aria-disabled={isPending}
-              tabIndex={isPending ? -1 : undefined}
-              onClick={(event) => { if (isPending) event.preventDefault(); }}
+              aria-disabled={busy}
+              tabIndex={busy ? -1 : undefined}
+              onClick={(event) => { if (busy) event.preventDefault(); }}
             >
               {dictionary.purchaseOrders.convert}
             </Link>
           </Button>
+          {allowExternalOrder ? <>
           <p className="text-xs text-muted-foreground">{dictionary.purchaseOrders.externalPoHint}</p>
           <Button
             type="button"
             variant="outline"
             className="rounded-xl"
-            disabled={isPending}
+            disabled={busy}
+            loading={busy && pendingAction === "ORDERED"}
             onClick={() => handleSubmit("ORDERED")}
           >
-            {isPending && pendingAction === "ORDERED"
+            {busy && pendingAction === "ORDERED"
               ? dictionary.common.saving
               : dictionary.approval.approvePo}
           </Button>
+          </> : null}
           <div className="grid gap-2 sm:grid-cols-2">
             <Button
               type="button"
               variant="secondary"
               className="rounded-xl"
-              disabled={isPending}
-              onClick={() => handleSubmit("REQUEST_CLARIFICATION")}
+              disabled={busy}
+              loading={busy && pendingAction === "REQUEST_CLARIFICATION"}
+            onClick={() => handleSubmit("REQUEST_CLARIFICATION")}
             >
-              {isPending && pendingAction === "REQUEST_CLARIFICATION"
+              {busy && pendingAction === "REQUEST_CLARIFICATION"
                 ? dictionary.common.saving
                 : dictionary.approval.requestClarification}
             </Button>
@@ -145,10 +164,11 @@ export function PurchasingProgressPanel({
               type="button"
               variant="destructive"
               className="rounded-xl"
-              disabled={isPending}
-              onClick={() => handleSubmit("REQUEST_REVISION")}
+              disabled={busy}
+              loading={busy && pendingAction === "REQUEST_REVISION"}
+            onClick={() => handleSubmit("REQUEST_REVISION")}
             >
-              {isPending && pendingAction === "REQUEST_REVISION"
+              {busy && pendingAction === "REQUEST_REVISION"
                 ? dictionary.common.saving
                 : dictionary.approval.requestRevision}
             </Button>

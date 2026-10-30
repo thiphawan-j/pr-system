@@ -59,6 +59,7 @@ async function submitOrders(page: Page, request: PurchaseRequestDetail) {
     candidate.url().endsWith(`/purchase-requests/${request.id}/purchase-orders`) && candidate.request().method() === "POST",
   );
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const issued = await response;
   await expectStatus(issued, 201);
   return {
@@ -74,7 +75,8 @@ async function getOrder(page: Page, id: string) {
 }
 
 function isConversion(requestId: string, request: { url(): string; method(): string }) {
-  return request.url().endsWith(`/purchase-requests/${requestId}/purchase-orders`) && request.method() === "POST";
+  const endpoint = `/purchase-requests/${requestId}/purchase-orders`;
+  return request.method() === "POST" && [endpoint, `${endpoint}/preview`].some((path) => request.url().endsWith(path));
 }
 
 test("one editable supplier field searches by name and code and explicitly selects a registered supplier", async ({ page }) => {
@@ -151,7 +153,7 @@ test("new typed supplier names group by normalized spelling and create manual PO
   }
   const { orders, payload } = await submitOrders(page, request);
   expect(orders).toHaveLength(1);
-  expect(payload.orders).toEqual([{ supplierName: name, itemIds: request.items.map((item) => item.id), taxMode: "UNSPECIFIED", vatRate: 7 }]);
+  expect(payload.orders).toEqual([{ supplierName: name, deliveryRecipientId: request.requester.id, itemIds: request.items.map((item) => item.id), taxMode: "UNSPECIFIED", vatRate: 7 }]);
   const document = await getOrder(page, orders[0]!.id);
   expect(document.supplierId).toBeNull();
   expect(document.supplierName).toBe(name);
@@ -179,7 +181,7 @@ test("editing a registered choice clears its identity and headers even when the 
   await page.locator("#po-supplier-address-0").fill("Manually supplied address");
   const { orders, payload } = await submitOrders(page, request);
   expect(payload.orders).toEqual([{
-    supplierName: supplier.name, itemIds: [request.items[0]!.id], supplierAddress: "Manually supplied address",
+    supplierName: supplier.name, deliveryRecipientId: request.requester.id, itemIds: [request.items[0]!.id], supplierAddress: "Manually supplied address",
     taxMode: "UNSPECIFIED", vatRate: 7,
   }]);
   const document = await getOrder(page, orders[0]!.id);
@@ -249,7 +251,8 @@ test("refreshing after a selected supplier is deactivated blocks issuance instea
   await selectSupplier(page, request.items[0]!.id, supplier);
   await deactivateSupplier(page, supplier);
   await page.locator("#refresh-po-suppliers").click();
-  await expect(page.locator("#refresh-po-suppliers")).toHaveAttribute("aria-busy", "false");
+  await expect(page.locator("#refresh-po-suppliers")).toBeEnabled();
+  await expect(page.locator("#refresh-po-suppliers")).not.toHaveAttribute("aria-busy", "true");
   await expect(page.locator(`#${inputId}-selection`)).toContainText(/ไม่พร้อมใช้งาน|unavailable/i);
   let submitted = 0;
   page.on("request", (candidate) => { if (isConversion(request.id, candidate)) submitted += 1; });

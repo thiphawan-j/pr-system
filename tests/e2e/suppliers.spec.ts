@@ -429,6 +429,7 @@ test("registered supplier selection prefills locked PO headers and issues all co
   for (const contact of supplier.contacts) await expect(page.locator("#po-supplier-contacts-0")).toContainText(contact.value);
   const conversion = page.waitForResponse((response) => response.url().endsWith(`/purchase-requests/${request.id}/purchase-orders`) && response.request().method() === "POST");
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const response = await conversion;
   const posted = response.request().postDataJSON() as { orders: Array<Record<string, unknown>> };
   expect(posted.orders).toHaveLength(1);

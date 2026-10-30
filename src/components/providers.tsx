@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ThemeProvider } from "next-themes";
 
 import { I18nProvider } from "@/components/i18n/i18n-provider";
+import { AppActivityProvider } from "@/components/loading/app-activity";
 import { Toaster } from "@/components/ui/sonner";
 import {
   getDictionary,
@@ -30,15 +31,17 @@ export function Providers({ children, locale, dictionary }: ProvidersProps) {
       dictionary={currentLocale === locale ? dictionary : getDictionary(currentLocale)}
       setLocale={setCurrentLocale}
     >
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        enableSystem
-        disableTransitionOnChange
-      >
-        {children}
-        <Toaster richColors position="top-right" />
-      </ThemeProvider>
+      <AppActivityProvider>
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="dark"
+          enableSystem
+          disableTransitionOnChange
+        >
+          {children}
+          <Toaster richColors position="top-right" />
+        </ThemeProvider>
+      </AppActivityProvider>
     </I18nProvider>
   );
 }

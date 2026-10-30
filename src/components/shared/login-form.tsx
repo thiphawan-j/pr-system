@@ -1,9 +1,9 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Loader2, LockKeyhole, UserRound } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { LockKeyhole, UserRound } from "lucide-react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -35,7 +35,9 @@ export function LoginForm({
   redirectTo = "/dashboard",
 }: LoginFormProps) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
@@ -48,29 +50,37 @@ export function LoginForm({
   });
 
   function onSubmit(values: LoginFormValues) {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch("/api/auth/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      });
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
 
-      const payload = await response.json().catch(() => null);
-      setIsPending(false);
+        const payload = await response.json().catch(() => null);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.auth.signInError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.auth.signInError,
+          );
+          return;
+        }
+
+        toast.success(dictionary.auth.signInSuccess);
+        router.replace(getLoginDestination(redirectTo));
+        router.refresh();
+      } catch {
+        toast.error(dictionary.auth.signInError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(dictionary.auth.signInSuccess);
-      router.replace(getLoginDestination(redirectTo));
-      router.refresh();
     });
   }
 
@@ -123,8 +133,7 @@ export function LoginForm({
             ) : null}
           </div>
 
-          <Button type="submit" className="w-full rounded-xl py-6" disabled={isPending}>
-            {isPending ? <Loader2 className="animate-spin" /> : null}
+          <Button type="submit" className="w-full rounded-xl py-6" loading={isPending}>
             {isPending ? dictionary.auth.signingIn : dictionary.auth.signIn}
           </Button>
         </form>

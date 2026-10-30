@@ -29,9 +29,9 @@ export function PrintPurchaseOrderButton() {
   }
 
   return (
-    <Button id="print-purchase-order" type="button" className="rounded-xl" disabled={isPreparing} aria-busy={isPreparing} onClick={print}>
-      <Printer />
-      {dictionary.purchaseOrders.print}
+    <Button id="print-purchase-order" type="button" className="rounded-xl" loading={isPreparing} disabled={isPreparing} aria-busy={isPreparing} onClick={print}>
+      {!isPreparing ? <Printer /> : null}
+      {isPreparing ? dictionary.common.loading : dictionary.purchaseOrders.print}
     </Button>
   );
 }

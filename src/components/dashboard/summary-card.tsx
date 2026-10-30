@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";

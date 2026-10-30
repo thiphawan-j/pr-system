@@ -1,4 +1,4 @@
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 
 import { Button } from "@/components/ui/button";
 import { getCurrentDictionary } from "@/server/i18n";

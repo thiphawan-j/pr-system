@@ -154,6 +154,7 @@ test("creating and amending a PO through VAT controls records mixed item taxes a
   await expect(page.locator("#po-preparation-total")).toContainText("214.00");
   const issuance = page.waitForResponse((response) => response.url().endsWith(`/api/purchase-requests/${request.id}/purchase-orders`) && response.request().method() === "POST");
   await page.locator("#create-purchase-orders").click();
+  await page.locator("#confirm-create-purchase-orders").click();
   const issuedResponse = await issuance;
   await expectStatus(issuedResponse, 201);
   const { purchaseOrders } = await issuedResponse.json() as { purchaseOrders: PurchaseOrderSummary[] };

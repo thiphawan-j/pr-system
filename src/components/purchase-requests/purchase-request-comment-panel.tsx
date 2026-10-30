@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -28,40 +28,50 @@ export function PurchaseRequestCommentPanel({
   const { dictionary, locale } = useI18n();
   const [comment, setComment] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
 
   function handleSubmit() {
+    if (pendingRef.current || busy) return;
     const trimmedComment = comment.trim();
 
     if (!trimmedComment) {
       return;
     }
 
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(
-        `/api/purchase-requests/${requestId}/comments`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      try {
+        const response = await fetch(
+          `/api/purchase-requests/${requestId}/comments`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ comment: trimmedComment }),
           },
-          body: JSON.stringify({ comment: trimmedComment }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      setIsPending(false);
-
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ??
-            dictionary.approval.commentError,
         );
-        return;
-      }
+        const payload = await response.json().catch(() => null);
 
-      setComment("");
-      toast.success(dictionary.approval.commentSaved);
-      router.refresh();
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ??
+              dictionary.approval.commentError,
+          );
+          return;
+        }
+
+        setComment("");
+        toast.success(dictionary.approval.commentSaved);
+        router.refresh();
+      } catch {
+        toast.error(dictionary.approval.commentError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
+      }
     });
   }
 
@@ -82,6 +92,7 @@ export function PurchaseRequestCommentPanel({
             id="purchase-request-comment"
             rows={4}
             maxLength={2000}
+            disabled={busy}
             value={comment}
             onChange={(event) => setComment(event.target.value)}
             placeholder={dictionary.approval.commentPlaceholder}
@@ -90,10 +101,11 @@ export function PurchaseRequestCommentPanel({
         <Button
           type="button"
           className="w-full rounded-xl"
-          disabled={isPending || !comment.trim()}
+          loading={busy}
+          disabled={busy || !comment.trim()}
           onClick={handleSubmit}
         >
-          {isPending
+          {busy
             ? dictionary.common.saving
             : dictionary.approval.addComment}
         </Button>

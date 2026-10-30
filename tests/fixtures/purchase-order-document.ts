@@ -98,3 +98,21 @@ export function discountDocumentFixture(): PurchaseOrderDetail {
     })),
   };
 }
+
+/** Matches the user's PO screenshot: 12 bottles at 105, then 20 + 100 THB discounts. */
+export function screenshotDiscountDocumentFixture(): PurchaseOrderDetail {
+  const order = discountDocumentFixture();
+  return {
+    ...order,
+    poNumber: "PO-DISPLAY-1260",
+    note: null,
+    discountType: "AMOUNT",
+    discountValue: 100,
+    totalAmount: 1219.8,
+    items: [{
+      ...order.items[0]!, itemName: "น้ำยาทำความสะอาดพื้น", description: "ข้อมูลตัวอย่างสำหรับทดสอบขั้นตอนอนุมัติในระบบ local",
+      quantity: 12, unit: "ขวด", unitPrice: 105, amount: 1260,
+      discountType: "AMOUNT", discountValue: 20, orderDiscountAmount: 100,
+    }],
+  };
+}

@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { Ban, Check, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
@@ -55,6 +55,8 @@ export function PurchaseRequestCancellationPanel({
   const [reasonError, setReasonError] = useState<string | null>(null);
   const [referenceError, setReferenceError] = useState<string | null>(null);
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
 
   const isOrderedCancellation = mode === "CANCEL_ORDERED";
   const requiresReason =
@@ -71,12 +73,13 @@ export function PurchaseRequestCancellationPanel({
   }
 
   function closeDialog() {
-    if (!isPending) {
+    if (!busy) {
       resetDialog();
     }
   }
 
   function openDialog(action: CancellationAction) {
+    if (pendingRef.current || busy) return;
     setReason("");
     setCancellationReference("");
     setReasonError(null);
@@ -103,10 +106,12 @@ export function PurchaseRequestCancellationPanel({
   }
 
   function handleSubmit() {
+    if (pendingRef.current || busy) return;
     if (!dialogAction || !validate()) {
       return;
     }
 
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
       try {
@@ -168,6 +173,7 @@ export function PurchaseRequestCancellationPanel({
             : dictionary.cancellation.updateError,
         );
       } finally {
+        pendingRef.current = false;
         setIsPending(false);
       }
     });
@@ -229,6 +235,7 @@ export function PurchaseRequestCancellationPanel({
                 type="button"
                 variant="destructive"
                 className="rounded-xl"
+                disabled={busy}
                 onClick={() => openDialog("CONFIRM")}
               >
                 <Check />
@@ -238,6 +245,7 @@ export function PurchaseRequestCancellationPanel({
                 type="button"
                 variant="outline"
                 className="rounded-xl"
+                disabled={busy}
                 onClick={() => openDialog("REJECT")}
               >
                 <X />
@@ -249,6 +257,7 @@ export function PurchaseRequestCancellationPanel({
               type="button"
               variant="destructive"
               className="w-full rounded-xl"
+              disabled={busy}
               onClick={() => openDialog(singleAction)}
             >
               {singleAction === "DELETE" ? <Trash2 /> : <Ban />}
@@ -296,6 +305,7 @@ export function PurchaseRequestCancellationPanel({
                 </Label>
                 <Textarea
                   id="cancellation-reason"
+                  disabled={busy}
                   rows={4}
                   autoFocus
                   required={requiresReason}
@@ -336,6 +346,7 @@ export function PurchaseRequestCancellationPanel({
                   </Label>
                   <Input
                     id="cancellation-reference"
+                    disabled={busy}
                     required
                     aria-required="true"
                     maxLength={200}
@@ -368,7 +379,7 @@ export function PurchaseRequestCancellationPanel({
             <Button
               type="button"
               variant="outline"
-              disabled={isPending}
+              disabled={busy}
               onClick={closeDialog}
             >
               {mode === "REVIEW"
@@ -378,10 +389,11 @@ export function PurchaseRequestCancellationPanel({
             <Button
               type="button"
               variant={dialogAction === "REJECT" ? "default" : "destructive"}
-              disabled={isPending}
+              loading={busy}
+              disabled={busy}
               onClick={handleSubmit}
             >
-              {isPending
+              {busy
                 ? dictionary.common.saving
                 : dialogAction === "DELETE"
                   ? dictionary.cancellation.deleteDraft

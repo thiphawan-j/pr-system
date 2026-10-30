@@ -1,8 +1,8 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { KeyRound, Loader2 } from "lucide-react";
-import { startTransition, useState } from "react";
+import { KeyRound } from "lucide-react";
+import { startTransition, useRef, useState } from "react";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -32,6 +32,7 @@ const defaultValues: ChangePasswordFormValues = {
 
 export function ChangePasswordForm() {
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
   const { dictionary, locale } = useI18n();
   const form = useForm<
     ChangePasswordFormValues,
@@ -43,29 +44,37 @@ export function ChangePasswordForm() {
   });
 
   function onSubmit(values: ChangePasswordPayload) {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch("/api/users/me/password", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      });
-      const payload = await response.json().catch(() => null);
+      try {
+        const response = await fetch("/api/users/me/password", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
+        const payload = await response.json().catch(() => null);
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ??
-            dictionary.profile.changePasswordError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ??
+              dictionary.profile.changePasswordError,
+          );
+          return;
+        }
+
+        toast.success(dictionary.profile.changePasswordSuccess);
+        form.reset(defaultValues);
+      } catch {
+        toast.error(dictionary.profile.changePasswordError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(dictionary.profile.changePasswordSuccess);
-      form.reset(defaultValues);
     });
   }
 
@@ -152,10 +161,10 @@ export function ChangePasswordForm() {
           <div className="md:col-span-2">
             <Button
               type="submit"
-              disabled={isPending}
+              loading={isPending}
               className="w-full rounded-xl sm:w-auto"
             >
-              {isPending ? <Loader2 className="animate-spin" /> : <KeyRound />}
+              {!isPending ? <KeyRound /> : null}
               {isPending
                 ? dictionary.profile.changingPassword
                 : dictionary.profile.changePassword}

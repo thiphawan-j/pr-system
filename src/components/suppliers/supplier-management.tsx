@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useState, useSyncExternalStore } from "react";
+import Link from "@/components/loading/navigation-link";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -26,14 +26,20 @@ export function SupplierManagement({ data, query, status }: { data: SupplierList
   const [isPending, setIsPending] = useState(false);
   function href(page: number) { return `/suppliers?${new URLSearchParams({ query, status, page: String(page) })}`; }
   function open(supplier: SupplierDetail | null) { setEditing(supplier); setIsOpen(true); }
+  function search(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (router.isPending) return;
+    const values = new FormData(event.currentTarget);
+    router.push(`/suppliers?${new URLSearchParams({ query: String(values.get("query") ?? ""), status: String(values.get("status") ?? "ALL"), page: "1" })}`);
+  }
   return (
     <>
-      <div className="flex justify-end"><Button id="create-supplier" type="button" disabled={!mounted} onClick={() => open(null)}>{labels.create}</Button></div>
+      <div className="flex justify-end"><Button id="create-supplier" type="button" disabled={!mounted || router.isPending} onClick={() => open(null)}>{labels.create}</Button></div>
       <Card className="border-border/70"><CardContent className="pt-4">
-        <form className="grid gap-4 sm:grid-cols-[1fr_auto_auto]">
+        <form className="grid gap-4 sm:grid-cols-[1fr_auto_auto]" onSubmit={search}>
           <div className="space-y-2"><Label htmlFor="supplier-query">{labels.search}</Label><Input id="supplier-query" name="query" defaultValue={query} maxLength={200} /></div>
           <div className="space-y-2"><Label htmlFor="supplier-status">{dictionary.common.status}</Label><select id="supplier-status" name="status" defaultValue={status} className="h-8 rounded-lg border border-input bg-background px-3 text-sm"><option value="ALL">{labels.all}</option><option value="ACTIVE">{labels.active}</option><option value="INACTIVE">{labels.inactive}</option></select></div>
-          <Button type="submit" className="self-end">{dictionary.common.search}</Button>
+          <Button type="submit" className="self-end" loading={router.isPending} loadingKind="navigation">{dictionary.common.search}</Button>
         </form>
       </CardContent></Card>
       <Card className="border-border/70"><CardContent className="pt-4">
@@ -44,7 +50,7 @@ export function SupplierManagement({ data, query, status }: { data: SupplierList
             <TableCell className="whitespace-normal"><p>{supplier.name}</p>{supplier.contactPerson ? <p className="text-xs text-muted-foreground">{supplier.contactPerson}</p> : null}</TableCell>
             <TableCell className="whitespace-normal">{supplier.contacts.map((contact) => <p key={contact.channel} className="break-words text-sm">{labels[contact.channel]}: {contact.value}</p>)}</TableCell>
             <TableCell><Badge variant="outline">{supplier.isActive ? labels.active : labels.inactive}</Badge></TableCell>
-            <TableCell><Button type="button" variant="outline" size="sm" disabled={!mounted} aria-label={`${dictionary.common.edit} ${supplier.code}`} onClick={() => open(supplier)}>{dictionary.common.edit}</Button></TableCell>
+            <TableCell><Button type="button" variant="outline" size="sm" disabled={!mounted || router.isPending} aria-label={`${dictionary.common.edit} ${supplier.code}`} onClick={() => open(supplier)}>{dictionary.common.edit}</Button></TableCell>
           </TableRow>)}</TableBody>
         </Table> : <p className="py-8 text-center text-muted-foreground">{labels.empty}</p>}
       </CardContent></Card>

@@ -31,7 +31,8 @@ export function SupplierForm({ supplier, onSaved, onReloaded, onPendingChange }:
     Object.fromEntries(supplier?.contacts.map((contact) => [contact.channel, contact.value]) ?? []),
   );
   const [isActive, setIsActive] = useState(supplier?.isActive ?? true);
-  const [isPending, setIsPending] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"save" | "reload" | null>(null);
+  const isPending = pendingAction !== null;
   const [error, setError] = useState<string | null>(null);
   const [hasConflict, setHasConflict] = useState(false);
   const pendingRef = useRef(false);
@@ -46,7 +47,7 @@ export function SupplierForm({ supplier, onSaved, onReloaded, onPendingChange }:
     const missing = selected.find((channel) => !values[channel]?.trim());
     if (missing) { setError(labels.contactRequired); contactRefs.current[missing]?.focus(); return; }
     pendingRef.current = true;
-    setIsPending(true);
+    setPendingAction("save");
     onPendingChange(true);
     setError(null);
     try {
@@ -67,13 +68,13 @@ export function SupplierForm({ supplier, onSaved, onReloaded, onPendingChange }:
       }
       onSaved();
     } catch { setError(labels.saveError); }
-    finally { pendingRef.current = false; setIsPending(false); onPendingChange(false); }
+    finally { pendingRef.current = false; setPendingAction(null); onPendingChange(false); }
   }
 
   async function reloadLatest() {
     if (!supplier || pendingRef.current) return;
     pendingRef.current = true;
-    setIsPending(true);
+    setPendingAction("reload");
     onPendingChange(true);
     try {
       const response = await fetch(`/api/suppliers/${supplier.id}`);
@@ -81,7 +82,7 @@ export function SupplierForm({ supplier, onSaved, onReloaded, onPendingChange }:
       if (!response.ok) { setError(translateMessage(payload?.error, locale) ?? labels.loadError); return; }
       onReloaded(payload as SupplierDetail);
     } catch { setError(labels.loadError); }
-    finally { pendingRef.current = false; setIsPending(false); onPendingChange(false); }
+    finally { pendingRef.current = false; setPendingAction(null); onPendingChange(false); }
   }
 
   return (
@@ -109,8 +110,8 @@ export function SupplierForm({ supplier, onSaved, onReloaded, onPendingChange }:
       <div className="space-y-2"><Label htmlFor="supplier-note">{labels.note}</Label><Textarea id="supplier-note" maxLength={2000} disabled={isPending} value={fields.note} onChange={(event) => setFields((current) => ({ ...current, note: event.target.value }))} /></div>
       {supplier ? <Label htmlFor="supplier-is-active" className="flex items-center gap-2"><input id="supplier-is-active" type="checkbox" className="size-4 accent-primary" disabled={isPending} checked={isActive} onChange={(event) => setIsActive(event.target.checked)} />{labels.active}</Label> : null}
       {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
-      {hasConflict ? <Button id="reload-supplier" type="button" variant="outline" disabled={isPending} onClick={reloadLatest}>{labels.reloadLatest}</Button> : null}
-      <Button id="save-supplier" type="submit" className="w-full" disabled={isPending} aria-busy={isPending}>{isPending ? dictionary.common.saving : labels.save}</Button>
+      {hasConflict ? <Button id="reload-supplier" type="button" variant="outline" disabled={isPending} loading={pendingAction === "reload"} onClick={reloadLatest}>{pendingAction === "reload" ? dictionary.common.loading : labels.reloadLatest}</Button> : null}
+      <Button id="save-supplier" type="submit" className="w-full" disabled={isPending} loading={pendingAction === "save"}>{pendingAction === "save" ? dictionary.common.saving : labels.save}</Button>
     </form>
   );
 }

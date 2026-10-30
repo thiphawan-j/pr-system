@@ -1,3 +1,27 @@
+import type { PurchaseOrderDetail } from "@/lib/types";
+
+type DocumentSource = Pick<PurchaseOrderDetail["purchaseRequest"], "id" | "prNumber" | "status">;
+
+/** Only the issued commercial fields needed by the supplier-facing document. */
+export type PurchaseOrderDocumentData = Pick<PurchaseOrderDetail,
+  | "status" | "poNumber" | "issuedAt" | "revision" | "totalAmount"
+  | "taxMode" | "vatRate" | "discountType" | "discountValue" | "buyerCompany"
+  | "supplierName" | "supplierCode" | "supplierTaxId" | "supplierAddress"
+  | "supplierContactPerson" | "supplierContacts" | "supplierContact"
+  | "deliveryAddress" | "deliveryRecipientName" | "deliveryRecipientPhone"
+  | "expectedDeliveryDate" | "paymentTerms" | "note"
+> & {
+  createdBy: Pick<PurchaseOrderDetail["createdBy"], "name">;
+  purchaseRequest: DocumentSource;
+  purchaseRequests?: DocumentSource[];
+  pendingChangeId?: string | null;
+  items: Array<Pick<PurchaseOrderDetail["items"][number],
+    | "sourcePurchaseRequestId" | "sourcePrNumber" | "itemName" | "description"
+    | "quantity" | "unit" | "unitPrice" | "amount" | "taxMode"
+    | "discountType" | "discountValue" | "orderDiscountAmount"
+  >>;
+};
+
 /** Shared, serializable A4 layout. Coordinates are PDF points from the top left. */
 export type PurchaseOrderDocumentText = {
   type: "text";

@@ -33,6 +33,8 @@ function Snapshot({ value, title }: { value: PurchaseOrderSnapshot; title: strin
     ...value.supplierContacts.map((contact): [string, ReactNode] => [dictionary.suppliers[contact.channel], contact.value]),
     [labels.supplierContact, value.supplierContact],
     [labels.deliveryAddress, value.deliveryAddress],
+    [labels.deliveryRecipient, value.deliveryRecipientName],
+    [labels.deliveryRecipientPhone, value.deliveryRecipientPhone],
     [labels.paymentTerms, value.paymentTerms],
     [labels.expectedDeliveryDate, value.expectedDeliveryDate ? formatDate(value.expectedDeliveryDate, locale) : null],
     [labels.note, value.note],
@@ -50,6 +52,7 @@ function Snapshot({ value, title }: { value: PurchaseOrderSnapshot; title: strin
         <TableHeader><TableRow><TableHead>{dictionary.purchaseRequests.itemList}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.quantityUnit}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.unitPrice}</TableHead><TableHead className="text-right">{dictionary.purchaseRequests.lineTotal}</TableHead></TableRow></TableHeader>
         <TableBody>{value.items.map((item, index) => <TableRow key={item.id ?? index}>
           <TableCell className="min-w-40 whitespace-normal align-top"><p className="font-medium break-words">{item.itemName}</p>{item.description ? <p className="mt-1 whitespace-pre-wrap break-words text-muted-foreground">{item.description}</p> : null}<p className="mt-1 text-xs text-muted-foreground">{item.taxMode == null ? `${taxLabels.inherit}: ` : ""}{modeLabel(item.taxMode ?? taxMode)}</p>
+            {item.sourcePrNumber ? <p className="mt-1 text-xs text-muted-foreground">{dictionary.poCombined.source}: {item.sourcePrNumber}</p> : null}
             {(item.discountType ?? "NONE") !== "NONE" || (item.discountValue ?? 0) !== 0 ? <p className="mt-1 text-xs text-muted-foreground">{discountLabels.lineTitle}: {discountDescription(item.discountType, item.discountValue)} = {formatCurrency(taxSummary.lines[index]!.itemDiscountAmount, locale)}</p> : null}
             {(value.discountType ?? "NONE") !== "NONE" || (value.discountValue ?? 0) !== 0 || (item.orderDiscountAmount ?? 0) !== 0 ? <p className="mt-1 text-xs text-muted-foreground">{discountLabels.orderDiscountAmount}: {formatCurrency(taxSummary.lines[index]!.orderDiscountAmount, locale)}</p> : null}
           </TableCell>

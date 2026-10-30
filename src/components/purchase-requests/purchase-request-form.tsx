@@ -1,14 +1,17 @@
 "use client";
 
+import { DownloadButton } from "@/components/shared/download-button";
+
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Download, FileText, Paperclip, Plus, Trash2, X } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
 import {
   startTransition,
   type ClipboardEvent,
   type DragEvent,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
@@ -73,6 +76,9 @@ export function PurchaseRequestForm({
 }: PurchaseRequestFormProps) {
   const router = useRouter();
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const [pendingIntent, setPendingIntent] = useState<boolean | null>(null);
+  const busy = isPending || router.isPending;
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isDraggingAttachments, setIsDraggingAttachments] = useState(false);
   const [existingAttachments, setExistingAttachments] = useState(
@@ -212,93 +218,114 @@ export function PurchaseRequestForm({
   }
 
   function removeExistingAttachment(attachmentId: string) {
-    if (!initialData) {
-      return;
-    }
-
+    if (!initialData || pendingRef.current || busy || deletingAttachmentId) return;
+    pendingRef.current = true;
     setDeletingAttachmentId(attachmentId);
     startTransition(async () => {
-      const response = await fetch(
-        `/api/purchase-requests/${initialData.id}/attachments/${attachmentId}`,
-        {
-          method: "DELETE",
-        },
-      );
-      const responsePayload = await response.json().catch(() => null);
-      setDeletingAttachmentId(null);
-
-      if (!response.ok) {
-        toast.error(
-          translateMessage(responsePayload?.error, locale) ??
-            dictionary.purchaseRequests.deleteAttachmentError,
+      try {
+        const response = await fetch(
+          `/api/purchase-requests/${initialData.id}/attachments/${attachmentId}`,
+          {
+            method: "DELETE",
+          },
         );
-        return;
-      }
-
-      setExistingAttachments((currentAttachments) =>
-        currentAttachments.filter((attachment) => attachment.id !== attachmentId),
-      );
-      toast.success(dictionary.purchaseRequests.deleteAttachmentSuccess);
-      router.refresh();
-    });
-  }
-
-  function submit(submit: boolean) {
-    form.setValue("submit", submit);
-    form.handleSubmit((values: PurchaseRequestFormPayload) => {
-      setIsPending(true);
-      startTransition(async () => {
-        const url =
-          mode === "edit" && requestId
-            ? `/api/purchase-requests/${requestId}`
-            : "/api/purchase-requests";
-        const payload = {
-          ...values,
-          submit,
-          items: values.items.map(
-            (item: PurchaseRequestFormPayload["items"][number]) => ({
-              ...item,
-              amount: Number((item.quantity * (item.unitPrice ?? 0)).toFixed(2)),
-            }),
-          ),
-        };
-        const formData = new FormData();
-
-        formData.append("payload", JSON.stringify(payload));
-        attachmentFiles.forEach((file) => {
-          formData.append("attachments", file);
-        });
-
-        const response = await fetch(url, {
-          method: mode === "edit" ? "PATCH" : "POST",
-          body: formData,
-        });
         const responsePayload = await response.json().catch(() => null);
-        setIsPending(false);
 
         if (!response.ok) {
           toast.error(
             translateMessage(responsePayload?.error, locale) ??
-              dictionary.purchaseRequests.saveError,
+              dictionary.purchaseRequests.deleteAttachmentError,
           );
           return;
         }
 
-        toast.success(
-          submit
-            ? isPurchasingReturnEdit
-              ? dictionary.purchaseRequests.resubmittedToPurchasing
-              : dictionary.purchaseRequests.submittedSaved
-            : dictionary.purchaseRequests.draftSaved,
+        setExistingAttachments((currentAttachments) =>
+          currentAttachments.filter((attachment) => attachment.id !== attachmentId),
         );
-        router.push(`/purchase-requests/${responsePayload.id}`);
+        toast.success(dictionary.purchaseRequests.deleteAttachmentSuccess);
         router.refresh();
+      } catch {
+        toast.error(dictionary.purchaseRequests.deleteAttachmentError);
+      } finally {
+        pendingRef.current = false;
+        setDeletingAttachmentId(null);
+      }
+    });
+  }
+
+  function submit(submit: boolean) {
+    if (pendingRef.current || busy || deletingAttachmentId) return;
+    pendingRef.current = true;
+    form.setValue("submit", submit);
+    void form.handleSubmit((values: PurchaseRequestFormPayload) => {
+      setPendingIntent(submit);
+      setIsPending(true);
+      startTransition(async () => {
+        let saved = false;
+        try {
+          const url =
+            mode === "edit" && requestId
+              ? `/api/purchase-requests/${requestId}`
+              : "/api/purchase-requests";
+          const payload = {
+            ...values,
+            submit,
+            items: values.items.map(
+              (item: PurchaseRequestFormPayload["items"][number]) => ({
+                ...item,
+                amount: Number((item.quantity * (item.unitPrice ?? 0)).toFixed(2)),
+              }),
+            ),
+          };
+          const formData = new FormData();
+
+          formData.append("payload", JSON.stringify(payload));
+          attachmentFiles.forEach((file) => {
+            formData.append("attachments", file);
+          });
+
+          const response = await fetch(url, {
+            method: mode === "edit" ? "PATCH" : "POST",
+            body: formData,
+          });
+          const responsePayload = await response.json().catch(() => null);
+
+          if (!response.ok) {
+            toast.error(
+              translateMessage(responsePayload?.error, locale) ??
+                dictionary.purchaseRequests.saveError,
+            );
+            return;
+          }
+
+          saved = true;
+          toast.success(
+            submit
+              ? isPurchasingReturnEdit
+                ? dictionary.purchaseRequests.resubmittedToPurchasing
+                : dictionary.purchaseRequests.submittedSaved
+              : dictionary.purchaseRequests.draftSaved,
+          );
+          router.push(`/purchase-requests/${responsePayload.id}`);
+          router.refresh();
+        } catch {
+          toast.error(dictionary.purchaseRequests.saveError);
+        } finally {
+          pendingRef.current = false;
+          setIsPending(false);
+          if (!saved) setPendingIntent(null);
+        }
       });
-    })();
+    }, () => { pendingRef.current = false; })().catch(() => {
+      pendingRef.current = false;
+      setIsPending(false);
+      setPendingIntent(null);
+      toast.error(dictionary.purchaseRequests.saveError);
+    });
   }
 
   return (
-    <div className="space-y-6">
+    <fieldset className="min-w-0 space-y-6" disabled={busy || Boolean(deletingAttachmentId)}>
       <Card className="border-border/70">
         <CardHeader>
           <CardTitle>{dictionary.purchaseRequests.headerInfo}</CardTitle>
@@ -652,21 +679,20 @@ export function PurchaseRequestForm({
                         requestId={initialData.id}
                         attachment={attachment}
                       />
-                      <Button asChild variant="outline" size="sm" className="rounded-xl">
-                        <a
+                      <DownloadButton variant="outline" size="sm" className="rounded-xl" filename={attachment.originalName}
                           href={`/api/purchase-requests/${initialData.id}/attachments/${attachment.id}`}
                         >
                           <Download />
                           {dictionary.purchaseRequests.downloadAttachment}
-                        </a>
-                      </Button>
+                      </DownloadButton>
                       <Button
                         type="button"
                         variant="ghost"
                         size="icon-sm"
                         className="rounded-full"
                         aria-label={dictionary.purchaseRequests.removeAttachment}
-                        disabled={isPending || Boolean(deletingAttachmentId)}
+                        disabled={busy || Boolean(deletingAttachmentId)}
+                        loading={deletingAttachmentId === attachment.id}
                         onClick={() => removeExistingAttachment(attachment.id)}
                       >
                         <Trash2 />
@@ -711,24 +737,26 @@ export function PurchaseRequestForm({
           type="button"
           variant="outline"
           className="rounded-xl"
-          disabled={isPending || Boolean(deletingAttachmentId)}
+          disabled={busy || Boolean(deletingAttachmentId)}
+          loading={busy && pendingIntent === false}
           onClick={() => submit(false)}
         >
-          {isPending ? dictionary.common.saving : dictionary.purchaseRequests.saveDraft}
+          {busy && pendingIntent === false ? dictionary.common.saving : dictionary.purchaseRequests.saveDraft}
         </Button>
         <Button
           type="button"
           className="rounded-xl"
-          disabled={isPending || Boolean(deletingAttachmentId)}
+          disabled={busy || Boolean(deletingAttachmentId)}
+          loading={busy && pendingIntent === true}
           onClick={() => submit(true)}
         >
-          {isPending
+          {busy && pendingIntent === true
             ? dictionary.common.sending
             : isPurchasingReturnEdit
               ? dictionary.purchaseRequests.resubmitToPurchasing
               : dictionary.purchaseRequests.saveAndSubmit}
         </Button>
       </div>
-    </div>
+    </fieldset>
   );
 }

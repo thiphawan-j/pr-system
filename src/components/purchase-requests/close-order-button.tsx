@@ -1,9 +1,9 @@
 "use client";
 
-import { CircleCheck, LoaderCircle } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { CircleCheck } from "lucide-react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
 import { AlertDialog } from "radix-ui";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -25,10 +25,13 @@ export function CloseOrderButton({
   const { dictionary, locale } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
   const text = dictionary.orderClosure;
 
   async function closeOrder() {
-    if (isPending) return;
+    if (pendingRef.current || busy) return;
+    pendingRef.current = true;
 
     setIsPending(true);
     try {
@@ -55,6 +58,7 @@ export function CloseOrderButton({
     } catch {
       toast.error(text.error);
     } finally {
+      pendingRef.current = false;
       setIsPending(false);
     }
   }
@@ -63,7 +67,7 @@ export function CloseOrderButton({
     <AlertDialog.Root
       open={isOpen}
       onOpenChange={(open) => {
-        if (!isPending) setIsOpen(open);
+        if (!busy) setIsOpen(open);
       }}
     >
       <AlertDialog.Trigger asChild>
@@ -72,7 +76,7 @@ export function CloseOrderButton({
           type="button"
           variant="outline"
           className="rounded-xl"
-          disabled={isPending}
+          disabled={busy}
         >
           <CircleCheck />
           {text.button}
@@ -94,7 +98,7 @@ export function CloseOrderButton({
           </AlertDialog.Description>
           <div className="-mx-4 -mb-4 flex flex-col-reverse gap-2 rounded-b-xl border-t bg-muted/50 p-4 sm:flex-row sm:justify-end">
             <AlertDialog.Cancel asChild>
-              <Button type="button" variant="outline" disabled={isPending}>
+              <Button type="button" variant="outline" disabled={busy}>
                 {text.cancel}
               </Button>
             </AlertDialog.Cancel>
@@ -102,14 +106,15 @@ export function CloseOrderButton({
               <Button
                 id="confirm-close-order"
                 type="button"
-                disabled={isPending}
+                loading={busy}
+                disabled={busy}
                 onClick={(event) => {
                   event.preventDefault();
                   void closeOrder();
                 }}
               >
-                {isPending ? <LoaderCircle className="animate-spin" /> : <CircleCheck />}
-                {isPending ? text.closing : text.confirm}
+                {!busy ? <CircleCheck /> : null}
+                {busy ? text.closing : text.confirm}
               </Button>
             </AlertDialog.Action>
           </div>

@@ -1,4 +1,15 @@
 import type { PurchaseDiscountType, PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
+import type { PurchaseOrderDocument } from "@/lib/purchase-order-document";
+
+export type PurchaseOrderCreationPreview = {
+  previewFingerprint: string;
+  orders: Array<{
+    supplierName: string;
+    itemCount: number;
+    totalAmount: number;
+    document: PurchaseOrderDocument;
+  }>;
+};
 
 export const roles = ["EMPLOYEE", "APPROVER", "PURCHASING", "ADMIN"] as const;
 export type Role = (typeof roles)[number];
@@ -158,6 +169,9 @@ export type PurchaseRequestReceipt = {
 
 export type PurchaseRequestReceivingItem = PurchaseRequestItemInput & {
   id: string;
+  canOrder?: boolean;
+  sourcePurchaseRequestId?: string;
+  sourcePrNumber?: string;
   receivedQuantity: number;
   closedQuantity: number;
   remainingQuantity: number;
@@ -208,6 +222,8 @@ export type PurchaseRequestDetail = {
   createdAt: string;
   updatedAt: string;
   orderPreparationVersion?: string;
+  orderableItemCount?: number;
+  hasSharedPurchaseOrder?: boolean;
   items: PurchaseRequestReceivingItem[];
   receivingItems: PurchaseRequestReceivingItem[];
   attachments: PurchaseRequestAttachmentItem[];
@@ -221,7 +237,48 @@ export type PurchaseRequestDetail = {
   }>;
 };
 
+export type PurchaseOrderStatus = "ISSUED" | "CANCELLED";
+
+export type PurchaseOrderSourceRequest = {
+  id: string;
+  prNumber: string;
+  department: string;
+  requesterName: string;
+  requesterId?: string;
+  status: PurchaseRequestStatus;
+  receiptVersion: number;
+  canCloseOrder: boolean;
+};
+
+export type PurchaseOrderRecipientOption = {
+  id: string;
+  name: string;
+  employeeCode: string;
+  department: string;
+};
+
+/** Management-only state. Capability paths never enter ordinary PO DTOs. */
+export type PurchaseOrderShareState = {
+  id: string | null;
+  path: string | null;
+  expiresAt: string | null;
+  expiresInDays: number;
+  isActive: boolean;
+};
+
+export type PurchaseOrderEligibleRequest = {
+  id: string;
+  prNumber: string;
+  department: string;
+  requesterName: string;
+  orderableItemCount: number;
+  updatedAt: string;
+};
+
 export type PurchaseOrderSummary = {
+  canView?: boolean;
+  status?: PurchaseOrderStatus;
+  cancellationReason?: string | null;
   id: string;
   poNumber: string;
   supplierName: string;
@@ -245,6 +302,11 @@ export type CompanyProfile = CompanyIdentity & {
 };
 
 export type PurchaseOrderDetail = PurchaseOrderSummary & {
+  canCancel?: boolean;
+  cancelledAt?: string | null;
+  cancellationReference?: string | null;
+  cancelledBy?: { id: string; name: string } | null;
+  purchaseRequests?: PurchaseOrderSourceRequest[];
   discountType?: PurchaseDiscountType;
   discountValue?: number;
   itemDiscountAmount?: number;
@@ -273,6 +335,9 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
   supplierAddress: string | null;
   supplierContact: string | null;
   deliveryAddress: string | null;
+  deliveryRecipientId?: string | null;
+  deliveryRecipientName?: string | null;
+  deliveryRecipientPhone?: string | null;
   paymentTerms: string | null;
   expectedDeliveryDate: string | null;
   note: string | null;
@@ -282,6 +347,7 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
     prNumber: string;
     department: string;
     requesterName: string;
+    requesterId?: string;
     status: PurchaseRequestStatus;
     receiptVersion: number;
     canCloseOrder: boolean;
@@ -289,6 +355,8 @@ export type PurchaseOrderDetail = PurchaseOrderSummary & {
   items: Array<{
     id: string;
     purchaseRequestItemId: string | null;
+    sourcePurchaseRequestId?: string;
+    sourcePrNumber?: string;
     itemName: string;
     description: string | null;
     quantity: number;
@@ -315,6 +383,9 @@ export const purchaseOrderChangeStatuses = ["PENDING", "APPROVED", "REJECTED"] a
 export type PurchaseOrderChangeStatus = (typeof purchaseOrderChangeStatuses)[number];
 
 export type PurchaseOrderSnapshot = {
+  deliveryRecipientId?: string | null;
+  deliveryRecipientName?: string | null;
+  deliveryRecipientPhone?: string | null;
   discountType?: PurchaseDiscountType;
   discountValue?: number;
   taxMode?: PurchasePriceTaxMode;
@@ -335,6 +406,8 @@ export type PurchaseOrderSnapshot = {
   items: Array<{
     id?: string;
     purchaseRequestItemId?: string | null;
+    sourcePurchaseRequestId?: string;
+    sourcePrNumber?: string;
     taxMode?: PurchasePriceTaxMode | null;
     discountType?: PurchaseDiscountType;
     discountValue?: number;

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
+import Link from "@/components/loading/navigation-link";
 import { Bell, Dot } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -34,32 +34,45 @@ export function NotificationBell({
 }: NotificationBellProps) {
   const router = useRouter();
   const [notifications, setNotifications] = useState(initialNotifications);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
 
   function handleOpenNotification(notification: NotificationItem) {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
+    setIsPending(true);
     startTransition(async () => {
-      if (!notification.readAt) {
-        const response = await fetch(`/api/notifications/${notification.id}/read`, {
-          method: "POST",
-        });
+      try {
+        if (!notification.readAt) {
+          const response = await fetch(`/api/notifications/${notification.id}/read`, {
+            method: "POST",
+          });
 
-        if (!response.ok) {
-          toast.error(dictionary.notifications.readError);
-          return;
+          if (!response.ok) {
+            toast.error(dictionary.notifications.readError);
+            return;
+          }
+
+          setNotifications((current) =>
+            current.map((item) =>
+              item.id === notification.id
+                ? { ...item, readAt: toBangkokIsoString(new Date()) }
+                : item,
+            ),
+          );
         }
 
-        setNotifications((current) =>
-          current.map((item) =>
-            item.id === notification.id
-              ? { ...item, readAt: toBangkokIsoString(new Date()) }
-              : item,
-          ),
-        );
-      }
-
-      if (notification.link) {
-        router.push(notification.link);
-        router.refresh();
+        if (notification.link) {
+          router.push(notification.link);
+          router.refresh();
+        }
+      } catch {
+        toast.error(dictionary.notifications.readError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
     });
   }
@@ -73,8 +86,9 @@ export function NotificationBell({
           size="icon-sm"
           className="relative rounded-full"
           aria-label={dictionary.notifications.ariaLabel}
+          loading={isPending}
         >
-          <Bell />
+          {!isPending ? <Bell /> : null}
           {unreadCount > 0 ? (
             <span className="absolute -top-1 -right-1 flex min-w-5 items-center justify-center rounded-full bg-rose-500 px-1 text-[10px] font-semibold text-white">
               {unreadCount > 9 ? "9+" : unreadCount}

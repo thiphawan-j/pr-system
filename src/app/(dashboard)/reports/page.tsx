@@ -1,4 +1,5 @@
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { NavigationForm, NavigationSubmitButton } from "@/components/loading/navigation-form";
 import { ExportButtons } from "@/components/reports/export-buttons";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,7 +62,7 @@ export default async function ReportsPage({
           <CardTitle>{dictionary.reports.filtersTitle}</CardTitle>
         </CardHeader>
         <CardContent>
-          <form className="grid gap-4 lg:grid-cols-5">
+          <NavigationForm className="grid gap-4 lg:grid-cols-5">
             <div className="space-y-2">
               <Label htmlFor="department">{dictionary.common.department}</Label>
               <select
@@ -103,14 +104,13 @@ export default async function ReportsPage({
               <Input id="to" name="to" type="date" defaultValue={filters.to} />
             </div>
             <div className="flex items-end">
-              <button
-                type="submit"
+              <NavigationSubmitButton
                 className="h-10 w-full rounded-xl bg-primary px-4 text-sm font-medium text-primary-foreground"
               >
                 {dictionary.reports.update}
-              </button>
+              </NavigationSubmitButton>
             </div>
-          </form>
+          </NavigationForm>
         </CardContent>
       </Card>
 

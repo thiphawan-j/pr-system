@@ -44,7 +44,7 @@ import {
   getUnreadNotificationCount,
   listNotificationsForUser,
 } from "@/server/notifications/notification.service";
-import { calculatePurchaseOrderPricing } from "@/lib/purchase-order-tax";
+import { calculatePurchaseOrderPricing, calculateTaxLine } from "@/lib/purchase-order-tax";
 import { getDb } from "@/server/db";
 import { AppError, invariant } from "@/server/shared/errors";
 import type {
@@ -71,6 +71,10 @@ const purchaseRequestInclude = {
   purchaseOrders: { orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: {
     _count: { select: { items: true } }, changes: { where: { status: "PENDING" }, select: { id: true } },
     items: { orderBy: { position: "asc" } },
+    purchaseRequests: { select: {
+      id: true, requesterId: true, department: true, currentApproverId: true,
+      approvals: { where: { action: "APPROVED" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], take: 1, select: { approverId: true } },
+    } },
   } },
   currentApprover: true,
   cancelledBy: true,
@@ -104,12 +108,13 @@ const purchaseRequestInclude = {
 
 const receivingPurchaseOrders = {
   orderBy: [{ createdAt: "asc" }, { id: "asc" }],
-  select: { supplierName: true, taxMode: true, vatRate: true, items: { orderBy: { position: "asc" } } },
+  select: { status: true, supplierName: true, taxMode: true, vatRate: true, items: { orderBy: { position: "asc" } } },
 } satisfies Prisma.PurchaseOrderFindManyArgs;
 
 type ReceivingRequest = {
+  id: string;
   items: Prisma.PurchaseRequestItemGetPayload<object>[];
-  purchaseOrders: Array<Pick<Prisma.PurchaseOrderGetPayload<object>, "supplierName" | "taxMode" | "vatRate"> & { items: Prisma.PurchaseOrderItemGetPayload<object>[] }>;
+  purchaseOrders: Array<Pick<Prisma.PurchaseOrderGetPayload<object>, "status" | "supplierName" | "taxMode" | "vatRate"> & { items: Prisma.PurchaseOrderItemGetPayload<object>[] }>;
 };
 
 // Once POs exist, their lines and counters are the source of receiving
@@ -117,7 +122,7 @@ type ReceivingRequest = {
 // Linked lines retain their old public identity for existing receipt clients.
 function receivingRows(request: ReceivingRequest) {
   if (request.purchaseOrders.length) {
-    return request.purchaseOrders.flatMap((order) => order.items.map((item) => ({
+    return request.purchaseOrders.filter((order) => order.status === "ISSUED").flatMap((order) => order.items.filter((item) => item.sourcePurchaseRequestId === request.id).map((item) => ({
       ...item,
       id: item.purchaseRequestItemId ?? item.id,
       sourceItemId: item.purchaseRequestItemId,
@@ -126,6 +131,20 @@ function receivingRows(request: ReceivingRequest) {
     })));
   }
   return request.items.map((item) => ({ ...item, sourceItemId: item.id, purchaseOrderItemId: null }));
+}
+
+// Unissued rows are still outstanding procurement. They can be explicitly
+// closed by Purchasing, but can never be received against an unrelated PO.
+function unissuedRows(request: ReceivingRequest) {
+  if (!request.purchaseOrders.length) return [];
+  const assigned = new Set(receivingRows(request).flatMap((item) => item.sourceItemId ? [item.sourceItemId] : []));
+  return request.items.filter((item) => !assigned.has(item.id)).map((item) => ({
+    ...item, sourceItemId: item.id, purchaseOrderItemId: null,
+  }));
+}
+
+function settlementRows(request: ReceivingRequest) {
+  return [...receivingRows(request), ...unissuedRows(request)];
 }
 
 function receiptLineSource(item: ReturnType<typeof receivingRows>[number]) {
@@ -448,6 +467,12 @@ function toDetail(
   }>,
   session: SessionUser,
 ) {
+  const activeOrders = request.purchaseOrders.filter((order) => order.status === "ISSUED");
+  const orderedSourceIds = new Set(activeOrders.flatMap((order) => order.items.filter((item) => item.sourcePurchaseRequestId === request.id).flatMap((item) => item.purchaseRequestItemId ? [item.purchaseRequestItemId] : [])));
+  const hasPendingChange = activeOrders.some((order) => order.changes.length > 0);
+  const canOrderItem = (item: typeof request.items[number]) => !hasPendingChange
+    && (request.status === "APPROVED" || request.status === "ORDERED" && request.purchaseOrders.length > 0)
+    && !orderedSourceIds.has(item.id) && item.receivedQuantity === 0 && item.closedQuantity === 0;
   const receivingItems = receivingRows(request).map((item) => ({
     id: item.id,
     itemName: item.itemName,
@@ -493,11 +518,29 @@ function toDetail(
     approvedAt: request.approvedAt ? toBangkokIsoString(request.approvedAt) : null,
     orderedAt: request.orderedAt ? toBangkokIsoString(request.orderedAt) : null,
     receivedAt: request.receivedAt ? toBangkokDateValue(request.receivedAt) : null,
-    purchaseOrders: request.purchaseOrders.map((order) => ({ id: order.id, poNumber: order.poNumber, supplierName: order.supplierName, issuedAt: toBangkokIsoString(order.issuedAt), totalAmount: Number(order.totalAmount), itemCount: order._count.items })),
-    hasPendingPurchaseOrderChange: request.purchaseOrders.some((order) => order.changes.length > 0),
+    purchaseOrders: request.purchaseOrders.map((order) => {
+      const canView = order.purchaseRequests.every((source) => {
+        if (canApprovePurchaseRequest(session, source.approvals[0]?.approverId)) return true;
+        try { assertCanViewPurchaseRequest(session, source.requesterId, source.department, source.currentApproverId); return true; }
+        catch { return false; }
+      });
+      const ownItems = order.items.filter((item) => item.sourcePurchaseRequestId === request.id);
+      return { id: order.id, poNumber: order.poNumber, supplierName: order.supplierName,
+        issuedAt: toBangkokIsoString(order.issuedAt), status: order.status, canView,
+        totalAmount: canView ? Number(order.totalAmount) : ownItems.reduce((sum, item) => sum + calculateTaxLine(
+          item.amount.toString(), item.taxMode ?? order.taxMode, Number(order.vatRate), {
+            discountType: item.discountType, discountValue: Number(item.discountValue), orderDiscountAmount: Number(item.orderDiscountAmount),
+          },
+        ).totalAmount, 0),
+        itemCount: canView ? order._count.items : ownItems.length,
+      };
+    }),
+    hasSharedPurchaseOrder: activeOrders.some((order) => order.purchaseRequests.length > 1),
+    orderableItemCount: request.items.filter(canOrderItem).length,
+    hasPendingPurchaseOrderChange: hasPendingChange,
     canCloseOrder: isPurchasing(session) &&
       request.status === PurchaseRequestStatus.ORDERED &&
-      request.purchaseOrders.every((order) => order.changes.length === 0),
+      !hasPendingChange,
     receiptVersion: request.receiptVersion,
     receivingItems,
     hasPartialReceipt: receivingItems.some((item) => item.receivedQuantity > 0) && !request.receivedAt,
@@ -542,6 +585,7 @@ function toDetail(
     orderPreparationVersion: request.updatedAt.toISOString(),
     items: request.items.map((item) => ({
       id: item.id,
+      canOrder: canOrderItem(item),
       itemName: item.itemName,
       description: item.description ?? undefined,
       supplierName: item.supplierName ?? undefined,
@@ -1210,6 +1254,12 @@ export async function updatePurchaseRequest(
       409,
     );
 
+    invariant(await transaction.purchaseOrder.count({ where: { status: "ISSUED", purchaseRequests: { some: { id } } } }) === 0,
+      "PR ที่มี PO ใช้งานอยู่ไม่สามารถเปลี่ยนรายการผ่านหน้า PR ได้", 409);
+    await transaction.purchaseOrderItem.updateMany({
+      where: { sourcePurchaseRequestId: id, purchaseOrder: { status: "CANCELLED" } },
+      data: { purchaseRequestItemId: null },
+    });
     await transaction.purchaseRequestItem.deleteMany({
       where: { purchaseRequestId: id },
     });
@@ -1575,6 +1625,16 @@ export async function updatePurchaseRequestCancellation(
   }
 
   await db.$transaction(async (transaction) => {
+    await transaction.$queryRaw(Prisma.sql`SELECT "id" FROM "PurchaseRequest" WHERE "id" = ${id} FOR UPDATE`);
+    if (isOrderedCancellation) {
+      const sharedOrder = await transaction.purchaseOrder.findFirst({
+        where: { status: "ISSUED", AND: [
+          { purchaseRequests: { some: { id } } },
+          { purchaseRequests: { some: { id: { not: id } } } },
+        ] }, select: { id: true },
+      });
+      invariant(!sharedOrder, "PR นี้มี PO รวมหลาย PR กรุณายกเลิกเฉพาะ PO ก่อนยกเลิก PR", 400);
+    }
     const updated = await transaction.purchaseRequest.updateMany({
       where: {
         id,
@@ -1601,6 +1661,15 @@ export async function updatePurchaseRequestCancellation(
       "สถานะเอกสารมีการเปลี่ยนแปลง กรุณาลองใหม่อีกครั้ง",
       409,
     );
+
+    if (isOrderedCancellation) {
+      await transaction.purchaseOrder.updateMany({
+        where: { status: "ISSUED", purchaseRequests: { some: { id } } },
+        data: { status: "CANCELLED", cancelledAt: new Date(), cancelledById: session.id,
+          cancellationReason: input.reason, cancellationReference: input.cancellationReference ?? null,
+          version: { increment: 1 } },
+      });
+    }
 
     await transaction.approval.create({
       data: {
@@ -1769,7 +1838,7 @@ export async function reviewPurchaseRequest(
 }
 
 async function assertNoPendingPurchaseOrderChanges(db: Pick<Prisma.TransactionClient, "purchaseOrderChange">, id: string) {
-  const pending = await db.purchaseOrderChange.findFirst({ where: { purchaseOrder: { purchaseRequestId: id }, status: "PENDING" }, select: { id: true } });
+  const pending = await db.purchaseOrderChange.findFirst({ where: { purchaseOrder: { status: "ISSUED", purchaseRequests: { some: { id } } }, status: "PENDING" }, select: { id: true } });
   invariant(!pending, "PR นี้มี PO รอตรวจการแก้ไข กรุณาพิจารณาให้เสร็จก่อนรับสินค้า ยกเลิก หรือปิดงาน", 400);
 }
 
@@ -1797,7 +1866,7 @@ export async function closePurchaseRequest(
     const now = new Date();
     await assertNoPendingPurchaseOrderChanges(transaction, id);
 
-    const remainingItems = receivingRows(request).flatMap((item) => {
+    const remainingItems = settlementRows(request).flatMap((item) => {
       const quantity = Math.max(0, item.quantity - item.receivedQuantity - item.closedQuantity);
       return quantity > 0 ? [{ ...item, quantity }] : [];
     });
@@ -1880,9 +1949,8 @@ export async function recordPurchaseRequestReceipt(
     invariant(request.receiptVersion === input.expectedVersion, "ข้อมูลการรับสินค้ามีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่", 409);
     await assertNoPendingPurchaseOrderChanges(transaction, id);
 
-    const items = receivingRows(request);
-
     const isClosing = input.action === "CLOSE_REMAINDER";
+    const items = isClosing ? settlementRows(request) : receivingRows(request);
     if (isClosing) {
       invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดยอดค้างรับได้", 403);
       invariant(input.comment && input.comment.trim().length >= 5, "กรุณาระบุเหตุผลการปิดยอดค้างรับอย่างน้อย 5 ตัวอักษร", 400);
@@ -1892,7 +1960,12 @@ export async function recordPurchaseRequestReceipt(
     }
     invariant(input.items.length > 0, "กรุณาระบุจำนวนสินค้าอย่างน้อยหนึ่งรายการ", 400);
     invariant(new Set(input.items.map((item) => item.itemId)).size === input.items.length, "รายการสินค้าซ้ำกัน", 400);
-    const itemById = new Map(items.map((item) => [item.id, item]));
+    const itemById = new Map(items.flatMap((item) => [
+      [item.id, item] as const,
+      ...(item.purchaseOrderItemId ? [[item.purchaseOrderItemId, item] as const] : []),
+    ]));
+    const resolvedIds = input.items.map((entry) => itemById.get(entry.itemId)?.id).filter(Boolean);
+    invariant(new Set(resolvedIds).size === resolvedIds.length, "รายการสินค้าซ้ำกัน", 400);
     let hasOverReceipt = false;
     for (const entry of input.items) {
       const item = itemById.get(entry.itemId);
@@ -1912,7 +1985,8 @@ export async function recordPurchaseRequestReceipt(
     if (hasOverReceipt) {
       invariant(input.overReceiptReason && input.overReceiptReason.trim().length >= 5, "กรุณาระบุเหตุผลการรับเกินอย่างน้อย 5 ตัวอักษร", 400);
     }
-    const allSettled = items.every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
+    const allSettled = [...items, ...(!isClosing ? unissuedRows(request) : [])]
+      .every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity);
     const eventDate = toUtcStartOfDayFromDateValue(input.receivedDate ?? toBangkokDateValue(new Date()));
     // Closing an undelivered balance must not change the actual goods-received
     // date to the day Purchasing closed that balance.
@@ -2054,6 +2128,9 @@ export async function progressPurchaseRequest(
     );
   }
 
+  invariant(input.action !== "ORDERED" || request.purchaseOrders.length === 0,
+    "PR นี้มีประวัติ PO ภายใน กรุณาสร้าง PO ใหม่จากรายการที่เหลือ", 400);
+
   if (
     (input.action === "REQUEST_REVISION" ||
       input.action === "REQUEST_CLARIFICATION") &&
@@ -2083,6 +2160,7 @@ export async function progressPurchaseRequest(
       where: {
         id,
         status: PurchaseRequestStatus.APPROVED,
+        ...(input.action === "ORDERED" ? { purchaseOrders: { none: {} } } : {}),
       },
       data: {
         status: nextStatus,
@@ -2180,7 +2258,7 @@ export async function updateReceiptReferences(
     "PR ต้องยืนยันรับของก่อนจึงจะบันทึกเลขเอกสารได้",
     400,
   );
-  invariant(receivingRows(request).every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity), "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน", 400);
+  invariant(settlementRows(request).every((item) => item.receivedQuantity + item.closedQuantity >= item.quantity), "ยังมียอดค้างรับ กรุณารับสินค้าหรือปิดยอดค้างรับให้ครบก่อนปิดงาน", 400);
   invariant(request.receipts.slice(0, -1).every((receipt) => receipt.receiptNumber || receipt.taxInvoiceNumber), "กรุณาบันทึกเลขเอกสารของการรับสินค้าแต่ละรอบให้ครบก่อนปิดงาน", 400);
   invariant(
     input.receiptNumber || input.taxInvoiceNumber,

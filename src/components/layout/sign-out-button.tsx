@@ -1,8 +1,8 @@
 "use client";
 
 import { LogOut } from "lucide-react";
-import { useRouter } from "next/navigation";
-import { startTransition, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -11,28 +11,38 @@ import { translateMessage } from "@/lib/i18n";
 
 export function SignOutButton() {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
 
   function handleSignOut() {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch("/api/auth/logout", {
-        method: "POST",
-      });
+      try {
+        const response = await fetch("/api/auth/logout", {
+          method: "POST",
+        });
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        const payload = await response.json().catch(() => null);
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.auth.signOutError,
-        );
-        return;
+        if (!response.ok) {
+          const payload = await response.json().catch(() => null);
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.auth.signOutError,
+          );
+          return;
+        }
+
+        router.push("/login");
+        router.refresh();
+      } catch {
+        toast.error(dictionary.auth.signOutError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      router.push("/login");
-      router.refresh();
     });
   }
 
@@ -45,9 +55,9 @@ export function SignOutButton() {
       aria-label={isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
       title={isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
       onClick={handleSignOut}
-      disabled={isPending}
+      loading={isPending}
     >
-      <LogOut />
+      {!isPending ? <LogOut /> : null}
       <span className="hidden sm:inline">
         {isPending ? dictionary.auth.signingOut : dictionary.auth.signOut}
       </span>

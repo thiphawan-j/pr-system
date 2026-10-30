@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { startTransition, useEffect, useState } from "react";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
+import { startTransition, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -42,6 +42,8 @@ export function ReceiptReferencePanel({
   );
   const [currentNote, setCurrentNote] = useState(receiptReferenceNote ?? "");
   const [isPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const busy = isPending || router.isPending;
   const { dictionary, locale } = useI18n();
 
   useEffect(() => {
@@ -51,40 +53,48 @@ export function ReceiptReferencePanel({
   }, [receiptNumber, taxInvoiceNumber, receiptReferenceNote]);
 
   function handleSubmit() {
+    if (pendingRef.current || busy) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(
-        `/api/purchase-requests/${requestId}/receipt-references`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
+      try {
+        const response = await fetch(
+          `/api/purchase-requests/${requestId}/receipt-references`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              expectedVersion,
+              receiptNumber: currentReceiptNumber,
+              taxInvoiceNumber: currentTaxInvoiceNumber,
+              note: currentNote,
+            }),
           },
-          body: JSON.stringify({
-            expectedVersion,
-            receiptNumber: currentReceiptNumber,
-            taxInvoiceNumber: currentTaxInvoiceNumber,
-            note: currentNote,
-          }),
-        },
-      );
-      const payload = await response.json().catch(() => null);
-      setIsPending(false);
-
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.approval.updateError,
         );
-        if (response.status === 409) router.refresh();
-        return;
-      }
+        const payload = await response.json().catch(() => null);
 
-      toast.success(
-        status === "ORDERED"
-          ? dictionary.approval.saveReceiptReferencesSuccess
-          : dictionary.approval.updateReceiptReferencesSuccess,
-      );
-      router.refresh();
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.approval.updateError,
+          );
+          if (response.status === 409) router.refresh();
+          return;
+        }
+
+        toast.success(
+          status === "ORDERED"
+            ? dictionary.approval.saveReceiptReferencesSuccess
+            : dictionary.approval.updateReceiptReferencesSuccess,
+        );
+        router.refresh();
+      } catch {
+        toast.error(dictionary.approval.updateError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
+      }
     });
   }
 
@@ -106,6 +116,7 @@ export function ReceiptReferencePanel({
             <Label htmlFor="receipt-number">{dictionary.common.receiptNumber}</Label>
             <Input
               id="receipt-number"
+              disabled={busy}
               value={currentReceiptNumber}
               onChange={(event) => setCurrentReceiptNumber(event.target.value)}
               placeholder={dictionary.approval.receiptNumberPlaceholder}
@@ -117,6 +128,7 @@ export function ReceiptReferencePanel({
             </Label>
             <Input
               id="tax-invoice-number"
+              disabled={busy}
               value={currentTaxInvoiceNumber}
               onChange={(event) => setCurrentTaxInvoiceNumber(event.target.value)}
               placeholder={dictionary.approval.taxInvoiceNumberPlaceholder}
@@ -128,6 +140,7 @@ export function ReceiptReferencePanel({
           <Textarea
             id="receipt-reference-note"
             rows={4}
+            disabled={busy}
             value={currentNote}
             onChange={(event) => setCurrentNote(event.target.value)}
             placeholder={dictionary.approval.receiptReferenceNotePlaceholder}
@@ -137,13 +150,14 @@ export function ReceiptReferencePanel({
           <Button
             type="button"
             className="w-full rounded-xl sm:w-auto sm:min-w-44"
+            loading={busy}
             disabled={
-              isPending ||
+              busy ||
               (!currentReceiptNumber.trim() && !currentTaxInvoiceNumber.trim())
             }
             onClick={handleSubmit}
           >
-            {isPending
+            {busy
               ? dictionary.common.saving
               : status === "ORDERED"
                 ? dictionary.approval.saveReceiptReferences

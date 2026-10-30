@@ -5,6 +5,7 @@ import { Download, Eye, FileText, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { DownloadButton } from "@/components/shared/download-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -168,12 +169,10 @@ export function AttachmentPreviewButton({
         </div>
 
         <DialogFooter className="border-t border-border/70">
-          <Button asChild variant="outline" className="rounded-xl">
-            <a href={downloadUrl}>
+          <DownloadButton variant="outline" className="rounded-xl" href={downloadUrl} filename={attachment.originalName}>
               <Download />
               {dictionary.purchaseRequests.downloadAttachment}
-            </a>
-          </Button>
+          </DownloadButton>
         </DialogFooter>
       </DialogContent>
     </Dialog>

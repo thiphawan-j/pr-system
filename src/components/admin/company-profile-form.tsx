@@ -1,7 +1,7 @@
 "use client";
 
 import { Building2, Save } from "lucide-react";
-import { useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
@@ -49,6 +49,7 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
   const [error, setError] = useState<string | null>(null);
   const [conflict, setConflict] = useState(false);
   const isPending = pendingAction !== null;
+  const pendingRef = useRef(false);
 
   function applyProfile(next: CompanyProfile | null) {
     setValues(profileValues(next));
@@ -61,6 +62,7 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (pendingRef.current) return;
     const parsed = updateCompanyProfileSchema.safeParse({ ...values, expectedVersion: version });
     if (!parsed.success) {
       const errors: Partial<Record<CompanyField, string>> = {};
@@ -74,6 +76,7 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
       return;
     }
 
+    pendingRef.current = true;
     setFieldErrors({});
     setError(null);
     setConflict(false);
@@ -96,11 +99,14 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
     } catch {
       setError(labels.saveError);
     } finally {
+      pendingRef.current = false;
       setPendingAction(null);
     }
   }
 
   async function reload() {
+    if (pendingRef.current) return;
+    pendingRef.current = true;
     setPendingAction("reload");
     try {
       const response = await fetch("/api/admin/company", { cache: "no-store" });
@@ -110,6 +116,7 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
     } catch {
       setError(labels.loadError);
     } finally {
+      pendingRef.current = false;
       setPendingAction(null);
     }
   }
@@ -160,13 +167,13 @@ export function CompanyProfileForm({ profile }: { profile: CompanyProfile | null
             {error ? (
               <div role="alert" className="space-y-3 rounded-xl border border-destructive/25 bg-destructive/5 p-4 text-sm leading-6">
                 <p className="text-destructive">{error}</p>
-                {conflict ? <Button id="reload-company-profile" type="button" variant="outline" disabled={isPending} onClick={reload}>{pendingAction === "reload" ? dictionary.common.loading : labels.reload}</Button> : null}
+                {conflict ? <Button id="reload-company-profile" type="button" variant="outline" disabled={isPending} loading={pendingAction === "reload"} onClick={reload}>{pendingAction === "reload" ? dictionary.common.loading : labels.reload}</Button> : null}
               </div>
             ) : null}
             <div className="flex flex-col gap-3 border-t border-border/70 pt-4 sm:flex-row sm:items-center sm:justify-between">
               <p role="status" className="text-xs leading-5 text-muted-foreground">{savedAt ? `${labels.lastSaved} ${formatDateTime(savedAt, locale)}` : labels.notConfigured}</p>
-              <Button type="submit" disabled={isPending} className="w-full rounded-xl sm:w-auto">
-                <Save />{pendingAction === "save" ? dictionary.common.saving : labels.save}
+              <Button type="submit" disabled={isPending} loading={pendingAction === "save"} className="w-full rounded-xl sm:w-auto">
+                {pendingAction !== "save" ? <Save /> : null}{pendingAction === "save" ? dictionary.common.saving : labels.save}
               </Button>
             </div>
           </form>

@@ -11,7 +11,8 @@ export async function POST(request: Request, context: { params: Promise<{ id: st
     const payload = purchaseOrderChangeReviewSchema.parse(await request.json());
     const order = await reviewPurchaseOrderChange(id, changeId, session, payload);
     revalidatePath(`/purchase-orders/${id}`);
-    revalidatePath(`/purchase-requests/${order.purchaseRequest.id}`);
+    for (const source of order.purchaseRequests ?? [order.purchaseRequest]) revalidatePath(`/purchase-requests/${source.id}`);
+    revalidatePath("/purchase-orders/new");
     revalidatePath("/purchase-requests");
     revalidatePath("/dashboard");
     revalidatePath("/reports");

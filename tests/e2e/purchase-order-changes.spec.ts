@@ -78,6 +78,8 @@ function snapshot(order: PurchaseOrderDetail): PurchaseOrderSnapshot {
     supplierTaxId: order.supplierTaxId, supplierAddress: order.supplierAddress, supplierContact: order.supplierContact,
     supplierContactPerson: order.supplierContactPerson, supplierContacts: order.supplierContacts,
     deliveryAddress: order.deliveryAddress, paymentTerms: order.paymentTerms, expectedDeliveryDate: order.expectedDeliveryDate,
+    deliveryRecipientId: order.deliveryRecipientId, deliveryRecipientName: order.deliveryRecipientName,
+    deliveryRecipientPhone: order.deliveryRecipientPhone,
     note: order.note, totalAmount: order.totalAmount,
     items: order.items.map((item) => ({
       id: item.id, purchaseRequestItemId: item.purchaseRequestItemId, itemName: item.itemName, description: item.description,

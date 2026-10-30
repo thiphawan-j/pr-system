@@ -1,11 +1,12 @@
 "use client";
 
 import { ChevronDown, Plus, Trash2 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
 import { useRef, useState, useSyncExternalStore, type FormEvent } from "react";
 import { toast } from "sonner";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
+import { DeliveryRecipientSelect } from "@/components/purchase-orders/delivery-recipient-select";
 import { discountDraftError, PurchaseOrderDiscountFields } from "@/components/purchase-orders/purchase-order-discount-fields";
 import { PurchaseOrderItemTaxSelect, PurchaseOrderTaxFields, PurchaseOrderTaxSummary } from "@/components/purchase-orders/purchase-order-tax-fields";
 import { SupplierCombobox } from "@/components/suppliers/supplier-combobox";
@@ -17,9 +18,9 @@ import { Textarea } from "@/components/ui/textarea";
 import { formatCurrency, formatNumber } from "@/lib/format";
 import { translateMessage } from "@/lib/i18n";
 import { calculatePurchaseOrderPricing, type PurchaseDiscountType, type PurchasePriceTaxMode } from "@/lib/purchase-order-tax";
-import { supplierContactChannels, type PurchaseOrderDetail, type SupplierContact, type SupplierDetail } from "@/lib/types";
+import { supplierContactChannels, type PurchaseOrderDetail, type PurchaseOrderRecipientOption, type SupplierContact, type SupplierDetail } from "@/lib/types";
 
-type DraftItem = { key: string; id?: string; itemName: string; description: string; unit: string; quantity: string; unitPrice: string; taxMode: PurchasePriceTaxMode | null; discountType: PurchaseDiscountType; discountValue: string };
+type DraftItem = { key: string; id?: string; sourcePurchaseRequestId: string; itemName: string; description: string; unit: string; quantity: string; unitPrice: string; taxMode: PurchasePriceTaxMode | null; discountType: PurchaseDiscountType; discountValue: string };
 
 const MAX_ITEMS = 500;
 const MAX_AMOUNT_CENTS = 999999999999;
@@ -51,25 +52,35 @@ function focusField(id: string) {
   element?.scrollIntoView({ block: "center", behavior: "smooth" });
 }
 
-export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrderDetail; suppliers: SupplierDetail[] }) {
+export function PurchaseOrderEditForm({ order, suppliers, recipients = [] }: { order: PurchaseOrderDetail; suppliers: SupplierDetail[]; recipients?: PurchaseOrderRecipientOption[] }) {
   const router = useRouter();
   const { dictionary, locale } = useI18n();
   const labels = dictionary.poChanges;
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
   const [sourceOrder] = useState(order);
+  const sourceRequests = sourceOrder.purchaseRequests?.length ? sourceOrder.purchaseRequests : [sourceOrder.purchaseRequest];
+  const openSourceRequests = sourceRequests.filter((source) => source.status === "ORDERED");
   const [supplier, setSupplier] = useState({
     supplierId: order.supplierId, supplierName: order.supplierName, supplierTaxId: order.supplierTaxId ?? "",
     supplierAddress: order.supplierAddress ?? "", supplierContactPerson: order.supplierContactPerson ?? "",
     supplierContact: order.supplierContact ?? "", supplierContacts: order.supplierContacts,
   });
   const [headers, setHeaders] = useState({ deliveryAddress: order.deliveryAddress ?? "", paymentTerms: order.paymentTerms ?? "", expectedDeliveryDate: order.expectedDeliveryDate ?? "", note: order.note ?? "" });
-  const [items, setItems] = useState<DraftItem[]>(() => order.items.map((item) => ({ key: item.id, id: item.id, itemName: item.itemName, description: item.description ?? "", unit: item.unit ?? "", quantity: String(item.quantity), unitPrice: String(item.unitPrice), taxMode: item.taxMode ?? null, discountType: item.discountType ?? "NONE", discountValue: String(item.discountValue ?? 0) })));
+  const [deliveryRecipientId, setDeliveryRecipientId] = useState(() => {
+    if (order.deliveryRecipientId || order.deliveryRecipientName) return order.deliveryRecipientId ?? "";
+    const firstSourceId = order.items[0]?.sourcePurchaseRequestId ?? order.purchaseRequest.id;
+    const requesterId = sourceRequests.find((source) => source.id === firstSourceId)?.requesterId;
+    return recipients.some((recipient) => recipient.id === requesterId) ? requesterId! : "";
+  });
+  const [items, setItems] = useState<DraftItem[]>(() => order.items.map((item) => ({ key: item.id, id: item.id, sourcePurchaseRequestId: item.sourcePurchaseRequestId ?? order.purchaseRequest.id, itemName: item.itemName, description: item.description ?? "", unit: item.unit ?? "", quantity: String(item.quantity), unitPrice: String(item.unitPrice), taxMode: item.taxMode ?? null, discountType: item.discountType ?? "NONE", discountValue: String(item.discountValue ?? 0) })));
   const [taxMode, setTaxMode] = useState<PurchasePriceTaxMode>(order.taxMode ?? "UNSPECIFIED");
   const [vatRate, setVatRate] = useState(String(order.vatRate ?? 7));
   const [discountType, setDiscountType] = useState<PurchaseDiscountType>(order.discountType ?? "NONE");
   const [discountValue, setDiscountValue] = useState(String(order.discountValue ?? 0));
   const [reason, setReason] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [saveStarted, setSaveStarted] = useState(false);
+  const saving = (isPending || router.isPending) && saveStarted;
   const [error, setError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [hasConflict, setHasConflict] = useState(false);
@@ -78,7 +89,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
   const newItemCounter = useRef(0);
   const originalById = new Map(sourceOrder.items.map((item) => [item.id, item]));
   const supplierLocked = sourceOrder.items.some((item) => item.receivedQuantity > 0 || item.closedQuantity > 0);
-  const disabled = isPending || !mounted;
+  const disabled = isPending || router.isPending || !mounted;
   // Keeping the issued supplier remains valid even if its master was deactivated.
   const pickerSuppliers: SupplierDetail[] = sourceOrder.supplierId && !suppliers.some((entry) => entry.id === sourceOrder.supplierId)
     ? [...suppliers, { id: sourceOrder.supplierId, code: sourceOrder.supplierCode ?? "", name: sourceOrder.supplierName, taxId: sourceOrder.supplierTaxId, address: sourceOrder.supplierAddress, contactPerson: sourceOrder.supplierContactPerson, paymentTerms: sourceOrder.paymentTerms, note: null, contacts: sourceOrder.supplierContacts, isActive: true, version: 0, createdAt: sourceOrder.issuedAt, updatedAt: sourceOrder.issuedAt }]
@@ -130,7 +141,8 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
   function addItem() {
     const key = `new-${newItemCounter.current++}`;
     const index = items.length;
-    setItems((current) => [...current, { key, itemName: "", description: "", unit: "", quantity: "1", unitPrice: "", taxMode: null, discountType: "NONE", discountValue: "0" }]);
+    if (!openSourceRequests.length) return;
+    setItems((current) => [...current, { key, sourcePurchaseRequestId: openSourceRequests[0]!.id, itemName: "", description: "", unit: "", quantity: "1", unitPrice: "", taxMode: null, discountType: "NONE", discountValue: "0" }]);
     clearFieldError("po-edit-discount-value");
     requestAnimationFrame(() => focusField(`po-edit-item-name-${index}`));
   }
@@ -143,7 +155,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (pendingRef.current || composingRef.current || hasConflict) return;
+    if (pendingRef.current || router.isPending || composingRef.current || hasConflict) return;
     if (!items.length) { fail("po-edit-add-item", labels.itemRequired); return; }
     if (items.length > MAX_ITEMS) { fail("po-edit-add-item", labels.itemLimit); return; }
     for (const [index, item] of items.entries()) {
@@ -166,8 +178,9 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
     const emptyContact = supplier.supplierContacts.find((contact) => !contact.value.trim());
     if (emptyContact) { fail(`po-edit-contact-${emptyContact.channel}`, dictionary.suppliers.contactRequired); return; }
     if (reason.trim().length < 5) { fail("po-edit-reason", labels.reasonRequired); return; }
-    const proposedItems = items.map((item, index) => ({ id: item.id, itemName: item.itemName, description: item.description, unit: item.unit, quantity: values[index]!.quantity, unitPrice: values[index]!.unitPriceCents / 100, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountType === "NONE" ? 0 : Number(item.discountValue) }));
+    const proposedItems = items.map((item, index) => ({ id: item.id, ...(sourceRequests.length > 1 ? { sourcePurchaseRequestId: item.sourcePurchaseRequestId } : {}), itemName: item.itemName, description: item.description, unit: item.unit, quantity: values[index]!.quantity, unitPrice: values[index]!.unitPriceCents / 100, taxMode: item.taxMode, discountType: item.discountType, discountValue: item.discountType === "NONE" ? 0 : Number(item.discountValue) }));
     pendingRef.current = true;
+    setSaveStarted(true);
     setIsPending(true);
     setError(null);
     setFieldErrors({});
@@ -175,10 +188,13 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
       const { supplierId, ...supplierFields } = supplier;
       const response = await fetch(`/api/purchase-orders/${sourceOrder.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expectedVersion: sourceOrder.version, reason, supplier: { ...(supplierId ? { supplierId } : {}), ...supplierFields }, ...headers, taxMode, vatRate: vatRateNumber, discountType, discountValue: discountType === "NONE" ? 0 : Number(discountValue), items: proposedItems }),
+        body: JSON.stringify({ expectedVersion: sourceOrder.version, reason, supplier: { ...(supplierId ? { supplierId } : {}), ...supplierFields }, ...headers,
+          ...(sourceOrder.deliveryRecipientName && deliveryRecipientId === (sourceOrder.deliveryRecipientId ?? "") ? {} : { deliveryRecipientId: deliveryRecipientId || null }),
+          taxMode, vatRate: vatRateNumber, discountType, discountValue: discountType === "NONE" ? 0 : Number(discountValue), items: proposedItems }),
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
+        setSaveStarted(false);
         if (response.status === 409) { setHasConflict(true); setError(null); }
         else setError(translateMessage(payload?.error, locale) ?? labels.saveError);
         return;
@@ -186,7 +202,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
       toast.success(labels.submitted);
       router.push(`/purchase-orders/${sourceOrder.id}`);
       router.refresh();
-    } catch { setError(labels.saveError); }
+    } catch { setSaveStarted(false); setError(labels.saveError); }
     finally { pendingRef.current = false; setIsPending(false); }
   }
 
@@ -205,9 +221,10 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
           <CardHeader>
             <div className="flex flex-wrap items-center justify-between gap-3">
               <CardTitle>{dictionary.purchaseRequests.itemList} <span className="text-sm font-normal text-muted-foreground">({formatNumber(items.length, locale)})</span></CardTitle>
-              <Button id="po-edit-add-item" type="button" variant="outline" disabled={disabled || items.length >= MAX_ITEMS} title={items.length >= MAX_ITEMS ? labels.itemLimit : undefined} onClick={addItem}><Plus className="size-4" />{labels.addItem}</Button>
+              <Button id="po-edit-add-item" type="button" variant="outline" disabled={disabled || items.length >= MAX_ITEMS || !openSourceRequests.length} title={items.length >= MAX_ITEMS ? labels.itemLimit : undefined} onClick={addItem}><Plus className="size-4" />{labels.addItem}</Button>
             </div>
             <CardDescription>{labels.editItemsHint}</CardDescription>
+            {sourceRequests.length > 1 ? <p className="text-xs leading-6 text-muted-foreground">{dictionary.poCombined.mixedApprovers}</p> : null}
             {fieldError("po-edit-add-item")}
           </CardHeader>
           <CardContent className="min-w-0 space-y-4">
@@ -221,7 +238,8 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
             </div>
             {items.map((item, index) => {
               const original = item.id ? originalById.get(item.id) : undefined;
-              const locked = Boolean(original && (original.receivedQuantity > 0 || original.closedQuantity > 0));
+              const originCompleted = sourceRequests.some((source) => source.id === item.sourcePurchaseRequestId && source.status === "COMPLETED");
+              const locked = originCompleted || Boolean(original && (original.receivedQuantity > 0 || original.closedQuantity > 0));
               const value = values[index]!;
               return (
                 <div key={item.key} data-po-edit-item={item.key} className="min-w-0 space-y-3 rounded-xl border border-border/70 p-3">
@@ -233,7 +251,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
                     </div>
                     <div className="min-w-0 space-y-1.5">
                       <Label htmlFor={`po-edit-item-quantity-${index}`} className="text-xs md:sr-only">{labels.quantity} {index + 1}</Label>
-                      <Input id={`po-edit-item-quantity-${index}`} inputMode="numeric" disabled={disabled} value={item.quantity} aria-invalid={Boolean(fieldErrors[`po-edit-item-quantity-${index}`])} aria-describedby={fieldErrors[`po-edit-item-quantity-${index}`] ? `po-edit-item-quantity-${index}-error` : undefined} onChange={(event) => updateItem(item.key, "quantity", event.target.value, index)} />
+                      <Input id={`po-edit-item-quantity-${index}`} inputMode="numeric" disabled={disabled || originCompleted} value={item.quantity} aria-invalid={Boolean(fieldErrors[`po-edit-item-quantity-${index}`])} aria-describedby={fieldErrors[`po-edit-item-quantity-${index}`] ? `po-edit-item-quantity-${index}-error` : undefined} onChange={(event) => updateItem(item.key, "quantity", event.target.value, index)} />
                       {fieldError(`po-edit-item-quantity-${index}`)}
                     </div>
                     <div className="min-w-0 space-y-1.5">
@@ -251,6 +269,10 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
                     </div>
                     <Button id={`po-edit-remove-${index}`} type="button" variant="ghost" size="icon" className="col-span-2 justify-self-end text-destructive hover:text-destructive md:col-span-1" disabled={disabled || locked || items.length <= 1} title={items.length <= 1 ? labels.minimumItems : locked ? labels.receivedLock : labels.removeItem} aria-label={`${labels.removeItem}: ${item.itemName || index + 1}`} onClick={() => { setItems((current) => current.filter((entry) => entry.key !== item.key)); setFieldErrors({}); setError(null); }}><Trash2 className="size-4" /></Button>
                   </div>
+                  {sourceRequests.length > 1 ? <div className="space-y-2 border-t border-border/50 pt-3">
+                    <Label htmlFor={`po-edit-item-source-${index}`} className="text-xs text-muted-foreground">{dictionary.poCombined.source}</Label>
+                    {item.id ? <p className="text-sm font-medium">{sourceRequests.find((source) => source.id === item.sourcePurchaseRequestId)?.prNumber ?? item.sourcePurchaseRequestId}</p> : <select id={`po-edit-item-source-${index}`} className="h-9 w-full rounded-xl border border-input bg-background px-3 text-sm" disabled={disabled} value={item.sourcePurchaseRequestId} onChange={(event) => setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, sourcePurchaseRequestId: event.target.value } : entry))}>{openSourceRequests.map((source) => <option key={source.id} value={source.id}>{source.prNumber} · {source.department}</option>)}</select>}
+                  </div> : null}
                   <div className="flex min-w-0 flex-wrap items-start justify-between gap-3 border-t border-border/50 pt-3">
                     <div className="min-w-0 max-w-full space-y-1.5"><Label htmlFor={`po-edit-item-tax-mode-${index}`} className="text-xs text-muted-foreground">{dictionary.poTax.itemMode}</Label><PurchaseOrderItemTaxSelect id={`po-edit-item-tax-mode-${index}`} value={item.taxMode} disabled={disabled || locked} onChange={(mode) => { setItems((current) => current.map((entry) => entry.key === item.key ? { ...entry, taxMode: mode } : entry)); clearFieldError("po-edit-add-item"); }} /></div>
                     <div className="min-w-0 basis-64 grow">
@@ -299,7 +321,10 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
         </Card>
 
         <Card className="border-border/70">
-          <CardContent>
+          <CardContent className="space-y-4">
+            <DeliveryRecipientSelect id="po-edit-delivery-recipient" recipients={recipients} value={deliveryRecipientId} disabled={disabled}
+              storedRecipient={sourceOrder.deliveryRecipientName ? { id: sourceOrder.deliveryRecipientId ?? null, name: sourceOrder.deliveryRecipientName } : undefined}
+              onChange={(value) => { setDeliveryRecipientId(value); setError(null); }} />
             <details className="group">
               <summary className="flex cursor-pointer list-none items-center gap-2 font-medium"><ChevronDown className="size-4 transition-transform group-open:rotate-180" />{labels.deliveryDetails}</summary>
               <div className="grid gap-4 pt-4 sm:grid-cols-2">
@@ -334,7 +359,7 @@ export function PurchaseOrderEditForm({ order, suppliers }: { order: PurchaseOrd
             <div className="space-y-2"><Label htmlFor="po-edit-reason">{labels.reason} <span aria-hidden="true" className="text-destructive">*</span></Label><Textarea id="po-edit-reason" rows={3} required maxLength={2000} disabled={disabled} value={reason} aria-invalid={Boolean(fieldErrors["po-edit-reason"])} aria-describedby={fieldErrors["po-edit-reason"] ? "po-edit-reason-error" : "po-edit-reason-hint"} onChange={(event) => { setReason(event.target.value); clearFieldError("po-edit-reason"); }} />{fieldError("po-edit-reason")}<p id="po-edit-reason-hint" className="text-xs leading-5 text-muted-foreground">{labels.reasonRequired}</p></div>
             {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
             {hasConflict ? <div role="alert" className="space-y-3 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm"><p>{labels.conflict}</p><p className="text-xs text-muted-foreground">{labels.reloadHint}</p><Button id="reload-po-edit" type="button" variant="outline" disabled={disabled} onClick={() => window.location.reload()}>{labels.reload}</Button></div> : null}
-            <div className="flex flex-col gap-2"><Button id="save-po-changes" type="submit" className="h-auto min-h-9 whitespace-normal py-2" disabled={disabled || hasConflict} aria-busy={isPending}>{isPending ? dictionary.common.saving : labels.save}</Button><Button type="button" variant="outline" disabled={disabled} onClick={() => router.push(`/purchase-orders/${sourceOrder.id}`)}>{labels.cancel}</Button></div>
+            <div className="flex flex-col gap-2"><Button id="save-po-changes" type="submit" loading={saving} className="h-auto min-h-9 whitespace-normal py-2" disabled={disabled || hasConflict} aria-busy={isPending}>{saving ? dictionary.common.saving : labels.save}</Button><Button type="button" variant="outline" disabled={disabled} onClick={() => router.push(`/purchase-orders/${sourceOrder.id}`)}>{labels.cancel}</Button></div>
           </CardContent>
         </Card>
       </aside>

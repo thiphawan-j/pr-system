@@ -10,7 +10,7 @@ import {
   UserCheck,
   UserX,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
 import { startTransition, useEffect, useRef, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -111,7 +111,9 @@ function EditUserDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
   const form = useForm<UpdateUserFormValues, undefined, UpdateUserPayload>({
     resolver: zodResolver(updateUserSchema),
@@ -143,34 +145,42 @@ function EditUserDialog({
   }
 
   function onSubmit(values: UpdateUserPayload) {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(`/api/admin/users/${userId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      });
-      const payload = await response.json().catch(() => null);
+      try {
+        const response = await fetch(`/api/admin/users/${userId}`, {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
+        const payload = await response.json().catch(() => null);
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ?? dictionary.admin.updateError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ?? dictionary.admin.updateError,
+          );
+          return;
+        }
+
+        toast.success(dictionary.admin.updateSuccess);
+        closeDialog();
+        router.refresh();
+      } catch {
+        toast.error(dictionary.admin.updateError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(dictionary.admin.updateSuccess);
-      closeDialog();
-      router.refresh();
     });
   }
 
   return (
-    <Dialog open={Boolean(user)} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(user)} onOpenChange={(open) => { if (!isPending) onOpenChange(open); }}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
           <DialogTitle>{dictionary.admin.editUserTitle}</DialogTitle>
@@ -309,8 +319,8 @@ function EditUserDialog({
             >
               {dictionary.common.cancel}
             </Button>
-            <Button type="submit" disabled={isPending}>
-              <FilePenLine />
+            <Button type="submit" loading={isPending}>
+              {!isPending ? <FilePenLine /> : null}
               {isPending ? dictionary.admin.updatingUser : dictionary.admin.updateUser}
             </Button>
           </DialogFooter>
@@ -328,7 +338,9 @@ function ResetPasswordDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
   const form = useForm<
     ResetPasswordFormValues,
@@ -362,35 +374,43 @@ function ResetPasswordDialog({
   }
 
   function onSubmit(values: ResetPasswordPayload) {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(`/api/admin/users/${userId}/reset-password`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(values),
-      });
-      const payload = await response.json().catch(() => null);
+      try {
+        const response = await fetch(`/api/admin/users/${userId}/reset-password`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(values),
+        });
+        const payload = await response.json().catch(() => null);
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ??
-            dictionary.admin.resetPasswordError,
-        );
-        return;
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ??
+              dictionary.admin.resetPasswordError,
+          );
+          return;
+        }
+
+        toast.success(dictionary.admin.resetPasswordSuccess);
+        closeDialog();
+        router.refresh();
+      } catch {
+        toast.error(dictionary.admin.resetPasswordError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(dictionary.admin.resetPasswordSuccess);
-      closeDialog();
-      router.refresh();
     });
   }
 
   return (
-    <Dialog open={Boolean(user)} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(user)} onOpenChange={(open) => { if (!isPending) onOpenChange(open); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{dictionary.admin.resetPasswordTitle}</DialogTitle>
@@ -449,8 +469,8 @@ function ResetPasswordDialog({
             >
               {dictionary.common.cancel}
             </Button>
-            <Button type="submit" disabled={isPending}>
-              <KeyRound />
+            <Button type="submit" loading={isPending}>
+              {!isPending ? <KeyRound /> : null}
               {isPending
                 ? dictionary.admin.resettingPassword
                 : dictionary.admin.resetPassword}
@@ -472,7 +492,9 @@ function ToggleUserStatusDialog({
   onOpenChange: (open: boolean) => void;
 }) {
   const router = useRouter();
-  const [isPending, setIsPending] = useState(false);
+  const [requestPending, setIsPending] = useState(false);
+  const pendingRef = useRef(false);
+  const isPending = requestPending || router.isPending;
   const { dictionary, locale } = useI18n();
 
   if (!user) {
@@ -487,39 +509,47 @@ function ToggleUserStatusDialog({
   }
 
   function handleSubmit() {
+    if (pendingRef.current || router.isPending) return;
+    pendingRef.current = true;
     setIsPending(true);
     startTransition(async () => {
-      const response = await fetch(`/api/admin/users/${userId}/activation`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ isActive: nextIsActive }),
-      });
-      const payload = await response.json().catch(() => null);
+      try {
+        const response = await fetch(`/api/admin/users/${userId}/activation`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ isActive: nextIsActive }),
+        });
+        const payload = await response.json().catch(() => null);
 
-      setIsPending(false);
 
-      if (!response.ok) {
-        toast.error(
-          translateMessage(payload?.error, locale) ??
-            dictionary.admin.toggleStatusError,
+        if (!response.ok) {
+          toast.error(
+            translateMessage(payload?.error, locale) ??
+              dictionary.admin.toggleStatusError,
+          );
+          return;
+        }
+
+        toast.success(
+          nextIsActive
+            ? dictionary.admin.activateSuccess
+            : dictionary.admin.deactivateSuccess,
         );
-        return;
+        closeDialog();
+        router.refresh();
+      } catch {
+        toast.error(dictionary.admin.toggleStatusError);
+      } finally {
+        pendingRef.current = false;
+        setIsPending(false);
       }
-
-      toast.success(
-        nextIsActive
-          ? dictionary.admin.activateSuccess
-          : dictionary.admin.deactivateSuccess,
-      );
-      closeDialog();
-      router.refresh();
     });
   }
 
   return (
-    <Dialog open={Boolean(user)} onOpenChange={onOpenChange}>
+    <Dialog open={Boolean(user)} onOpenChange={(open) => { if (!isPending) onOpenChange(open); }}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>
@@ -550,10 +580,11 @@ function ToggleUserStatusDialog({
             type="button"
             variant={nextIsActive ? "default" : "destructive"}
             onClick={handleSubmit}
+            loading={isPending}
             disabled={isPending || (user.id === currentUserId && !nextIsActive)}
           >
-            {nextIsActive ? <UserCheck /> : <UserX />}
-            {nextIsActive
+            {!isPending ? nextIsActive ? <UserCheck /> : <UserX /> : null}
+            {isPending ? dictionary.common.saving : nextIsActive
               ? dictionary.admin.activateUser
               : dictionary.admin.deactivateUser}
           </Button>

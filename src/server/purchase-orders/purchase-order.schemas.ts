@@ -6,6 +6,7 @@ const optionalText = (max: number) => z.string().trim().max(max).optional()
   .transform((value) => value || undefined);
 
 const taxModeSchema = z.enum(PURCHASE_PRICE_TAX_MODES);
+const deliveryRecipientIdSchema = z.string().trim().min(1).max(100).nullable().optional();
 const vatRateSchema = z.number().finite().min(0).max(100).multipleOf(0.01, "อัตราภาษีต้องมีทศนิยมไม่เกิน 2 ตำแหน่ง");
 const discountFields = {
   discountType: z.enum(PURCHASE_DISCOUNT_TYPES).optional(),
@@ -17,6 +18,7 @@ const orderFields = {
   taxMode: taxModeSchema.optional(),
   vatRate: vatRateSchema.optional(),
   deliveryAddress: optionalText(2000),
+  deliveryRecipientId: deliveryRecipientIdSchema,
   expectedDeliveryDate: z.iso.date("กรุณาระบุวันที่ส่งมอบที่ถูกต้อง").optional(),
   note: optionalText(2000),
   itemIds: z.array(z.string().min(1).max(100)).min(1).max(500),
@@ -39,6 +41,7 @@ const preparationItemSchema = z.object({
   ...discountFields,
   clientId: z.string().min(1).max(100),
   sourceItemId: z.string().min(1).max(100).optional(),
+  sourcePurchaseRequestId: z.string().min(1).max(100).optional(),
   taxMode: taxModeSchema.nullable().optional(),
   itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า").max(200),
   description: optionalText(2000),
@@ -49,6 +52,7 @@ const preparationItemSchema = z.object({
 }).strict();
 
 export const purchaseOrderConversionSchema = z.object({
+  previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
   orders: z.array(z.union([registeredOrderSchema, manualOrderSchema]))
     .min(1, "กรุณาระบุใบสั่งซื้ออย่างน้อยหนึ่งใบ").max(500),
   items: z.array(preparationItemSchema).min(1, "ต้องมีอย่างน้อย 1 รายการ").max(500).optional(),
@@ -78,13 +82,36 @@ export const purchaseOrderConversionSchema = z.object({
     if (clientIds.size !== items.length || new Set(sourceIds).size !== sourceIds.length) {
       context.addIssue({ code: "custom", path: ["items"], message: "รายการสินค้าซ้ำกัน" });
     }
-    if (itemIds.length !== items.length || itemIds.some((itemId) => !clientIds.has(itemId))) {
+    if (itemIds.some((itemId) => !clientIds.has(itemId))) {
       context.addIssue({ code: "custom", path: ["orders"], message: "กรุณาจัดผู้ขายให้ครบทุกรายการใน PR โดยไม่ซ้ำกัน" });
     }
   }
 });
 
 export type PurchaseOrderConversionInput = z.infer<typeof purchaseOrderConversionSchema>;
+
+export const purchaseOrderCombinedConversionSchema = z.object({
+  previewFingerprint: z.string().regex(/^[a-f0-9]{64}$/).optional(),
+  requests: z.array(z.object({
+    id: z.string().min(1).max(100),
+    expectedUpdatedAt: z.iso.datetime({ offset: true, error: "ข้อมูล PR มีการเปลี่ยนแปลง กรุณาโหลดข้อมูลใหม่" }),
+  }).strict()).min(1).max(100),
+  orders: z.array(z.union([registeredOrderSchema, manualOrderSchema]))
+    .min(1, "กรุณาระบุใบสั่งซื้ออย่างน้อยหนึ่งใบ").max(500),
+  items: z.array(preparationItemSchema).min(1, "ต้องมีอย่างน้อย 1 รายการ").max(500).optional(),
+}).strict().superRefine((input, context) => {
+  if (new Set(input.requests.map((request) => request.id)).size !== input.requests.length) {
+    context.addIssue({ code: "custom", path: ["requests"], message: "รายการ PR ซ้ำกัน" });
+  }
+  const validation = purchaseOrderConversionSchema.safeParse({
+    orders: input.orders, items: input.items, expectedUpdatedAt: input.requests[0]?.expectedUpdatedAt,
+  });
+  if (!validation.success) {
+    for (const issue of validation.error.issues) context.addIssue({ ...issue, path: issue.path });
+  }
+});
+
+export type PurchaseOrderCombinedConversionInput = z.infer<typeof purchaseOrderCombinedConversionSchema>;
 
 const supplierOverrides = {
   supplierTaxId: optionalText(50),
@@ -108,12 +135,14 @@ export const purchaseOrderChangeSchema = z.object({
     z.object({ supplierName: z.string().trim().min(1, "กรุณาระบุผู้ขาย").max(200), ...supplierOverrides }).strict(),
   ]),
   deliveryAddress: optionalText(2000),
+  deliveryRecipientId: deliveryRecipientIdSchema,
   paymentTerms: optionalText(500),
   expectedDeliveryDate: z.union([z.iso.date("กรุณาระบุวันที่ส่งมอบที่ถูกต้อง"), z.literal("")]).optional(),
   note: optionalText(2000),
   items: z.array(z.object({
     ...discountFields,
     id: z.string().min(1).max(100).optional(),
+    sourcePurchaseRequestId: z.string().min(1).max(100).optional(),
     taxMode: taxModeSchema.nullable().optional(),
     itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า").max(200),
     description: optionalText(2000),
@@ -141,3 +170,11 @@ export const purchaseOrderChangeReviewSchema = z.object({
 
 export type PurchaseOrderChangeInput = z.output<typeof purchaseOrderChangeSchema>;
 export type PurchaseOrderChangeReviewInput = z.output<typeof purchaseOrderChangeReviewSchema>;
+
+export const purchaseOrderCancellationSchema = z.object({
+  expectedVersion: z.number().int().nonnegative().max(2147483646),
+  reason: z.string().trim().min(5, "กรุณาระบุเหตุผลการยกเลิกอย่างน้อย 5 ตัวอักษร").max(2000),
+  cancellationReference: optionalText(200),
+}).strict();
+
+export type PurchaseOrderCancellationInput = z.output<typeof purchaseOrderCancellationSchema>;

@@ -146,3 +146,30 @@
     @apply border border-white/10 bg-white/70 shadow-lg shadow-slate-950/5 backdrop-blur dark:bg-slate-900/65;
   }
 }
+
+.app-activity-feedback {
+  opacity: 0;
+  animation: app-activity-reveal 100ms linear 120ms forwards;
+}
+
+.app-activity-progress {
+  animation: app-activity-sweep 1100ms ease-in-out infinite;
+}
+
+@keyframes app-activity-reveal {
+  to { opacity: 1; }
+}
+
+@keyframes app-activity-sweep {
+  from { transform: translateX(-110%); }
+  to { transform: translateX(410%); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-activity-feedback { opacity: 1; animation: none; }
+  .app-activity-progress { width: 100%; animation: none; }
+}
+
+@media print {
+  [data-app-activity] { display: none !important; }
+}

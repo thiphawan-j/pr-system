@@ -17,7 +17,14 @@ export function middleware(request: NextRequest) {
     LOGIN_RETURN_PATH_HEADER,
     getPurchaseRequestReturnPath(pathname) ?? "",
   );
-  return NextResponse.next({ request: { headers: requestHeaders } });
+  const response = NextResponse.next({ request: { headers: requestHeaders } });
+  if (pathname.startsWith("/shared/purchase-orders/")) {
+    response.headers.set("Cache-Control", "private, no-store, max-age=0");
+    response.headers.set("Referrer-Policy", "no-referrer");
+    response.headers.set("X-Robots-Tag", "noindex, nofollow, noarchive");
+    response.headers.set("X-Content-Type-Options", "nosniff");
+  }
+  return response;
 }
 
 export const config = {

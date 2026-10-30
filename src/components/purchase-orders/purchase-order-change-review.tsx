@@ -1,6 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useAppRouter as useRouter } from "@/components/loading/use-app-router";
 import { useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
@@ -19,16 +19,20 @@ export function PurchaseOrderChangeReview({ order }: { order: PurchaseOrderDetai
   const mounted = useSyncExternalStore(() => () => undefined, () => true, () => false);
   const [comment, setComment] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const busy = isPending || router.isPending;
+  const [pendingAction, setPendingAction] = useState<"APPROVED" | "REJECTED" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const pendingRef = useRef(false);
   if (!order.pendingChangeId || (!order.canReview && !order.canWithdraw)) return null;
 
   async function review(action: "APPROVED" | "REJECTED") {
-    if (pendingRef.current) return;
+    if (pendingRef.current || router.isPending) return;
     if (action === "REJECTED" && comment.trim().length < 5) { setError(labels.rejectReason); return; }
     pendingRef.current = true;
+    setPendingAction(action);
     setIsPending(true);
     setError(null);
+    let saved = false;
     try {
       const response = await fetch(`/api/purchase-orders/${order.id}/changes/${order.pendingChangeId}/review`, {
         method: "POST",
@@ -41,13 +45,14 @@ export function PurchaseOrderChangeReview({ order }: { order: PurchaseOrderDetai
         if (response.status === 409) router.refresh();
         return;
       }
+      saved = true;
       toast.success(labels.reviewSaved);
       router.refresh();
     } catch { setError(labels.reviewError); }
-    finally { pendingRef.current = false; setIsPending(false); }
+    finally { pendingRef.current = false; setIsPending(false); if (!saved) setPendingAction(null); }
   }
 
-  const disabled = isPending || !mounted;
+  const disabled = busy || !mounted;
   return (
     <Card id="po-change-review" className="border-border/70">
       <CardHeader><CardTitle>{labels.reviewTitle}</CardTitle><CardDescription>{labels.description}</CardDescription></CardHeader>
@@ -56,8 +61,8 @@ export function PurchaseOrderChangeReview({ order }: { order: PurchaseOrderDetai
         <Textarea id="po-review-comment" rows={3} maxLength={2000} disabled={disabled} value={comment} onChange={(event) => setComment(event.target.value)} />
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         <div className="flex flex-wrap justify-end gap-2" aria-busy={isPending}>
-          {order.canWithdraw ? <Button id="withdraw-po-change" type="button" variant="outline" disabled={disabled} onClick={() => review("REJECTED")}>{labels.withdraw}</Button> : null}
-          {order.canReview ? <><Button id="reject-po-change" type="button" variant="outline" disabled={disabled} onClick={() => review("REJECTED")}>{labels.reject}</Button><Button id="approve-po-change" type="button" disabled={disabled} onClick={() => review("APPROVED")}>{labels.approve}</Button></> : null}
+          {order.canWithdraw ? <Button id="withdraw-po-change" type="button" loading={busy && pendingAction === "REJECTED"} variant="outline" disabled={disabled} onClick={() => review("REJECTED")}>{busy && pendingAction === "REJECTED" ? dictionary.common.saving : labels.withdraw}</Button> : null}
+          {order.canReview ? <><Button id="reject-po-change" type="button" loading={busy && pendingAction === "REJECTED"} variant="outline" disabled={disabled} onClick={() => review("REJECTED")}>{busy && pendingAction === "REJECTED" ? dictionary.common.saving : labels.reject}</Button><Button id="approve-po-change" type="button" loading={busy && pendingAction === "APPROVED"} disabled={disabled} onClick={() => review("APPROVED")}>{busy && pendingAction === "APPROVED" ? dictionary.common.saving : labels.approve}</Button></> : null}
         </div>
       </CardContent>
     </Card>
