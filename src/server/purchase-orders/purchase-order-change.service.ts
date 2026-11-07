@@ -1,3 +1,4 @@
+import { assertLegacyProcurementWriter } from "./procurement-ownership";
 import "server-only";
 
 import { isDeepStrictEqual } from "node:util";
@@ -266,6 +267,7 @@ async function recordChangeTimeline(
 }
 
 export async function proposePurchaseOrderChange(id: string, session: SessionUser, input: PurchaseOrderChangeInput) {
+  assertLegacyProcurementWriter();
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่แก้ไข PO ได้", 403);
   const result = await getDb().$transaction(async (transaction) => {
     const order = await lockedOrder(transaction, id);
@@ -369,6 +371,7 @@ async function applySnapshot(transaction: Prisma.TransactionClient, order: Order
 }
 
 export async function reviewPurchaseOrderChange(id: string, changeId: string, session: SessionUser, input: PurchaseOrderChangeReviewInput) {
+  assertLegacyProcurementWriter();
   // Fail before a decision commits if this account has lost document visibility.
   await getPurchaseOrderById(id, session);
   const order = await getDb().$transaction(async (transaction) => {

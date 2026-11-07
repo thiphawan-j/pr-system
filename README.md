@@ -2,6 +2,12 @@
 
 ระบบ Purchase Request Management สำหรับองค์กร พร้อม workflow อนุมัติ, dashboard, notifications และรายงานส่งออก
 
+## การอนุมัติหลังแก้ไข PR
+
+เมื่อฝ่ายจัดซื้อส่งกลับเพื่อแก้ไขหรือขอข้อมูลเพิ่ม การบันทึกฟอร์มจะยกเลิกวันที่อนุมัติเดิม และการส่งฟอร์มอีกครั้งจะเข้าคิวผู้อนุมัติของแผนกเสมอ ไม่คืนสถานะอนุมัติอัตโนมัติ แม้บันทึกร่างไว้ก่อนส่ง ผู้อนุมัติต้องตรวจขอบเขตและยอดใหม่ก่อนจัดซื้อดำเนินการต่อ ประวัติอนุมัติเดิมยังเก็บไว้ใน Timeline
+
+ทดสอบด้วย `npm run test:e2e -- purchase-request-reapproval.spec.ts purchase-request-workflow.spec.ts` โดยใช้ฐานข้อมูลแยกที่ชื่อลงท้าย `_e2e` เท่านั้น ไม่มีการเปลี่ยน schema ในการแก้ไขนี้
+
 ## Tech Stack
 
 - Next.js 15 App Router
@@ -347,3 +353,11 @@ EMAIL_FROM_NAME="PR Flow"
 เมื่อยืนยัน ระบบจะเปลี่ยน PR เป็น **เสร็จสมบูรณ์** และปิดยอดสินค้าค้างรับทั้งหมด โดยคงยอดรับจริง เลขเอกสารเดิม และประวัติไว้ ไม่ต้องรับสินค้าให้ครบหรือกรอกเลขเอกสารก่อนปิดงาน การปิดงานครอบคลุม PO ทุกใบของ PR นั้น และบันทึกผู้ดำเนินการกับเวลาลงใน Timeline การกดซ้ำหรือข้อมูลที่เปลี่ยนระหว่างเปิดหน้าจะไม่ปิดยอดซ้ำ
 
 ส่วนนี้ใช้โครงสร้างฐานข้อมูลเดิม ไม่เพิ่ม migration ทดสอบขั้นตอนด้วย `npm run test:e2e -- purchase-request-closure.spec.ts` บนฐานข้อมูลทดสอบเท่านั้น
+
+## Opt-in PO workspace cutover
+
+Keep `PO_WORKSPACE_ENABLED=false` (or unset) while this application owns procurement. Only after a reviewed cutover to the separate PO workspace, set `PO_WORKSPACE_ENABLED=true` and restart **every** legacy PR instance before enabling new writers. Do not run both writer sets concurrently. This is an operational switch, not a database migration or automatic deployment.
+
+When enabled, legacy PO creation, revision, approval, cancellation and share-link mutations, receiving, receipt references, order closing and legacy ORDERED/RECEIVED status mutations fail with HTTP 409 and code `PO_WORKSPACE_OWNS_PROCUREMENT`. PR cancellation is also blocked conservatively because it can cascade into PO history. Handle cancellations through the PO workspace during cutover; verify that its workflows cover the required cancellation before enabling this switch. Editing a PR with any PO history is blocked to avoid detaching historical PO lines. PR creation, normal approval, comments, and read-only views remain available. Preview endpoints are read-only and do not grant permission to save.
+
+Run `npm run test:procurement-ownership` for the flag/error contract and mutation-entrypoint guards. This does not replace shared-database integration testing. Rollback requires stopping all PO workspace writers and verifying compatible schema/data before re-enabling legacy writers; never flip the legacy flag while the new writers are active.

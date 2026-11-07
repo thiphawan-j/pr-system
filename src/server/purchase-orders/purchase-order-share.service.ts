@@ -1,3 +1,4 @@
+import { assertLegacyProcurementWriter } from "./procurement-ownership";
 import "server-only";
 
 import { randomBytes } from "node:crypto";
@@ -113,6 +114,7 @@ export async function createPurchaseOrderShare(
   session: SessionUser,
   input: { renew?: true; expectedShareId?: string; expiresInDays?: number } = {},
 ): Promise<PurchaseOrderShareState> {
+  assertLegacyProcurementWriter();
   assertManager(session);
   const expiresInDays = input.expiresInDays === undefined ? PURCHASE_ORDER_SHARE_DEFAULT_DAYS : input.expiresInDays;
   invariant(Number.isInteger(expiresInDays) && expiresInDays >= PURCHASE_ORDER_SHARE_MIN_DAYS
@@ -142,6 +144,7 @@ export async function revokePurchaseOrderShare(
   session: SessionUser,
   input: { expectedShareId: string },
 ): Promise<PurchaseOrderShareState> {
+  assertLegacyProcurementWriter();
   assertManager(session);
   invariant(Boolean(input.expectedShareId), "กรุณาโหลดข้อมูลลิงก์ใหม่ก่อนปิดลิงก์", 400);
   return getDb().$transaction(async (transaction) => {

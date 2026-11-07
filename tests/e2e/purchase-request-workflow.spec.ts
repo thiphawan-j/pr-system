@@ -123,10 +123,10 @@ test("purchasing can request revision and employee can resubmit", async ({ page 
   await reasonInput.fill(revisedReason);
   await page.locator("#requesterComment").fill(requesterComment);
   await page.getByRole("button", {
-    name: /ส่งกลับให้จัดซื้อตรวจอีกครั้ง|send back to purchasing/i,
+    name: /ส่งอนุมัติใหม่|resubmit for approval/i,
   }).click();
 
-  await expect(page.locator("main")).toContainText(statusText.approved);
+  await expect(page.locator("main")).toContainText(statusText.pending);
   await expect(page.locator("main")).toContainText(revisedReason);
   await expect(page.locator("main")).toContainText(requesterComment);
 });
