@@ -70,7 +70,7 @@ function Button({
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
       disabled={disabled || loading}
-      aria-busy={loading || props["aria-busy"] || undefined}
+      aria-busy={loading ? true : props["aria-busy"]}
     >
       {loading ? <BusySpinner kind={loadingKind} /> : null}
       {asChild ? <Slot.Slottable>{children}</Slot.Slottable> : children}

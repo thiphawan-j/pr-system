@@ -144,14 +144,24 @@ test("a cancelled PO permits a returned PR revision while keeping its issued sna
       unit: "ชิ้น", unitPrice: 5, amount: 15 }],
   } }), 200);
   const revised = await getRequest(page, source.id);
-  expect(revised.status).toBe("APPROVED");
-  expect(revised.orderableItemCount).toBe(1);
+  expect(revised.status).toBe("PENDING_APPROVAL");
+  expect(revised.approvedAt).toBeNull();
+  expect(revised.orderableItemCount).toBe(0);
   expect(revised.items[0]!.id).not.toBe(source.items[0]!.id);
   const cancelled = await getOrder(page, issued.id);
   expect(cancelled.status).toBe("CANCELLED");
   expect(cancelled.items[0]!).toMatchObject({ itemName: source.items[0]!.itemName, quantity: 2,
     amount: 200, sourcePurchaseRequestId: source.id, purchaseRequestItemId: null });
+  await authenticate(page, credentials.approver);
+  await expectStatus(await page.request.post(`/api/purchase-requests/${source.id}/approval`, {
+    data: { action: "APPROVED", comment: "Approve the revised replacement specification" },
+  }), 200);
   await authenticate(page, credentials.purchasing);
-  const replacement = await combine(page, [revised], [revised.items[0]!.id]);
+  // Approval changes the preparation version; do not order from the stale revision.
+  const reapproved = await getRequest(page, source.id);
+  expect(reapproved.status).toBe("APPROVED");
+  expect(reapproved.approvedAt).not.toBeNull();
+  expect(reapproved.orderableItemCount).toBe(1);
+  const replacement = await combine(page, [reapproved], [reapproved.items[0]!.id]);
   expect((await getOrder(page, replacement.id)).totalAmount).toBe(15);
 });
