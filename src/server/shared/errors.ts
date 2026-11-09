@@ -4,11 +4,13 @@ import { ZodError } from "zod";
 
 export class AppError extends Error {
   statusCode: number;
+  code?: string;
 
-  constructor(message: string, statusCode = 400) {
+  constructor(message: string, statusCode = 400, code?: string) {
     super(message);
     this.name = "AppError";
     this.statusCode = statusCode;
+    this.code = code;
   }
 }
 
@@ -106,7 +108,7 @@ export function invariant(
 
 export function toErrorResponse(error: unknown) {
   if (isAppError(error)) {
-    return NextResponse.json({ error: error.message }, { status: error.statusCode });
+    return NextResponse.json({ error: error.message, ...(error.code ? { code: error.code } : {}) }, { status: error.statusCode });
   }
 
   if (error instanceof ZodError) {

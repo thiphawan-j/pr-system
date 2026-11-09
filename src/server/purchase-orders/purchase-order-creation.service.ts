@@ -1,3 +1,4 @@
+import { assertLegacyProcurementWriter } from "./procurement-ownership";
 import "server-only";
 
 import { createHash } from "node:crypto";
@@ -341,6 +342,7 @@ export async function convertPurchaseRequestToOrders(
   session: SessionUser,
   input: PurchaseOrderConversionInput,
 ): Promise<PurchaseOrderSummary[]> {
+  assertLegacyProcurementWriter();
   assertConversionVersion(input);
   return issuePurchaseOrders(session, [{ id, expectedUpdatedAt: input.expectedUpdatedAt }], input);
 }
@@ -349,6 +351,7 @@ export async function combinePurchaseRequestsToOrders(
   session: SessionUser,
   input: PurchaseOrderCombinedConversionInput,
 ): Promise<PurchaseOrderSummary[]> {
+  assertLegacyProcurementWriter();
   return issuePurchaseOrders(session, input.requests, input);
 }
 

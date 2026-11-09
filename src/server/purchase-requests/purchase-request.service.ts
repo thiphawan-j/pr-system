@@ -1,3 +1,4 @@
+import { assertLegacyProcurementWriter } from "@/server/purchase-orders/procurement-ownership";
 import "server-only";
 
 import {
@@ -822,23 +823,6 @@ async function notifyPurchasingReturn(input: {
   ]);
 }
 
-async function notifyPurchasingResubmission(input: {
-  requestId: string;
-  prNumber: string;
-  requesterName: string;
-  purchasingUserId: string;
-}) {
-  await createNotifications([
-    {
-      userId: input.purchasingUserId,
-      title: "PR ถูกส่งกลับมาตรวจอีกครั้ง",
-      message: `${input.prNumber} จาก ${input.requesterName} แก้ไขหรือตอบข้อมูลแล้ว`,
-      link: `/purchase-requests/${input.requestId}`,
-      type: NotificationType.INFO,
-    },
-  ]);
-}
-
 async function notifyProgressUpdate(input: {
   requestId: string;
   prNumber: string;
@@ -1183,32 +1167,18 @@ export async function updatePurchaseRequest(
   const isReturningToPurchasing = isPurchasingReturnStatus(existing.status);
   let nextApproverId: string | null = null;
 
+  // Any edit replaces the requested lines. Previous approval must never
+  // authorize the new scope, even when Purchasing requested the revision.
   if (input.submit) {
-    if (isReturningToPurchasing) {
-      nextApproverId =
-        existing.currentApproverId ?? (await findPrimaryPurchasingUser())?.id ?? null;
-    } else {
-      nextApproverId = (await findApproverForDepartment(input.department))?.id ?? null;
-    }
-
-    invariant(
-      nextApproverId,
-      isReturningToPurchasing
-        ? "ไม่พบผู้รับผิดชอบฝ่ายจัดซื้อ"
-        : "ไม่พบผู้อนุมัติสำหรับแผนกนี้",
-      400,
-    );
+    nextApproverId = (await findApproverForDepartment(input.department))?.id ?? null;
+    invariant(nextApproverId, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
   }
 
   const nextStatus = input.submit
-    ? isReturningToPurchasing
-      ? PurchaseRequestStatus.APPROVED
-      : PurchaseRequestStatus.PENDING_APPROVAL
+    ? PurchaseRequestStatus.PENDING_APPROVAL
     : existing.status;
   const updateComment = input.submit
-    ? isReturningToPurchasing
-      ? "แก้ไขและส่งกลับให้จัดซื้อตรวจอีกครั้ง"
-      : "แก้ไขและส่งเอกสารใหม่"
+    ? "แก้ไขและส่งเอกสารใหม่"
     : isReturningToPurchasing
       ? "แก้ไขเอกสารตามคำขอจัดซื้อ"
       : "แก้ไขร่างเอกสาร";
@@ -1256,6 +1226,10 @@ export async function updatePurchaseRequest(
 
     invariant(await transaction.purchaseOrder.count({ where: { status: "ISSUED", purchaseRequests: { some: { id } } } }) === 0,
       "PR ที่มี PO ใช้งานอยู่ไม่สามารถเปลี่ยนรายการผ่านหน้า PR ได้", 409);
+    // After cutover, even cancelled PO history belongs to the PO workspace.
+    if (await transaction.purchaseOrder.count({ where: { purchaseRequests: { some: { id } } } })) {
+      assertLegacyProcurementWriter();
+    }
     await transaction.purchaseOrderItem.updateMany({
       where: { sourcePurchaseRequestId: id, purchaseOrder: { status: "CANCELLED" } },
       data: { purchaseRequestItemId: null },
@@ -1272,6 +1246,7 @@ export async function updatePurchaseRequest(
         reason: input.reason,
         urgency: input.urgency,
         totalAmount,
+        approvedAt: null,
         currentApproverId: input.submit
           ? nextApproverId
           : existing.currentApproverId,
@@ -1298,16 +1273,7 @@ export async function updatePurchaseRequest(
   });
 
   if (nextApproverId && input.submit) {
-    if (isReturningToPurchasing) {
-      await notifyPurchasingResubmission({
-        requestId: existing.id,
-        prNumber: existing.prNumber,
-        requesterName: session.name,
-        purchasingUserId: nextApproverId,
-      });
-    } else {
-      await notifySubmission(existing.id, existing.prNumber, session.name, nextApproverId);
-    }
+    await notifySubmission(existing.id, existing.prNumber, session.name, nextApproverId);
   }
 
   return existing.id;
@@ -1411,6 +1377,7 @@ export async function updatePurchaseRequestCancellation(
   session: SessionUser,
   input: PurchaseRequestCancellationInput,
 ) {
+  assertLegacyProcurementWriter();
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
@@ -1797,6 +1764,7 @@ export async function reviewPurchaseRequest(
         id,
         status: PurchaseRequestStatus.PENDING_APPROVAL,
         currentApproverId: request.currentApproverId,
+        updatedAt: request.updatedAt,
       },
       data: {
         status: nextStatus,
@@ -1847,6 +1815,7 @@ export async function closePurchaseRequest(
   session: SessionUser,
   input: ClosePurchaseRequestInput,
 ) {
+  assertLegacyProcurementWriter();
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ปิดงานออเดอร์ได้", 403);
   const result = await getDb().$transaction(async (transaction) => {
     // Share the same PR lock as PO revisions. Existing receipt and cancellation
@@ -1930,6 +1899,7 @@ export async function recordPurchaseRequestReceipt(
   session: SessionUser,
   input: ReceiptEntryInput,
 ) {
+  assertLegacyProcurementWriter();
   const db = getDb();
   const result = await db.$transaction(async (transaction) => {
     // Lock before reading either the PR version or its item balances so a
@@ -2053,6 +2023,7 @@ export async function updatePurchaseRequestReceiptReferences(
   session: SessionUser,
   input: { receiptNumber?: string; taxInvoiceNumber?: string; note?: string; expectedVersion?: number },
 ) {
+  assertLegacyProcurementWriter();
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อเท่านั้นที่ดำเนินการได้", 403);
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
@@ -2088,6 +2059,9 @@ export async function progressPurchaseRequest(
     receivedDate?: string;
   },
 ) {
+  if (input.action === "ORDERED" || input.action === "RECEIVED") {
+    assertLegacyProcurementWriter();
+  }
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },
@@ -2234,6 +2208,7 @@ export async function updateReceiptReferences(
     expectedVersion?: number;
   },
 ) {
+  assertLegacyProcurementWriter();
   const db = getDb();
   const request = await db.purchaseRequest.findUnique({
     where: { id },

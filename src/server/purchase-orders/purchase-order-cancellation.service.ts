@@ -1,3 +1,4 @@
+import { assertLegacyProcurementWriter } from "./procurement-ownership";
 import "server-only";
 
 import { ApprovalAction, Prisma } from "@prisma/client";
@@ -12,6 +13,7 @@ import { lockPurchaseRequests, refreshPurchaseRequestsAfterOrderChange } from "@
 import { invariant } from "@/server/shared/errors";
 
 export async function cancelPurchaseOrder(id: string, session: SessionUser, input: PurchaseOrderCancellationInput) {
+  assertLegacyProcurementWriter();
   invariant(isPurchasing(session), "เฉพาะฝ่ายจัดซื้อหรือผู้ดูแลระบบเท่านั้นที่ยกเลิก PO ได้", 403);
   const order = await getDb().$transaction(async (transaction) => {
     const reference = await transaction.purchaseOrder.findUnique({

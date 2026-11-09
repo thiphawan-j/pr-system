@@ -14,6 +14,8 @@
     "start:prod": "node scripts/with-env.mjs prod -- npm run start",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "test:button": "node --import tsx --test tests/unit/button.test.ts",
+    "test:procurement-ownership": "node --conditions=react-server --import tsx --test tests/unit/procurement-ownership.test.ts",
     "test:po-document": "node --conditions=react-server --import tsx --test tests/unit/purchase-order-document.test.ts",
     "test:po-tax": "node --import tsx --test tests/unit/purchase-order-tax.test.ts",
     "e2e:prepare": "node scripts/prepare-e2e.mjs",

@@ -197,8 +197,8 @@ export const dictionaries = {
       saveError: "บันทึกเอกสารไม่สำเร็จ",
       draftSaved: "บันทึกร่างเรียบร้อย",
       submittedSaved: "บันทึกและส่งอนุมัติแล้ว",
-      resubmitToPurchasing: "ส่งกลับให้จัดซื้อตรวจอีกครั้ง",
-      resubmittedToPurchasing: "ส่งกลับให้จัดซื้อตรวจอีกครั้งแล้ว",
+      resubmitToPurchasing: "ส่งอนุมัติใหม่",
+      resubmittedToPurchasing: "ส่งอนุมัติใหม่แล้ว",
       requesterCommentTitle: "ความเห็นเพิ่มเติมถึงจัดซื้อ",
       requesterCommentDescription:
         "ระบุสิ่งที่แก้ไข คำตอบ หรือเอกสารที่แนบเพิ่ม เพื่อให้จัดซื้อตรวจต่อได้รวดเร็ว",
@@ -1033,8 +1033,8 @@ export const dictionaries = {
       saveError: "Unable to save document",
       draftSaved: "Draft saved",
       submittedSaved: "Saved and submitted for approval",
-      resubmitToPurchasing: "Send back to Purchasing for review",
-      resubmittedToPurchasing: "Sent back to Purchasing for review",
+      resubmitToPurchasing: "Resubmit for approval",
+      resubmittedToPurchasing: "Resubmitted for approval",
       requesterCommentTitle: "Additional note to Purchasing",
       requesterCommentDescription:
         "Describe what changed, answer the question, or mention newly attached documents so Purchasing can continue the review.",
