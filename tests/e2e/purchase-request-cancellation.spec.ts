@@ -266,14 +266,11 @@ test("requester cannot review their own cancellation request", async ({ page }) 
   ).toBe(200);
 });
 
-test("Management approver has Admin-equivalent cancellation rights", async ({
-  page,
-}) => {
+// Separate independent permission scenarios so repeated sign-ins do not share
+// one 30-second test budget. Keep every original UI and HTTP authorization check.
+test("Management approver can delete another requester’s never-submitted draft", async ({ page }) => {
   await signIn(page);
   const draft = await createRequestViaApi(page);
-  const pending = await createRequestViaApi(page, { submit: true });
-  const approved = await createRequestViaApi(page, { submit: true });
-  const ordered = await createRequestViaApi(page, { submit: true });
 
   await switchUser(page, credentials.management);
   await page.goto(draft.url);
@@ -283,6 +280,11 @@ test("Management approver has Admin-equivalent cancellation rights", async ({
   expect((await page.request.delete(`/api/purchase-requests/${draft.id}`)).status()).toBe(
     200,
   );
+});
+
+test("Management can cancel pending PRs but ordinary approvers cannot", async ({ page }) => {
+  await signIn(page);
+  const pending = await createRequestViaApi(page, { submit: true });
 
   await switchUser(page, credentials.approver);
   expect(
@@ -307,6 +309,11 @@ test("Management approver has Admin-equivalent cancellation rights", async ({
       })
     ).status(),
   ).toBe(200);
+});
+
+test("Management approver can confirm an approved PR cancellation request", async ({ page }) => {
+  await signIn(page);
+  const approved = await createRequestViaApi(page, { submit: true });
 
   await approveRequest(page, approved.id);
   await switchUser(page, credentials.employee);
@@ -333,6 +340,11 @@ test("Management approver has Admin-equivalent cancellation rights", async ({
       })
     ).status(),
   ).toBe(200);
+});
+
+test("Management approver can cancel an ordered PR with a reference", async ({ page }) => {
+  await signIn(page);
+  const ordered = await createRequestViaApi(page, { submit: true });
 
   await approveRequest(page, ordered.id);
   await switchUser(page, credentials.purchasing);
