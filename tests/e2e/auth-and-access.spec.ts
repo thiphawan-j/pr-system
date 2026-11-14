@@ -41,7 +41,7 @@ test("role navigation hides admin and server rejects unauthorized admin access",
 }) => {
   await signIn(page);
 
-  await expect(page.locator('header a[href="/admin/users"]')).toHaveCount(0);
+  await expect(page.locator('nav a[href="/admin/users"]')).toHaveCount(0);
   const apiResponse = await page.request.get("/api/admin/users?page=1&limit=10");
   expect(apiResponse.status()).toBe(403);
 
@@ -49,7 +49,7 @@ test("role navigation hides admin and server rejects unauthorized admin access",
   await expect(page).toHaveURL(/\/dashboard$/);
 
   await switchUser(page, credentials.admin);
-  await expect(page.locator('header a[href="/admin/users"]')).toBeVisible();
+  await expect(page.locator('nav a[href="/admin/users"]')).toBeVisible();
   await page.goto("/admin/users");
   await expect(page.getByRole("heading", { level: 1 })).toContainText(
     /จัดการผู้ใช้งาน|user management/i,
@@ -60,11 +60,11 @@ test("user can switch the application language", async ({ page }) => {
   await signIn(page);
 
   await page.getByRole("button", { name: "ภาษา: English" }).click();
-  await expect(page.locator('header a[href="/reports"]')).toHaveText("Reports");
+  await expect(page.locator('nav a[href="/reports"]')).toHaveText("Reports");
   await expect(page.getByRole("button", { name: "Language: ไทย" })).toBeVisible();
 
   await page.getByRole("button", { name: "Language: ไทย" }).click();
-  await expect(page.locator('header a[href="/reports"]')).toHaveText("รายงาน");
+  await expect(page.locator('nav a[href="/reports"]')).toHaveText("รายงาน");
 });
 
 test("notification opens its request and is marked as read", async ({ page }) => {

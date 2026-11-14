@@ -198,7 +198,7 @@ test("supplier data and maintenance are restricted to Purchasing and Admin acros
   await expectStatus(await updateSupplier(page, supplier), 401);
   await authenticate(page);
   await page.goto("/dashboard");
-  await expect(page.locator('header a[href="/suppliers"]')).toHaveCount(0);
+  await expect(page.locator('nav a[href="/suppliers"]')).toHaveCount(0);
   await page.goto("/suppliers");
   await expect(page).toHaveURL(/\/dashboard$/);
   await authenticate(page, credentials.purchasing);
@@ -368,7 +368,7 @@ test("manual PO creation remains compatible and never invents a registered suppl
 test("Purchasing creates and edits multiple contact channels through the Thai and English supplier UI", async ({ page }) => {
   await authenticate(page, credentials.purchasing);
   await page.goto("/suppliers");
-  await expect(page.locator('header a[href="/suppliers"]')).toBeVisible();
+  await expect(page.locator('nav a[href="/suppliers"]')).toBeVisible();
   await page.locator("#create-supplier").click();
   const name = uniqueValue("Browser-supplier");
   await page.locator("#supplier-name").fill(name);
@@ -401,7 +401,7 @@ test("Purchasing creates and edits multiple contact channels through the Thai an
     { channel: "EMAIL", value: "browser-edit@example.test" },
   ]));
   await page.getByRole("button", { name: "ภาษา: English" }).click();
-  await expect(page.locator('header a[href="/suppliers"]')).toHaveText("Suppliers");
+  await expect(page.locator('nav a[href="/suppliers"]')).toHaveText("Suppliers");
   await page.getByRole("button", { name: `Edit ${supplier.code}`, exact: true }).click();
   await expect(page.locator("#save-supplier")).toHaveText("Save supplier");
   await expect(page.locator("#supplier-channel-EMAIL")).toBeChecked();
