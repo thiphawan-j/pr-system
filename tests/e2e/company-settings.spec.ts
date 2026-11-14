@@ -99,7 +99,7 @@ test("admin configures the buyer company, backfills legacy POs and preserves iss
 
   await authenticate(page, credentials.admin);
   await page.goto("/dashboard");
-  const menu = page.locator('header a[href="/admin/company"]:visible');
+  const menu = page.locator('nav a[href="/admin/company"]:visible');
   await expect(menu).toHaveCount(1);
   await menu.click();
   await expect(page).toHaveURL(/\/admin\/company$/);

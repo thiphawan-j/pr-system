@@ -41,7 +41,7 @@ export function MobileNav({ session }: MobileNavProps) {
           <Menu />
         </Button>
       </SheetTrigger>
-      <SheetContent side="left" className="w-[82vw] border-r border-border/70">
+      <SheetContent side="left" className="data-[side=left]:w-[88vw] max-w-80 overflow-y-auto border-r border-border/70 bg-sidebar">
         <SheetHeader className="px-5 pt-6">
           <SheetTitle>{dictionary.app.name}</SheetTitle>
           <SheetDescription>
@@ -68,7 +68,6 @@ export function MobileNav({ session }: MobileNavProps) {
           </Link>
           <NavigationLinks
             sessionRole={session.role}
-            vertical
             onNavigate={() => setOpen(false)}
           />
         </div>

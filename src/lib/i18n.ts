@@ -115,6 +115,10 @@ export const dictionaries = {
       signOutError: "ออกจากระบบไม่สำเร็จ",
     },
     navigation: {
+      requestsGroup: "ภาพรวมและคำขอ",
+      purchasingGroup: "จัดซื้อ",
+      administrationGroup: "ผู้ดูแลระบบ",
+      skipToContent: "ข้ามไปเนื้อหาหลัก",
       suppliers: "ทะเบียนผู้ขาย",
       createPurchaseOrders: "สร้าง PO รวม PR",
       dashboard: "Dashboard",
@@ -951,6 +955,10 @@ export const dictionaries = {
       signOutError: "Unable to sign out",
     },
     navigation: {
+      requestsGroup: "Overview & requests",
+      purchasingGroup: "Purchasing",
+      administrationGroup: "Administration",
+      skipToContent: "Skip to main content",
       suppliers: "Suppliers",
       createPurchaseOrders: "Create PO",
       dashboard: "Dashboard",
