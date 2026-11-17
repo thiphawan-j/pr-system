@@ -67,14 +67,25 @@ jobs:
       - name: Work queue permission regression tests
         run: node --conditions=react-server --import tsx --test tests/unit/work-queue.test.ts
 
+      - name: Destructive seed safety regression tests
+        run: node --import tsx --test tests/unit/seed-safety.test.ts
+
       - name: Build
         run: npm run build
 
       - name: Run database migrations
         run: npx prisma migrate deploy
 
-      - name: Seed database
+      - name: Seed disposable E2E database
+        env:
+          NODE_ENV: test
+          SEED_ALLOW_RESET: RESET_DISPOSABLE_DATABASE
+          SEED_DISPOSABLE_DATABASE: pr_management_e2e
         run: npx prisma db seed
 
       - name: E2E tests
+        env:
+          NODE_ENV: development
+          SEED_ALLOW_RESET: RESET_DISPOSABLE_DATABASE
+          SEED_DISPOSABLE_DATABASE: pr_management_e2e
         run: npm run test:e2e

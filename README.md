@@ -1,3 +1,5 @@
+> **Destructive demo seed safety:** Demo seed and E2E preparation require a verified disposable loopback PostgreSQL database, explicit reset consent and exact database-name confirmation. Normal development/production databases are not valid targets. See [seed safety instructions](docs/seed-safety.md) before using any seed/E2E commands below. Never run these against shared or production data.
+
 # PR Flow
 
 ระบบ Purchase Request Management สำหรับองค์กร พร้อม workflow อนุมัติ, dashboard, notifications และรายงานส่งออก
@@ -70,12 +72,13 @@ docker compose up -d postgres
 
 หมายเหตุ: โปรเจ็กนี้ map database ออกที่ `localhost:5433` เพื่อหลบพอร์ต `5432` ที่มักถูกใช้งานอยู่แล้ว
 
-4. apply migration และ seed data
+4. apply migration
 
 ```bash
 npm run db:migrate:dev
-npm run db:seed:dev
 ```
+
+หากต้องการ demo seed ให้ใช้ฐานข้อมูลทดสอบแยกที่ยืนยันว่าลบทิ้งได้เท่านั้น และทำตาม [seed safety](docs/seed-safety.md) ห้ามใช้กับฐานข้อมูลทำงานปกติหรือ production
 
 5. เปิด dev server
 
