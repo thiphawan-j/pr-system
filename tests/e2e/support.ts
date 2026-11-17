@@ -177,6 +177,7 @@ export async function createRequestViaUi(
     ? /บันทึกและส่งอนุมัติ|save and submit/i
     : /บันทึกร่าง|save draft/i;
   await page.getByRole("button", { name: buttonName }).click();
+  if (options.submit) await page.getByTestId("confirm-pr-submit").click();
 
   const heading = page.getByRole("heading", { level: 1 });
   await expect(heading).toContainText(/^PR-/, { timeout: 15_000 });

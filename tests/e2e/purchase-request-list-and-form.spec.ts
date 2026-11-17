@@ -62,6 +62,7 @@ test("employee can create, upload, edit, and submit a draft", async ({ page }) =
   await page.getByRole("button", {
     name: /บันทึกและส่งอนุมัติ|save and submit/i,
   }).click();
+  await page.getByTestId("confirm-pr-submit").click();
 
   await expect(page.locator("main")).toContainText(`Updated ${marker}`);
   await expect(page.locator("main")).toContainText(statusText.pending);

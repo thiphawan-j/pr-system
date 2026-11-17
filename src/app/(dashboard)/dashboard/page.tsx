@@ -1,3 +1,4 @@
+import { PersonalWorkQueue } from "@/components/dashboard/personal-work-queue";
 import Link from "@/components/loading/navigation-link";
 import { CheckCircle2, Clock3, ReceiptText, XCircle } from "lucide-react";
 
@@ -11,12 +12,13 @@ import { requireSession } from "@/server/auth/session";
 import { getCurrentDictionary, getCurrentLocale } from "@/server/i18n";
 import {
   getDashboardSummary,
+  getPersonalWorkQueue,
   listPurchaseRequests,
 } from "@/server/purchase-requests/purchase-request.service";
 
 export default async function DashboardPage() {
   const session = await requireSession();
-  const [summary, pendingRequests, locale, dictionary] = await Promise.all([
+  const [summary, pendingRequests, locale, dictionary, workQueue] = await Promise.all([
     getDashboardSummary(session),
     listPurchaseRequests(session, {
       status: "PENDING_APPROVAL",
@@ -24,6 +26,7 @@ export default async function DashboardPage() {
     }),
     getCurrentLocale(),
     getCurrentDictionary(),
+    getPersonalWorkQueue(session),
   ]);
   const pendingHref = "/purchase-requests?preset=pending";
   const approvedHref = "/purchase-requests?preset=approved";
@@ -55,6 +58,8 @@ export default async function DashboardPage() {
           </Button>
         </div>
       </section>
+
+      <PersonalWorkQueue groups={workQueue} locale={locale} />
 
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard

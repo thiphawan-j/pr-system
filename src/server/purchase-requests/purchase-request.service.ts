@@ -1,3 +1,4 @@
+import { workQueueFilters } from "./work-queue";
 import { assertLegacyProcurementWriter } from "@/server/purchase-orders/procurement-ownership";
 import "server-only";
 
@@ -2539,4 +2540,18 @@ export async function getShellContext(session: SessionUser) {
     notifications,
     unreadNotificationCount,
   };
+}
+
+/** Read-only dashboard work, intersected with the same visibility as the PR list. */
+export async function getPersonalWorkQueue(session: SessionUser) {
+  const db = getDb();
+  return Promise.all(workQueueFilters(session).map(async ({ key, where }) => {
+    const scopedWhere = { AND: [buildVisibleWhere(session), where] };
+    const [total, requests] = await Promise.all([
+      db.purchaseRequest.count({ where: scopedWhere }),
+      db.purchaseRequest.findMany({ where: scopedWhere, select: purchaseRequestListSelect,
+        orderBy: [{ updatedAt: "asc" }, { id: "asc" }], take: 5 }),
+    ]);
+    return { key, total, items: requests.map(toListItem) };
+  }));
 }
