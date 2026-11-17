@@ -64,6 +64,9 @@ jobs:
       - name: Button accessibility regression tests
         run: npm run test:button
 
+      - name: Work queue permission regression tests
+        run: node --conditions=react-server --import tsx --test tests/unit/work-queue.test.ts
+
       - name: Build
         run: npm run build
 

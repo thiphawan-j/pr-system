@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Textarea } from "@/components/ui/textarea";
 import { departments, units } from "@/lib/constants";
 import {
@@ -78,6 +79,9 @@ export function PurchaseRequestForm({
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const [pendingIntent, setPendingIntent] = useState<boolean | null>(null);
+  const savedRef = useRef(false);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [validationFailed, setValidationFailed] = useState(false);
   const busy = isPending || router.isPending;
   const [attachmentFiles, setAttachmentFiles] = useState<File[]>([]);
   const [isDraggingAttachments, setIsDraggingAttachments] = useState(false);
@@ -86,6 +90,23 @@ export function PurchaseRequestForm({
   );
   const [deletingAttachmentId, setDeletingAttachmentId] = useState<string | null>(null);
   const { dictionary, locale } = useI18n();
+  const ux = locale === "th" ? {
+    basics: "1. ข้อมูลพื้นฐาน", items: "2. รายการและไฟล์แนบ", review: "3. ตรวจสอบก่อนส่ง",
+    leave: "มีข้อมูลที่ยังไม่ได้บันทึก ออกจากหน้านี้โดยไม่บันทึกหรือไม่?", dirty: "มีการแก้ไขที่ยังไม่ได้บันทึก",
+    hint: "บันทึกร่างยังไม่ส่งอนุมัติ • ข้อมูลต้องผ่านการตรวจสอบตามกฎเดิม",
+    errors: "ยังบันทึกไม่ได้ กรุณาตรวจช่องที่แจ้งข้อผิดพลาด", reviewTitle: "ตรวจสอบใบขอซื้อก่อนส่ง",
+    reviewHint: "ส่งตามสิทธิ์และสายอนุมัติเดิม การยืนยันนี้ไม่อนุมัติหรือสร้าง PO อัตโนมัติ",
+    confirm: "ยืนยันส่งใบขอซื้อ", back: "กลับไปแก้ไข", unknown: "ยังไม่ระบุราคา", partial: "ยอดรวมเฉพาะรายการที่มีราคา",
+    estimate: "ยอดประมาณการ ไม่ใช่ยอดชำระ PO", attachments: "ไฟล์แนบ", next: "ถัดไป", edit: "แก้ไขข้อมูล",
+  } : {
+    basics: "1. Basic information", items: "2. Items and attachments", review: "3. Review before sending",
+    leave: "You have unsaved changes. Leave this page without saving?", dirty: "Unsaved changes",
+    hint: "Saving a draft does not submit it • Existing validation rules still apply",
+    errors: "Unable to save. Please check the highlighted fields", reviewTitle: "Review purchase request before sending",
+    reviewHint: "The existing permissions and approval process apply. Confirming does not approve the request or create a PO automatically.",
+    confirm: "Confirm send request", back: "Back to editing", unknown: "Price not specified", partial: "Subtotal of priced items",
+    estimate: "Estimated amount, not a PO payment total", attachments: "Attachments", next: "Next", edit: "Edit details",
+  };
   const isPurchasingReturnEdit =
     initialData?.status === "NEED_REVISION" ||
     initialData?.status === "NEED_CLARIFICATION";
@@ -142,6 +163,51 @@ export function PurchaseRequestForm({
     control: form.control,
     name: "urgency",
   });
+
+  const watchedReason = useWatch({ control: form.control, name: "reason" });
+  const watchedDate = useWatch({ control: form.control, name: "requestDate" });
+  const hasUnpricedItems = watchedItems.some((item) => item.unitPrice === undefined || item.unitPrice === null || item.unitPrice === "");
+  const unsaved = form.formState.isDirty || attachmentFiles.length > 0;
+  useEffect(() => {
+    if (!unsaved) return;
+    const beforeUnload = (event: BeforeUnloadEvent) => {
+      if (savedRef.current) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    const guardLink = (event: MouseEvent) => {
+      if (savedRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || anchor.target === "_blank") return;
+      const next = new URL(anchor.href, window.location.href);
+      if (next.origin === window.location.origin && next.pathname === window.location.pathname && next.search === window.location.search) return;
+      if (!window.confirm(ux.leave)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    document.addEventListener("click", guardLink, true);
+    return () => {
+      window.removeEventListener("beforeunload", beforeUnload);
+      document.removeEventListener("click", guardLink, true);
+    };
+  }, [unsaved, ux.leave]);
+
+  function jumpTo(id: string) {
+    const section = document.getElementById(id);
+    section?.scrollIntoView({ block: "start", behavior: "smooth" });
+    section?.focus({ preventScroll: true });
+  }
+
+  async function reviewRequest() {
+    if (pendingRef.current || busy || deletingAttachmentId) return;
+    form.setValue("submit", true);
+    const valid = await form.trigger();
+    setValidationFailed(!valid);
+    if (valid) setReviewOpen(true);
+    else requestAnimationFrame(() => jumpTo("pr-form-errors"));
+  }
 
   const grandTotal = useMemo(
     () =>
@@ -256,6 +322,7 @@ export function PurchaseRequestForm({
   function submit(submit: boolean) {
     if (pendingRef.current || busy || deletingAttachmentId) return;
     pendingRef.current = true;
+    setValidationFailed(false);
     form.setValue("submit", submit);
     void form.handleSubmit((values: PurchaseRequestFormPayload) => {
       setPendingIntent(submit);
@@ -299,6 +366,8 @@ export function PurchaseRequestForm({
           }
 
           saved = true;
+          savedRef.current = true;
+          setReviewOpen(false);
           toast.success(
             submit
               ? isPurchasingReturnEdit
@@ -316,7 +385,7 @@ export function PurchaseRequestForm({
           if (!saved) setPendingIntent(null);
         }
       });
-    }, () => { pendingRef.current = false; })().catch(() => {
+    }, () => { pendingRef.current = false; setValidationFailed(true); requestAnimationFrame(() => jumpTo("pr-form-errors")); })().catch(() => {
       pendingRef.current = false;
       setIsPending(false);
       setPendingIntent(null);
@@ -326,9 +395,16 @@ export function PurchaseRequestForm({
 
   return (
     <fieldset className="min-w-0 space-y-6" disabled={busy || Boolean(deletingAttachmentId)}>
-      <Card className="border-border/70">
+      <nav aria-label={ux.reviewTitle} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+        {[ ["pr-form-basics", ux.basics], ["pr-form-items", ux.items], ["pr-form-review", ux.review] ].map(([id, label]) => (
+          <Button key={id} type="button" variant="outline" className="h-auto min-h-11 justify-start whitespace-normal rounded-xl" onClick={() => jumpTo(id)}>{label}</Button>
+        ))}
+      </nav>
+      <p className="text-sm text-muted-foreground">{ux.hint}</p>
+      {validationFailed ? <div id="pr-form-errors" tabIndex={-1} role="alert" className="scroll-mt-24 rounded-xl border border-destructive/40 bg-destructive/5 p-4 text-sm text-destructive">{ux.errors}</div> : null}
+      <Card id="pr-form-basics" tabIndex={-1} className="scroll-mt-24 border-border/70">
         <CardHeader>
-          <CardTitle>{dictionary.purchaseRequests.headerInfo}</CardTitle>
+          <CardTitle>{ux.basics}</CardTitle>
         </CardHeader>
         <CardContent className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2">
@@ -346,7 +422,7 @@ export function PurchaseRequestForm({
             <Select
               value={watchedDepartment}
               onValueChange={(value) =>
-                form.setValue("department", value as PurchaseRequestFormValues["department"])
+                form.setValue("department", value as PurchaseRequestFormValues["department"], { shouldDirty: true })
               }
             >
               <SelectTrigger className="w-full">
@@ -391,7 +467,7 @@ export function PurchaseRequestForm({
             <Select
               value={watchedUrgency}
               onValueChange={(value) =>
-                form.setValue("urgency", value as PurchaseRequestFormValues["urgency"])
+                form.setValue("urgency", value as PurchaseRequestFormValues["urgency"], { shouldDirty: true })
               }
             >
               <SelectTrigger className="w-full">
@@ -416,9 +492,9 @@ export function PurchaseRequestForm({
         </CardContent>
       </Card>
 
-      <Card className="border-border/70">
+      <Card id="pr-form-items" tabIndex={-1} className="scroll-mt-24 border-border/70">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>{dictionary.purchaseRequests.itemList}</CardTitle>
+          <CardTitle>{ux.items}</CardTitle>
           <Button
             type="button"
             variant="outline"
@@ -464,6 +540,7 @@ export function PurchaseRequestForm({
                         valueAsNumber: true,
                       })}
                     />
+                    {form.formState.errors.items?.[index]?.quantity ? <p className="text-xs text-destructive">{translateMessage(form.formState.errors.items[index]?.quantity?.message, locale)}</p> : null}
                   </div>
 
                   <div className="space-y-2">
@@ -489,11 +566,12 @@ export function PurchaseRequestForm({
                       step={0.01}
                       {...form.register(`items.${index}.unitPrice`)}
                     />
+                    {form.formState.errors.items?.[index]?.unitPrice ? <p className="text-xs text-destructive">{translateMessage(form.formState.errors.items[index]?.unitPrice?.message, locale)}</p> : null}
                   </div>
 
                   <div className="space-y-2">
                     <Label>{dictionary.purchaseRequests.lineTotal}</Label>
-                    <Input value={formatCurrency(amount, locale)} readOnly />
+                    <Input value={watchedItems[index]?.unitPrice === undefined || watchedItems[index]?.unitPrice === "" ? ux.unknown : formatCurrency(amount, locale)} readOnly />
                   </div>
 
                   <div className="space-y-2 xl:col-span-3">
@@ -518,7 +596,7 @@ export function PurchaseRequestForm({
                     onClick={() =>
                       itemsArray.fields.length > 1
                         ? itemsArray.remove(index)
-                        : form.setValue("items", [{ ...itemDefaults }])
+                        : form.setValue("items", [{ ...itemDefaults }], { shouldDirty: true })
                     }
                   >
                     <Trash2 />
@@ -532,7 +610,7 @@ export function PurchaseRequestForm({
           <div className="flex items-center justify-between rounded-2xl border border-primary/20 bg-primary/5 px-4 py-4">
             <div>
               <p className="text-sm text-muted-foreground">
-                {dictionary.purchaseRequests.grandTotal}
+                {hasUnpricedItems ? ux.partial : dictionary.purchaseRequests.grandTotal}
               </p>
               <p className="text-2xl font-semibold">
                 {formatCurrency(grandTotal, locale)}
@@ -732,7 +810,19 @@ export function PurchaseRequestForm({
         </Card>
       ) : null}
 
-      <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
+      <Card id="pr-form-review" tabIndex={-1} className="scroll-mt-24 border-primary/20 bg-primary/5">
+        <CardHeader><CardTitle>{ux.review}</CardTitle></CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <p className="break-words"><strong>{session.name}</strong> · {getDepartmentLabel(watchedDepartment, locale)} · {watchedDate}</p>
+          <p className="whitespace-pre-wrap break-words">{watchedReason}</p>
+          <p>{watchedItems.length} {dictionary.purchaseRequests.itemList} · {existingAttachments.length + attachmentFiles.length} {ux.attachments}</p>
+          <p className="font-semibold">{hasUnpricedItems ? ux.partial : dictionary.purchaseRequests.grandTotal}: {formatCurrency(grandTotal, locale)}</p>
+          {hasUnpricedItems ? <p>{ux.unknown}: {watchedItems.filter(item => item.unitPrice === undefined || item.unitPrice === null || item.unitPrice === "").length}</p> : null}
+          <p className="text-muted-foreground">{ux.estimate}</p>
+        </CardContent>
+      </Card>
+      <div className="sticky bottom-0 z-10 flex flex-col gap-3 rounded-xl border border-border bg-background/95 p-4 shadow-sm backdrop-blur sm:flex-row sm:items-center sm:justify-end">
+        <p className="mr-auto text-xs text-muted-foreground" aria-live="polite">{unsaved ? ux.dirty : ux.hint}</p>
         <Button
           type="button"
           variant="outline"
@@ -748,7 +838,7 @@ export function PurchaseRequestForm({
           className="rounded-xl"
           disabled={busy || Boolean(deletingAttachmentId)}
           loading={busy && pendingIntent === true}
-          onClick={() => submit(true)}
+          onClick={() => void reviewRequest()}
         >
           {busy && pendingIntent === true
             ? dictionary.common.sending
@@ -757,6 +847,22 @@ export function PurchaseRequestForm({
               : dictionary.purchaseRequests.saveAndSubmit}
         </Button>
       </div>
+      <Dialog open={reviewOpen} onOpenChange={(open) => { if (!busy) setReviewOpen(open); }}>
+        <DialogContent className="max-h-[85dvh] overflow-y-auto sm:max-w-2xl">
+          <DialogHeader><DialogTitle>{ux.reviewTitle}</DialogTitle><DialogDescription>{ux.reviewHint}</DialogDescription></DialogHeader>
+          <div className="space-y-3 text-sm">
+            <p>{session.name} · {getDepartmentLabel(watchedDepartment, locale)} · {watchedDate}</p>
+            <p className="whitespace-pre-wrap break-words">{watchedReason}</p>
+            {watchedItems.map((item, index) => <div key={index} className="rounded-xl border p-3"><p className="break-words font-medium">{item.itemName}</p><p>{String(item.quantity ?? "")} {item.unit} · {item.unitPrice === undefined || item.unitPrice === "" ? ux.unknown : formatCurrency(Number(item.unitPrice), locale)}</p></div>)}
+            <p>{existingAttachments.length + attachmentFiles.length} {ux.attachments}</p>
+            <p className="font-semibold">{hasUnpricedItems ? ux.partial : dictionary.purchaseRequests.grandTotal}: {formatCurrency(grandTotal, locale)}</p>
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={() => setReviewOpen(false)}>{ux.back}</Button>
+            <Button type="button" data-testid="confirm-pr-submit" disabled={busy} loading={busy && pendingIntent === true} onClick={() => submit(true)}>{ux.confirm}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </fieldset>
   );
 }

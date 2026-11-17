@@ -125,6 +125,7 @@ test("purchasing can request revision and employee can resubmit", async ({ page 
   await page.getByRole("button", {
     name: /ส่งอนุมัติใหม่|resubmit for approval/i,
   }).click();
+  await page.getByTestId("confirm-pr-submit").click();
 
   await expect(page.locator("main")).toContainText(statusText.pending);
   await expect(page.locator("main")).toContainText(revisedReason);
