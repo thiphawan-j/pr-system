@@ -4,28 +4,12 @@ import { spawnSync } from "node:child_process";
 
 import "dotenv/config";
 
-const databaseUrl = process.env.DATABASE_URL;
+import { assertDisposableSeedTarget } from "../prisma/seed-safety.ts";
 
-if (!databaseUrl) {
-  console.error("E2E setup requires DATABASE_URL.");
-  process.exit(1);
-}
-
-let databaseName;
-
-try {
-  const parsedUrl = new URL(databaseUrl);
-  databaseName = decodeURIComponent(parsedUrl.pathname.replace(/^\//, ""));
-} catch {
-  console.error("E2E setup requires a valid DATABASE_URL.");
-  process.exit(1);
-}
-
-if (!databaseName.endsWith("_e2e")) {
-  console.error(
-    `Refusing to reset database "${databaseName}". E2E databases must end with "_e2e".`,
-  );
-  process.exit(1);
+// Validate before db push --accept-data-loss as well as the seed subprocess.
+const databaseUrl = assertDisposableSeedTarget(process.env);
+if (!new URL(databaseUrl).pathname.endsWith("_e2e")) {
+  throw new Error("E2E setup requires an explicitly confirmed disposable _e2e database.");
 }
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";

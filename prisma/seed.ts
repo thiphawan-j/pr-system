@@ -11,11 +11,10 @@ import {
 } from "@prisma/client";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.DATABASE_URL;
+import { assertDisposableSeedTarget } from "./seed-safety";
 
-if (!databaseUrl) {
-  throw new Error("Missing DATABASE_URL environment variable");
-}
+// Must run before Pool/Prisma construction or any destructive operation.
+const databaseUrl = assertDisposableSeedTarget(process.env);
 
 const prisma = new PrismaClient({
   adapter: new PrismaPg(
