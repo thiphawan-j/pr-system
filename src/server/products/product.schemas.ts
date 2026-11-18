@@ -16,6 +16,7 @@ export const createProductAliasSchema = z.object({
   confirmed: z.literal(true, { error: "กรุณายืนยันว่าชื่อนี้หมายถึงสินค้าเดียวกัน" }),
 }).strict();
 export const productFiltersSchema = z.object({
+  status: z.enum(["ACTIVE", "INACTIVE", "ALL"]).default("ACTIVE"),
   query: z.string().trim().max(200).default(""),
   page: z.coerce.number().int().min(1).max(100000).default(1),
   limit: z.coerce.number().int().min(1).max(50).default(20),
@@ -23,3 +24,16 @@ export const productFiltersSchema = z.object({
 export type CreateProductInput = z.infer<typeof createProductSchema>;
 export type CreateProductAliasInput = z.infer<typeof createProductAliasSchema>;
 export type ProductFilters = z.infer<typeof productFiltersSchema>;
+
+const correction = {
+  expectedVersion: z.number().int().nonnegative(),
+  reason: z.string().trim().min(5, "กรุณาระบุเหตุผลอย่างน้อย 5 ตัวอักษร").max(1000),
+};
+export const correctProductSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("RENAME"), name, ...correction }).strict(),
+  z.object({ action: z.literal("DEACTIVATE"), ...correction }).strict(),
+]);
+export const deactivateProductAliasSchema = z.object(correction).strict();
+export const productAuditFiltersSchema = z.object({ page: z.coerce.number().int().min(1).max(100000).default(1) });
+export type CorrectProductInput = z.infer<typeof correctProductSchema>;
+export type DeactivateProductAliasInput = z.infer<typeof deactivateProductAliasSchema>;

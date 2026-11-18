@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   try {
     const session = await requireSession();
     const search = new URL(request.url).searchParams;
-    const filters = productFiltersSchema.parse({ query: search.get("query") ?? undefined, page: search.get("page") ?? undefined, limit: search.get("limit") ?? undefined });
+    const filters = productFiltersSchema.parse({ status: search.get("status") ?? undefined, query: search.get("query") ?? undefined, page: search.get("page") ?? undefined, limit: search.get("limit") ?? undefined });
     return Response.json(await listProducts(session, filters));
   } catch (error) { return toErrorResponse(error); }
 }

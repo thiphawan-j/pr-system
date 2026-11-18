@@ -474,10 +474,12 @@ model Product {
   name String
   unit String
   isActive Boolean @default(true)
+  version Int @default(0)
   createdById String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   aliases ProductAlias[]
+  auditEvents ProductAudit[]
   requestItems PurchaseRequestItem[]
   @@index([isActive, name])
 }
@@ -487,6 +489,7 @@ model ProductAlias {
   id String @id @default(cuid())
   productId String
   product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  isActive Boolean @default(true)
   name String
   normalizedName String
   context String @default("")
@@ -494,4 +497,19 @@ model ProductAlias {
   confirmedAt DateTime @default(now())
   @@unique([productId, normalizedName, context])
   @@index([normalizedName])
+}
+
+// Append-only catalog correction history. Document snapshots are never rewritten.
+model ProductAudit {
+  id String @id @default(cuid())
+  productId String
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  action String
+  before Json
+  after Json
+  actorId String
+  actorName String
+  reason String
+  createdAt DateTime @default(now())
+  @@index([productId, createdAt])
 }

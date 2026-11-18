@@ -1,6 +1,6 @@
 # Product master and explicit aliases
 
-Authenticated users can search `/products` and choose a product from a PR line. Only Purchasing/Admin can create canonical products or add aliases. The catalog is additive and intentionally does not offer rename, merge, delete, automatic matching, or historical backfill.
+Authenticated users can search `/products` and choose a product from a PR line. Only Purchasing/Admin can create canonical products or add aliases. The catalog is additive. Safe name corrections and deactivation are documented in [product-corrections.md](product-corrections.md); there is no merge, delete, automatic matching, or historical backfill.
 
 - Code identifies a distinct product; multiple contextual names can refer to that code.
 - Different products may share an alias. Search returns candidates, never silently resolves ambiguity.
