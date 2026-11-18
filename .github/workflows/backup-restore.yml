@@ -1,0 +1,31 @@
+name: Backup restore verification
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/backup/**'
+      - 'tests/backup/**'
+      - '.github/workflows/backup-restore.yml'
+      - '.github/workflows/deploy-droplet.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/backup/**'
+      - 'tests/backup/**'
+      - '.github/workflows/backup-restore.yml'
+      - '.github/workflows/deploy-droplet.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  synthetic-restore:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Shell syntax
+        run: bash -n scripts/backup/verify-restore.sh tests/backup/restore-smoke.sh
+      - name: Restore synthetic PostgreSQL backup and reject corrupt archives
+        run: bash tests/backup/restore-smoke.sh
