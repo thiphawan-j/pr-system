@@ -2,7 +2,7 @@
 
 import Link from "@/components/loading/navigation-link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Building2, ClipboardList, FilePlus2, LayoutDashboard, ShoppingCart, Truck, Users } from "lucide-react";
+import { Package, BarChart3, Building2, ClipboardList, FilePlus2, LayoutDashboard, ShoppingCart, Truck, Users } from "lucide-react";
 
 import { useI18n } from "@/components/i18n/i18n-provider";
 import { navigationItems } from "@/lib/constants";
@@ -10,11 +10,11 @@ import type { Role } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 const groups = [
-  { label: "requestsGroup", paths: ["/dashboard", "/purchase-requests", "/purchase-requests/new", "/reports"] },
+  { label: "requestsGroup", paths: ["/dashboard", "/purchase-requests", "/purchase-requests/new", "/reports", "/products"] },
   { label: "purchasingGroup", paths: ["/purchase-orders/new", "/suppliers"] },
   { label: "administrationGroup", paths: ["/admin/users", "/admin/company"] },
 ] as const;
-const icons = { dashboard: LayoutDashboard, purchaseRequests: ClipboardList, createPurchaseRequest: FilePlus2, reports: BarChart3, createPurchaseOrders: ShoppingCart, suppliers: Truck, adminUsers: Users, companySettings: Building2 };
+const icons = { productCatalog: Package, dashboard: LayoutDashboard, purchaseRequests: ClipboardList, createPurchaseRequest: FilePlus2, reports: BarChart3, createPurchaseOrders: ShoppingCart, suppliers: Truck, adminUsers: Users, companySettings: Building2 };
 
 type NavigationLinksProps = {
   sessionRole: Role;

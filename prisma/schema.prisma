@@ -220,6 +220,14 @@ model PurchaseRequestItem {
   updatedAt         DateTime                     @updatedAt
   receiptItems      PurchaseRequestReceiptItem[]
   purchaseOrderItems PurchaseOrderItem[]
+  productId String?
+  product Product? @relation(fields: [productId], references: [id], onDelete: Restrict)
+  productCodeSnapshot String?
+  productNameSnapshot String?
+  productConfirmedById String?
+  productConfirmedAt DateTime?
+
+  @@index([productId])
 
   @@index([purchaseRequestId])
 }
@@ -457,4 +465,33 @@ model Notification {
   createdAt      DateTime                @default(now())
 
   @@index([userId, createdAt])
+}
+
+// Stable catalog identity. Names on procurement documents remain immutable snapshots.
+model Product {
+  id String @id @default(cuid())
+  code String @unique
+  name String
+  unit String
+  isActive Boolean @default(true)
+  createdById String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  aliases ProductAlias[]
+  requestItems PurchaseRequestItem[]
+  @@index([isActive, name])
+}
+
+// Same spelling may legitimately mean different products; do not deduplicate across products.
+model ProductAlias {
+  id String @id @default(cuid())
+  productId String
+  product Product @relation(fields: [productId], references: [id], onDelete: Restrict)
+  name String
+  normalizedName String
+  context String @default("")
+  confirmedById String
+  confirmedAt DateTime @default(now())
+  @@unique([productId, normalizedName, context])
+  @@index([normalizedName])
 }

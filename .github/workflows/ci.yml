@@ -70,6 +70,9 @@ jobs:
       - name: Destructive seed safety regression tests
         run: node --import tsx --test tests/unit/seed-safety.test.ts
 
+      - name: Product master regression tests
+        run: node --conditions=react-server --import tsx --test tests/unit/product-master.test.ts
+
       - name: Build
         run: npm run build
 

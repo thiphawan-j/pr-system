@@ -428,6 +428,7 @@ export default async function PurchaseRequestDetailPage({
                       <span aria-hidden="true" className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-xs font-semibold text-primary">{index + 1}</span>
                       <div className="min-w-0 flex-1 space-y-1">
                         <h3 className="font-semibold leading-6">{item.itemName}</h3>
+                      {item.productId && <p className="text-xs text-muted-foreground">{locale === "th" ? "รหัสกลาง" : "Product"}: {item.productCodeSnapshot} · {item.productNameSnapshot}</p>}
                         <DetailText text={item.description || dictionary.common.noDescription} locale={locale} className="text-muted-foreground" />
                       </div>
                     </div>

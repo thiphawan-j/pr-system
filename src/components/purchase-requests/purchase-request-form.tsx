@@ -1,5 +1,6 @@
 "use client";
 
+import { ProductSelector } from "@/components/products/product-selector";
 import { DownloadButton } from "@/components/shared/download-button";
 
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -124,6 +125,8 @@ export function PurchaseRequestForm({
           urgency: initialData.urgency,
           items: initialData.items.map((item) => ({
             id: item.id,
+            productId: item.productId,
+            productConfirmed: false,
             itemName: item.itemName,
             description: item.description ?? "",
             supplierName: item.supplierName ?? "",
@@ -519,7 +522,16 @@ export function PurchaseRequestForm({
                 <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
                   <div className="space-y-2 xl:col-span-2">
                     <Label>{dictionary.purchaseRequests.itemName}</Label>
-                    <Input {...form.register(`items.${index}.itemName`)} />
+                    <Input {...form.register(`items.${index}.itemName`, { onChange: () => {
+                      form.setValue(`items.${index}.productId`, null, { shouldDirty: true });
+                      form.setValue(`items.${index}.productConfirmed`, false);
+                    } })} />
+                    <ProductSelector name={watchedItems[index]?.itemName ?? ""} value={watchedItems[index]?.productId} disabled={busy}
+                      label={initialData?.items.find(item => item.id === watchedItems[index]?.id && item.productId === watchedItems[index]?.productId)?.productCodeSnapshot}
+                      onChange={product => {
+                        form.setValue(`items.${index}.productId`, product?.id ?? null, { shouldDirty: true });
+                        form.setValue(`items.${index}.productConfirmed`, !!product, { shouldDirty: true });
+                      }} />
                     {form.formState.errors.items?.[index]?.itemName ? (
                       <p className="text-xs text-destructive">
                         {translateMessage(

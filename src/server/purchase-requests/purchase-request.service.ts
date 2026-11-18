@@ -1,3 +1,4 @@
+import { resolveConfirmedProductLinks } from "@/server/products/product.service";
 import { workQueueFilters } from "./work-queue";
 import { assertLegacyProcurementWriter } from "@/server/purchase-orders/procurement-ownership";
 import "server-only";
@@ -587,6 +588,9 @@ function toDetail(
     orderPreparationVersion: request.updatedAt.toISOString(),
     items: request.items.map((item) => ({
       id: item.id,
+      productId: item.productId,
+      productCodeSnapshot: item.productCodeSnapshot,
+      productNameSnapshot: item.productNameSnapshot,
       canOrder: canOrderItem(item),
       itemName: item.itemName,
       description: item.description ?? undefined,
@@ -1083,7 +1087,8 @@ export async function createPurchaseRequest(
   },
 ) {
   const db = getDb();
-  const normalizedItems = toPersistedItems(input.items);
+  const links = await resolveConfirmedProductLinks(db, input.items, session.id);
+  const normalizedItems = toPersistedItems(input.items).map((item, index) => ({ ...item, ...links[index] }));
   const totalAmount = calculateTotal(normalizedItems);
   const requestDate = toUtcStartOfDayFromDateValue(input.requestDate);
   const prNumber = await generateNextPrNumber(requestDate);
@@ -1155,6 +1160,7 @@ export async function updatePurchaseRequest(
   const db = getDb();
   const existing = await db.purchaseRequest.findUnique({
     where: { id },
+    include: { items: true },
   });
 
   if (!existing) {
@@ -1163,7 +1169,18 @@ export async function updatePurchaseRequest(
 
   assertEditableDraft(session, existing);
 
-  const normalizedItems = toPersistedItems(input.items);
+  // Existing snapshots belong to the document, never refresh them from the catalog.
+  const preserved = input.items.map((item) => {
+    const old = existing.items.find((row) => row.id === item.id);
+    if (old && (item.productId === undefined || item.productId === old.productId) && item.itemName === old.itemName && !item.productConfirmed) {
+      return { productId: old.productId, productCodeSnapshot: old.productCodeSnapshot,
+        productNameSnapshot: old.productNameSnapshot, productConfirmedById: old.productConfirmedById,
+        productConfirmedAt: old.productConfirmedAt };
+    }
+    return null;
+  });
+  const links = await resolveConfirmedProductLinks(db, input.items.map((item, index) => preserved[index] ? {} : item), session.id);
+  const normalizedItems = toPersistedItems(input.items).map((item, index) => ({ ...item, ...(preserved[index] ?? links[index]) }));
   const totalAmount = calculateTotal(normalizedItems);
   const isReturningToPurchasing = isPurchasingReturnStatus(existing.status);
   let nextApproverId: string | null = null;
