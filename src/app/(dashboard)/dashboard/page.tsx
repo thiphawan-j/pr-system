@@ -16,7 +16,8 @@ import {
   listPurchaseRequests,
 } from "@/server/purchase-requests/purchase-request.service";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
+  const queueParams = await searchParams;
   const session = await requireSession();
   const [summary, pendingRequests, locale, dictionary, workQueue] = await Promise.all([
     getDashboardSummary(session),
@@ -26,7 +27,7 @@ export default async function DashboardPage() {
     }),
     getCurrentLocale(),
     getCurrentDictionary(),
-    getPersonalWorkQueue(session),
+    getPersonalWorkQueue(session, queueParams),
   ]);
   const pendingHref = "/purchase-requests?preset=pending";
   const approvedHref = "/purchase-requests?preset=approved";
@@ -51,10 +52,12 @@ export default async function DashboardPage() {
             </p>
           </div>
           <Button asChild className="rounded-xl">
-            <Link href="/purchase-requests/new">
+            {/* Full document entry enables native unsaved-change protection on Back/Forward. */}
+            {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+            <a href="/purchase-requests/new">
               <ReceiptText />
               {dictionary.dashboard.createButton}
-            </Link>
+            </a>
           </Button>
         </div>
       </section>

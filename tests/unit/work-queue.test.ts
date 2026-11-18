@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { PrismaClient } from "@prisma/client";
 import type { Role, SessionUser } from "../../src/lib/types";
 import { managementDepartment } from "../../src/lib/constants";
-import { workQueueFilters } from "../../src/server/purchase-requests/work-queue";
+import { workQueueFilters, workQueuePage } from "../../src/server/purchase-requests/work-queue";
 
 const user = (role: Role, department = "Operations"): SessionUser => ({
   id: "viewer", name: "Viewer", email: "viewer@example.test", username: "viewer",
@@ -47,7 +47,7 @@ test("queue counts and bounded reads intersect existing visibility without invok
   try {
     for (const account of [user("EMPLOYEE"), user("APPROVER"), user("APPROVER", managementDepartment), user("PURCHASING"), user("ADMIN")]) {
       reads.length = 0;
-      const result = await getPersonalWorkQueue(account);
+      const result = await getPersonalWorkQueue(account, { wq_drafts: "2", wq_receipts: "999999", wq_approval: "-1" });
       const expectedVisibility = account.role === "EMPLOYEE" ? { requesterId: account.id }
         : account.role === "APPROVER" && account.department !== managementDepartment
           ? { OR: [{ department: account.department }, { currentApproverId: account.id }, { requesterId: account.id }] } : {};
@@ -56,14 +56,28 @@ test("queue counts and bounded reads intersect existing visibility without invok
       assert.equal(reads.length, filters.length * 2);
       for (let i = 0; i < filters.length; i++) {
         const expectedWhere = { AND: [expectedVisibility, filters[i].where] };
-        assert.deepEqual(reads[i * 2].args.where, expectedWhere);
-        assert.deepEqual(reads[i * 2 + 1].args.where, expectedWhere);
-        assert.equal(reads[i * 2 + 1].args.take, 5);
-        assert.deepEqual(reads[i * 2 + 1].args.orderBy, [{ updatedAt: "asc" }, { id: "asc" }]);
-        assert.ok(reads[i * 2 + 1].args.select);
+        assert.deepEqual(reads[i].args.where, expectedWhere);
+        assert.deepEqual(reads[i + filters.length].args.where, expectedWhere);
+        assert.equal(reads[i + filters.length].args.take, 5);
+        const expectedPage = ["drafts", "receipts"].includes(filters[i].key) ? 2 : 1;
+        assert.equal(result[i].page, expectedPage);
+        assert.equal(result[i].pageCount, 2);
+        assert.equal(reads[i + filters.length].args.skip, (expectedPage - 1) * 5);
+        assert.deepEqual(reads[i + filters.length].args.orderBy, [{ updatedAt: "asc" }, { id: "asc" }]);
+        assert.ok(reads[i + filters.length].args.select);
       }
     }
   } finally {
     globalThis.prismaClientSingleton = previous;
   }
+});
+
+
+test("queue pagination rejects malformed values and clamps stale pages to visible bounds", () => {
+  for (const value of [undefined, "", "0", "-1", "2.5", "1e2", "Infinity", "99999999999999999999", ["2", "3"]]) {
+    assert.deepEqual(workQueuePage(value, 16), { page: 1, pageCount: 4, skip: 0 });
+  }
+  assert.deepEqual(workQueuePage("3", 16), { page: 3, pageCount: 4, skip: 10 });
+  assert.deepEqual(workQueuePage("999", 6), { page: 2, pageCount: 2, skip: 5 });
+  assert.deepEqual(workQueuePage("2", 0), { page: 1, pageCount: 1, skip: 0 });
 });

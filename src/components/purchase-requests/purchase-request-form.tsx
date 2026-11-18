@@ -13,6 +13,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -49,6 +50,11 @@ import { cn } from "@/lib/utils";
 import { purchaseRequestPayloadSchema } from "@/server/purchase-requests/purchase-request.schemas";
 import type { PurchaseRequestDetail, SessionUser } from "@/lib/types";
 
+// Keep SSR controls inert until React and react-hook-form can retain edits.
+const subscribeHydration = () => () => {};
+const clientHydrated = () => true;
+const serverHydrated = () => false;
+
 const itemDefaults = {
   itemName: "",
   description: "",
@@ -76,6 +82,7 @@ export function PurchaseRequestForm({
   initialData,
 }: PurchaseRequestFormProps) {
   const router = useRouter();
+  const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const [pendingIntent, setPendingIntent] = useState<boolean | null>(null);
@@ -169,22 +176,23 @@ export function PurchaseRequestForm({
   const hasUnpricedItems = watchedItems.some((item) => item.unitPrice === undefined || item.unitPrice === null || item.unitPrice === "");
   const unsaved = form.formState.isDirty || attachmentFiles.length > 0;
   useEffect(() => {
-    if (!unsaved) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (savedRef.current) return;
+      if (!unsaved || savedRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
     const guardLink = (event: MouseEvent) => {
       if (savedRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || anchor.target === "_blank") return;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
       const next = new URL(anchor.href, window.location.href);
       if (next.origin === window.location.origin && next.pathname === window.location.pathname && next.search === window.location.search) return;
-      if (!window.confirm(ux.leave)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
+      // A document boundary is intentional: Back/Forward must run beforeunload.
+      // Do not add synthetic history entries or race Next's popstate restoration.
+      if (next.protocol !== "http:" && next.protocol !== "https:") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.location.assign(next.href);
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", guardLink, true);
@@ -192,7 +200,7 @@ export function PurchaseRequestForm({
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", guardLink, true);
     };
-  }, [unsaved, ux.leave]);
+  }, [unsaved]);
 
   function jumpTo(id: string) {
     const section = document.getElementById(id);
@@ -375,14 +383,19 @@ export function PurchaseRequestForm({
                 : dictionary.purchaseRequests.submittedSaved
               : dictionary.purchaseRequests.draftSaved,
           );
-          router.push(`/purchase-requests/${responsePayload.id}`);
-          router.refresh();
+          // Replace the completed form with a fresh document, not a same-document
+          // forward entry that could bypass beforeunload after returning to edit.
+          window.location.replace(`/purchase-requests/${responsePayload.id}`);
         } catch {
           toast.error(dictionary.purchaseRequests.saveError);
         } finally {
-          pendingRef.current = false;
-          setIsPending(false);
-          if (!saved) setPendingIntent(null);
+          // A successful document navigation is asynchronous. Keep controls locked
+          // until unload so a slow destination cannot permit a duplicate save.
+          if (!saved) {
+            pendingRef.current = false;
+            setIsPending(false);
+            setPendingIntent(null);
+          }
         }
       });
     }, () => { pendingRef.current = false; setValidationFailed(true); requestAnimationFrame(() => jumpTo("pr-form-errors")); })().catch(() => {
@@ -394,7 +407,7 @@ export function PurchaseRequestForm({
   }
 
   return (
-    <fieldset className="min-w-0 space-y-6" disabled={busy || Boolean(deletingAttachmentId)}>
+    <fieldset data-testid="purchase-request-form" className="min-w-0 space-y-6" disabled={!hydrated || busy || Boolean(deletingAttachmentId)}>
       <nav aria-label={ux.reviewTitle} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[ ["pr-form-basics", ux.basics], ["pr-form-items", ux.items], ["pr-form-review", ux.review] ].map(([id, label]) => (
           <Button key={id} type="button" variant="outline" className="h-auto min-h-11 justify-start whitespace-normal rounded-xl" onClick={() => jumpTo(id)}>{label}</Button>
