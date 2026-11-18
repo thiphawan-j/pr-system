@@ -182,6 +182,8 @@ test("PR save stays locked during the request and at the document-navigation han
     await expect(saving).toHaveAttribute("aria-busy", "true");
     await expect(saving).toBeDisabled();
     await expect(activity(page)).toBeVisible();
+    // toBeVisible ignores opacity; allow the intentional 120ms feedback delay.
+    await expect(activity(page)).toHaveCSS("opacity", "1");
     await saving.evaluate(button => (button as HTMLButtonElement).click());
     expect(saves).toBe(1);
   } finally { pending.release(); }
