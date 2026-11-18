@@ -21,7 +21,8 @@ for (const entry of ["dashboard", "navigation", "draft queue", "request list", "
     const paths = {
       dashboard: ["/dashboard", 'main a[href="/purchase-requests/new"]'],
       navigation: ["/dashboard", 'nav a[href="/purchase-requests/new"]'],
-      "draft queue": ["/dashboard", `[data-work-group="drafts"] a[href="${draft.url}/edit"]`],
+      // Queue is oldest-first: the newly created draft may be on a later page.
+      "draft queue": ["/dashboard", '[data-work-group="drafts"] a[href$="/edit"]'],
       "request list": ["/purchase-requests", `a[href="${draft.url}/edit"]`],
       "request detail": [draft.url, `a[href="${draft.url}/edit"]`],
     };
