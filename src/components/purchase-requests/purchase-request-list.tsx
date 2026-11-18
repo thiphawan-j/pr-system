@@ -182,10 +182,10 @@ export function PurchaseRequestList({
                 </Button>
                 {canEditDraft(request, currentUserId, currentUserRole) ? (
                   <Button asChild className="rounded-xl">
-                    <Link href={`/purchase-requests/${request.id}/edit`}>
+                    <a href={`/purchase-requests/${request.id}/edit`}>
                       <FilePenLine />
                       {dictionary.common.edit}
-                    </Link>
+                    </a>
                   </Button>
                 ) : null}
               </div>
@@ -257,10 +257,10 @@ export function PurchaseRequestList({
                         </Button>
                         {canEditDraft(request, currentUserId, currentUserRole) ? (
                           <Button asChild size="sm">
-                            <Link href={`/purchase-requests/${request.id}/edit`}>
+                            <a href={`/purchase-requests/${request.id}/edit`}>
                               <FilePenLine />
                               {dictionary.common.edit}
-                            </Link>
+                            </a>
                           </Button>
                         ) : null}
                       </div>

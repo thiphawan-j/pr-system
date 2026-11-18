@@ -70,6 +70,9 @@ jobs:
       - name: Destructive seed safety regression tests
         run: node --import tsx --test tests/unit/seed-safety.test.ts
 
+      - name: Tracking summary regression tests
+        run: node --import tsx --test tests/unit/request-tracking-summary.test.tsx
+
       - name: Build
         run: npm run build
 

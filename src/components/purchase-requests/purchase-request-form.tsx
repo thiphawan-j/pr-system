@@ -169,22 +169,23 @@ export function PurchaseRequestForm({
   const hasUnpricedItems = watchedItems.some((item) => item.unitPrice === undefined || item.unitPrice === null || item.unitPrice === "");
   const unsaved = form.formState.isDirty || attachmentFiles.length > 0;
   useEffect(() => {
-    if (!unsaved) return;
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (savedRef.current) return;
+      if (!unsaved || savedRef.current) return;
       event.preventDefault();
       event.returnValue = "";
     };
     const guardLink = (event: MouseEvent) => {
       if (savedRef.current || event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
       const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
-      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || anchor.target === "_blank") return;
+      if (!(anchor instanceof HTMLAnchorElement) || anchor.hasAttribute("download") || (anchor.target && anchor.target !== "_self")) return;
       const next = new URL(anchor.href, window.location.href);
       if (next.origin === window.location.origin && next.pathname === window.location.pathname && next.search === window.location.search) return;
-      if (!window.confirm(ux.leave)) {
-        event.preventDefault();
-        event.stopImmediatePropagation();
-      }
+      // A document boundary is intentional: Back/Forward must run beforeunload.
+      // Do not add synthetic history entries or race Next's popstate restoration.
+      if (next.protocol !== "http:" && next.protocol !== "https:") return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      window.location.assign(next.href);
     };
     window.addEventListener("beforeunload", beforeUnload);
     document.addEventListener("click", guardLink, true);
@@ -192,7 +193,7 @@ export function PurchaseRequestForm({
       window.removeEventListener("beforeunload", beforeUnload);
       document.removeEventListener("click", guardLink, true);
     };
-  }, [unsaved, ux.leave]);
+  }, [unsaved]);
 
   function jumpTo(id: string) {
     const section = document.getElementById(id);
@@ -375,8 +376,9 @@ export function PurchaseRequestForm({
                 : dictionary.purchaseRequests.submittedSaved
               : dictionary.purchaseRequests.draftSaved,
           );
-          router.push(`/purchase-requests/${responsePayload.id}`);
-          router.refresh();
+          // Replace the completed form with a fresh document, not a same-document
+          // forward entry that could bypass beforeunload after returning to edit.
+          window.location.replace(`/purchase-requests/${responsePayload.id}`);
         } catch {
           toast.error(dictionary.purchaseRequests.saveError);
         } finally {

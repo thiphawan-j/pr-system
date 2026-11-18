@@ -17,3 +17,14 @@ export function workQueueFilters(user: SessionUser) {
   groups.push({ key: "receipts", where: { status: "ORDERED", receivedAt: null } });
   return groups;
 }
+
+export const WORK_QUEUE_PAGE_SIZE = 5;
+export type WorkQueueSearchParams = Record<string, string | string[] | undefined>;
+
+/** Invalid or duplicated values start at page one; bounds use the visible count. */
+export function workQueuePage(value: string | string[] | undefined, total: number) {
+  const requested = typeof value === "string" && /^[1-9]\d*$/.test(value) ? Number(value) : 1;
+  const pageCount = Math.max(1, Math.ceil(total / WORK_QUEUE_PAGE_SIZE));
+  const page = Number.isSafeInteger(requested) ? Math.min(requested, pageCount) : 1;
+  return { page, pageCount, skip: (page - 1) * WORK_QUEUE_PAGE_SIZE };
+}
