@@ -13,6 +13,7 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
 } from "react";
 import { useFieldArray, useForm, useWatch } from "react-hook-form";
 import { toast } from "sonner";
@@ -49,6 +50,11 @@ import { cn } from "@/lib/utils";
 import { purchaseRequestPayloadSchema } from "@/server/purchase-requests/purchase-request.schemas";
 import type { PurchaseRequestDetail, SessionUser } from "@/lib/types";
 
+// Keep SSR controls inert until React and react-hook-form can retain edits.
+const subscribeHydration = () => () => {};
+const clientHydrated = () => true;
+const serverHydrated = () => false;
+
 const itemDefaults = {
   itemName: "",
   description: "",
@@ -76,6 +82,7 @@ export function PurchaseRequestForm({
   initialData,
 }: PurchaseRequestFormProps) {
   const router = useRouter();
+  const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
   const [pendingIntent, setPendingIntent] = useState<boolean | null>(null);
@@ -400,7 +407,7 @@ export function PurchaseRequestForm({
   }
 
   return (
-    <fieldset className="min-w-0 space-y-6" disabled={busy || Boolean(deletingAttachmentId)}>
+    <fieldset data-testid="purchase-request-form" className="min-w-0 space-y-6" disabled={!hydrated || busy || Boolean(deletingAttachmentId)}>
       <nav aria-label={ux.reviewTitle} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         {[ ["pr-form-basics", ux.basics], ["pr-form-items", ux.items], ["pr-form-review", ux.review] ].map(([id, label]) => (
           <Button key={id} type="button" variant="outline" className="h-auto min-h-11 justify-start whitespace-normal rounded-xl" onClick={() => jumpTo(id)}>{label}</Button>
