@@ -155,15 +155,28 @@ test("the selected PR save button remains busy until its destination loads", asy
   });
   await page.locator("#reason").fill("Mocked PR save navigates without changing local data");
   await page.locator('input[name="items.0.itemName"]').fill("Mocked save hand-off");
+  const saveButton = page.getByRole("button", { name: /บันทึกร่าง|save draft/i });
+  const savedElement = await saveButton.elementHandle();
+  if (!savedElement) throw new Error("Save draft button is missing");
   try {
-    await page.getByRole("button", { name: /บันทึกร่าง|save draft/i }).click({ noWaitAfter: true });
+    await saveButton.click({ noWaitAfter: true });
     await pending.arrived;
-    const save = page.getByRole("button", { name: /กำลังบันทึก|saving/i });
-    await expect(save).toHaveAttribute("aria-busy", "true");
-    await expect(save).toBeDisabled();
-    await save.evaluate(button => (button as HTMLButtonElement).click());
+    // Locator assertions wait for pending navigation, but this test deliberately
+    // holds it. Observe the retained source document through its existing handle.
+    await expect.poll(() => savedElement.evaluate(element => {
+      const button = element as HTMLButtonElement;
+      const status = document.querySelector('[data-app-activity="status"]');
+      const style = status ? getComputedStyle(status) : null;
+      const rect = status?.getBoundingClientRect();
+      return {
+        busy: button.getAttribute("aria-busy"),
+        disabled: button.matches(":disabled"),
+        saving: /กำลังบันทึก|saving/i.test(button.textContent ?? ""),
+        activityVisible: Boolean(rect && rect.width > 0 && rect.height > 0 && style?.visibility !== "hidden" && style?.display !== "none" && Number(style?.opacity) > 0),
+      };
+    })).toEqual({ busy: "true", disabled: true, saving: true, activityVisible: true });
+    await savedElement.evaluate(button => (button as HTMLButtonElement).click());
     expect(saves).toBe(1);
-    await expect(activity(page)).toBeVisible();
   } finally { pending.release(); }
   await expect(page).toHaveURL(new RegExp(`/purchase-requests/${id}$`));
   await expect(activity(page)).toHaveCount(0);
