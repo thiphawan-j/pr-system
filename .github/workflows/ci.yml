@@ -71,7 +71,7 @@ jobs:
         run: node --import tsx --test tests/unit/seed-safety.test.ts
 
       - name: Product master regression tests
-        run: node --conditions=react-server --import tsx --test tests/unit/product-master.test.ts
+        run: node --conditions=react-server --import tsx --test tests/unit/product-master.test.ts tests/unit/product-corrections.test.ts
 
       - name: Build
         run: npm run build

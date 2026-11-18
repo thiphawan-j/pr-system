@@ -2,7 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 import { authenticate, expectStatus, getRequest } from "./receipt-support";
 import { credentials, uniqueValue } from "./support";
 
-type Product = { id: string; code: string; name: string; unit: string; aliases?: { name: string; context: string }[] };
+type Product = { id: string; code: string; name: string; unit: string; version: number; aliases?: { name: string; context: string }[] };
 async function createProduct(page: Page, name = uniqueValue("Catalog item")) {
   const response = await page.request.post("/api/products", { data: { code: uniqueValue("E2E-PRODUCT"), name, unit: "ชิ้น" } });
   await expectStatus(response, 201);
@@ -58,10 +58,10 @@ test("PR catalog selection requires human confirmation and preserves document sp
   await authenticate(page, credentials.purchasing);
   const product = await createProduct(page);
   await authenticate(page);
-  for (const item of [{ productId: product.id }, { productId: "missing-catalog-id", productConfirmed: true }]) {
+  for (const item of [{ productId: product.id }, { productId: "missing-catalog-id", productConfirmed: true, productVersion: 0 }]) {
     await expectStatus(await page.request.post("/api/purchase-requests", { multipart: { payload: JSON.stringify(payload(item)) } }), 400);
   }
-  const draft = await createDraft(page, { productId: product.id, productConfirmed: true });
+  const draft = await createDraft(page, { productId: product.id, productConfirmed: true, productVersion: product.version });
   expect(draft.items[0].itemName).toBe("Local department name");
   expect(draft.items[0].productId).toBe(product.id);
   expect(draft.items[0].productCodeSnapshot).toBe(product.code);

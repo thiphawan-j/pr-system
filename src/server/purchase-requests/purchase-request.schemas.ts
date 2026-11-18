@@ -79,6 +79,7 @@ export const purchaseRequestItemSchema = z
     id: z.string().optional(),
     productId: z.string().min(1).nullable().optional(),
     productConfirmed: z.boolean().optional(),
+    productVersion: z.number().int().nonnegative().optional(),
     itemName: z.string().trim().min(1, "กรุณาระบุชื่อสินค้า"),
     description: optionalTrimmedString,
     supplierName: optionalTrimmedString,

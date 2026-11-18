@@ -5,11 +5,12 @@ import { createProduct, createProductAlias, resolveConfirmedProductLinks } from 
 import type { SessionUser } from "../../src/lib/types";
 
 const employee = { id: "employee", role: "EMPLOYEE" } as SessionUser;
-const catalog = [{ id: "p1", code: "S0001", name: "Steel" }, { id: "p2", code: "X0001", name: "Finished steel" }];
+const catalog = [{ id: "p1", code: "S0001", name: "Steel", version: 0 }, { id: "p2", code: "X0001", name: "Finished steel", version: 0 }];
 function fakeDb() {
   let reads = 0;
   return {
     get reads() { return reads; },
+    $queryRaw: async () => [],
     product: { findMany: async () => { reads++; return catalog; } },
   };
 }
@@ -49,7 +50,7 @@ test("forged or missing confirmation rejects before catalog lookup", async () =>
 });
 test("explicit links snapshot canonical identity and confirmation actor without transforming item names", async () => {
   const db = fakeDb();
-  const result = await resolveConfirmedProductLinks(db as unknown as LinkDb, [{ productId: "p1", productConfirmed: true }, { productId: "p2", productConfirmed: true }], "actor");
+  const result = await resolveConfirmedProductLinks(db as unknown as LinkDb, [{ productId: "p1", productConfirmed: true, productVersion: 0 }, { productId: "p2", productConfirmed: true, productVersion: 0 }], "actor");
   assert.equal(result[0].productCodeSnapshot, "S0001");
   assert.equal(result[0].productNameSnapshot, "Steel");
   assert.equal(result[0].productConfirmedById, "actor");
@@ -59,5 +60,12 @@ test("explicit links snapshot canonical identity and confirmation actor without 
 });
 test("missing and inactive catalog selection is rejected instead of silently dropping link", async () => {
   const db = fakeDb();
-  await assert.rejects(() => resolveConfirmedProductLinks(db as unknown as LinkDb, [{ productId: "missing", productConfirmed: true }], "actor"), /ไม่พบสินค้า/);
+  await assert.rejects(() => resolveConfirmedProductLinks(db as unknown as LinkDb, [{ productId: "missing", productConfirmed: true, productVersion: 0 }], "actor"), /ไม่พบสินค้า/);
+});
+
+test("new confirmed link must use the current catalog version", async () => {
+  const db = fakeDb();
+  for (const productVersion of [undefined, 1]) {
+    await assert.rejects(() => resolveConfirmedProductLinks(db as unknown as LinkDb, [{ productId: "p1", productConfirmed: true, productVersion }], "actor"), /เปลี่ยนแปลง/);
+  }
 });

@@ -531,6 +531,7 @@ export function PurchaseRequestForm({
                       onChange={product => {
                         form.setValue(`items.${index}.productId`, product?.id ?? null, { shouldDirty: true });
                         form.setValue(`items.${index}.productConfirmed`, !!product, { shouldDirty: true });
+                        form.setValue(`items.${index}.productVersion`, product?.version, { shouldDirty: true });
                       }} />
                     {form.formState.errors.items?.[index]?.itemName ? (
                       <p className="text-xs text-destructive">

@@ -82,6 +82,7 @@ const purchaseRequestInclude = {
   currentApprover: true,
   cancelledBy: true,
   items: {
+    include: { product: { select: { isActive: true } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
   receipts: {
@@ -589,6 +590,7 @@ function toDetail(
     items: request.items.map((item) => ({
       id: item.id,
       productId: item.productId,
+      productIsActive: item.product?.isActive,
       productCodeSnapshot: item.productCodeSnapshot,
       productNameSnapshot: item.productNameSnapshot,
       canOrder: canOrderItem(item),
@@ -1087,8 +1089,7 @@ export async function createPurchaseRequest(
   },
 ) {
   const db = getDb();
-  const links = await resolveConfirmedProductLinks(db, input.items, session.id);
-  const normalizedItems = toPersistedItems(input.items).map((item, index) => ({ ...item, ...links[index] }));
+  const normalizedItems = toPersistedItems(input.items);
   const totalAmount = calculateTotal(normalizedItems);
   const requestDate = toUtcStartOfDayFromDateValue(input.requestDate);
   const prNumber = await generateNextPrNumber(requestDate);
@@ -1099,7 +1100,9 @@ export async function createPurchaseRequest(
     invariant(currentApprover, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
   }
 
-  const request = await db.purchaseRequest.create({
+  const request = await db.$transaction(async (transaction) => {
+    const links = await resolveConfirmedProductLinks(transaction, input.items, session.id);
+    return transaction.purchaseRequest.create({
     data: {
       prNumber,
       requestDate,
@@ -1114,7 +1117,7 @@ export async function createPurchaseRequest(
       submittedAt: input.submit ? new Date() : null,
       totalAmount,
       items: {
-        create: normalizedItems,
+        create: normalizedItems.map((item, index) => ({ ...item, ...links[index] })),
       },
       attachments: input.attachments?.length
         ? {
@@ -1134,6 +1137,7 @@ export async function createPurchaseRequest(
         },
       },
     },
+    });
   });
 
   if (currentApprover) {
@@ -1179,8 +1183,7 @@ export async function updatePurchaseRequest(
     }
     return null;
   });
-  const links = await resolveConfirmedProductLinks(db, input.items.map((item, index) => preserved[index] ? {} : item), session.id);
-  const normalizedItems = toPersistedItems(input.items).map((item, index) => ({ ...item, ...(preserved[index] ?? links[index]) }));
+  const normalizedItems = toPersistedItems(input.items);
   const totalAmount = calculateTotal(normalizedItems);
   const isReturningToPurchasing = isPurchasingReturnStatus(existing.status);
   let nextApproverId: string | null = null;
@@ -1225,6 +1228,7 @@ export async function updatePurchaseRequest(
   ];
 
   await db.$transaction(async (transaction) => {
+    const links = await resolveConfirmedProductLinks(transaction, input.items.map((item, index) => preserved[index] ? {} : item), session.id);
     const claimed = await transaction.purchaseRequest.updateMany({
       where: {
         id,
@@ -1271,7 +1275,7 @@ export async function updatePurchaseRequest(
         submittedAt: input.submit ? existing.submittedAt ?? new Date() : existing.submittedAt,
         status: nextStatus,
         items: {
-          create: normalizedItems,
+          create: normalizedItems.map((item, index) => ({ ...item, ...(preserved[index] ?? links[index]) })),
         },
         approvals: {
           create: approvalHistory,

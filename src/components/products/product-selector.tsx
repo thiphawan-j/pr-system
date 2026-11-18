@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useI18n } from "@/components/i18n/i18n-provider";
 
-type Product = { id: string; code: string; name: string; unit: string; aliases: { name: string; context?: string | null }[] };
+type Product = { id: string; code: string; name: string; unit: string; version: number; aliases: { name: string; context?: string | null; isActive?: boolean }[] };
 export function ProductSelector({ name, value, label, disabled, onChange }: {
   name: string; value?: string | null; label?: string | null; disabled?: boolean;
   onChange: (product: Product | null) => void;
@@ -41,7 +41,7 @@ export function ProductSelector({ name, value, label, disabled, onChange }: {
       <div className="flex gap-2"><Input aria-label={th ? "ค้นหาสินค้า" : "Search products"} value={query} onChange={e => setQuery(e.target.value)} /><Button type="button" disabled={loading} onClick={search}>{loading ? "…" : th ? "ค้นหา" : "Search"}</Button></div>
       {error && <p role="alert">{error}</p>}
       <p className="text-xs text-muted-foreground">{th ? "แสดงไม่เกิน 20 รายการ กรุณาระบุคำค้นให้เฉพาะเจาะจง" : "Up to 20 results. Refine your search if needed."}</p>
-      <div className="space-y-2">{items.map(item => <Button key={item.id} type="button" variant={selected?.id === item.id ? "secondary" : "outline"} className="h-auto w-full justify-start whitespace-normal p-3 text-left" onClick={() => setSelected(item)}><span>{item.code} · {item.name} · {item.unit}<br /><span className="text-xs text-muted-foreground">{item.aliases.map(a => `${a.name}${a.context ? ` (${a.context})` : ""}`).join(", ")}</span></span></Button>)}</div>
+      <div className="space-y-2">{items.map(item => <Button key={item.id} type="button" variant={selected?.id === item.id ? "secondary" : "outline"} className="h-auto w-full justify-start whitespace-normal p-3 text-left" onClick={() => setSelected(item)}><span>{item.code} · {item.name} · {item.unit}<br /><span className="text-xs text-muted-foreground">{item.aliases.filter(a => a.isActive !== false).map(a => `${a.name}${a.context ? ` (${a.context})` : ""}`).join(", ")}</span></span></Button>)}</div>
       {selected && <div className="space-y-3 rounded-lg border p-3"><p>{th ? "ยืนยันว่า" : "Confirm"} “{name}” {th ? "คือสินค้าเดียวกับ" : "is the same product as"} {selected.code} · {selected.name} ({selected.unit})</p><Button type="button" onClick={() => { setConfirmedProduct(selected); onChange(selected); setOpen(false); }}>{th ? "ยืนยันผูกรายการนี้" : "Confirm this link"}</Button></div>}
       <Link href="/products" target="_blank" className="text-sm underline">{th ? "เปิดทะเบียนสินค้าในแท็บใหม่" : "Open catalog in a new tab"}</Link>
     </DialogContent></Dialog>

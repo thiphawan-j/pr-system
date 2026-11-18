@@ -1,14 +1,16 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { ProductCorrection, ProductAudit, type CatalogProduct } from "./product-correction";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/components/i18n/i18n-provider";
 
-type Product = { id: string; code: string; name: string; unit: string; aliases: { id: string; name: string; context: string | null }[] };
+type Product = CatalogProduct;
 export function ProductCatalog({ canManage }: { canManage: boolean }) {
   const { locale } = useI18n(); const th = locale === "th";
   const [query, setQuery] = useState(""); const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("ACTIVE");
   const [page, setPage] = useState(1); const [pages, setPages] = useState(1);
   const [items, setItems] = useState<Product[]>([]); const [error, setError] = useState("");
   const [busy, setBusy] = useState(false); const saving = useRef(false); const [revision, setRevision] = useState(0);
@@ -17,12 +19,12 @@ export function ProductCatalog({ canManage }: { canManage: boolean }) {
   const [confirmed, setConfirmed] = useState(false);
   useEffect(() => {
     const abort = new AbortController();
-    fetch(`/api/products?query=${encodeURIComponent(search)}&page=${page}&limit=20`, { signal: abort.signal }).then(async r => {
+    fetch(`/api/products?query=${encodeURIComponent(search)}&page=${page}&limit=20&status=${status}`, { signal: abort.signal }).then(async r => {
       const data = await r.json(); if (!r.ok) throw new Error(data.error);
       setItems(data.items); setPages(data.totalPages || 1); setError("");
     }).catch(e => { if (!abort.signal.aborted) setError(e.message); });
     return () => abort.abort();
-  }, [search, page, revision]);
+  }, [search, page, revision, status]);
   async function save(url: string, data: object, done: () => void) {
     if (saving.current) return;
     saving.current = true; setBusy(true); setError("");
@@ -42,7 +44,8 @@ export function ProductCatalog({ canManage }: { canManage: boolean }) {
       <Button disabled={busy} type="submit">{th ? "สร้างรหัสกลาง" : "Create product"}</Button>
     </form>}
     <form className="flex gap-2" onSubmit={e => { e.preventDefault(); setPage(1); setSearch(query); }}><Input aria-label={th ? "ค้นหารหัส ชื่อ หรือชื่อเรียก" : "Search code, name or alias"} value={query} onChange={e => setQuery(e.target.value)} maxLength={200}/><Button type="submit">{th ? "ค้นหา" : "Search"}</Button></form>
-    <div className="space-y-3">{items.map(item => <article key={item.id} className="space-y-2 rounded-xl border p-4"><h2 className="font-semibold">{item.code} · {item.name} ({item.unit})</h2><p className="break-words text-sm">{item.aliases.map(a => `${a.name}${a.context ? ` (${a.context})` : ""}`).join(", ") || (th ? "ยังไม่มีชื่อเรียกอื่น" : "No aliases")}</p>{canManage && <Button type="button" variant="outline" disabled={busy} onClick={() => { setTarget(item); setAlias(""); setContext(""); setConfirmed(false); }}>{th ? "เพิ่มชื่อเรียก" : "Add alias"}</Button>}</article>)}</div>
+    {canManage && <label className="flex items-center gap-2 text-sm">{th ? "สถานะทะเบียน" : "Catalog status"}<select className="rounded-md border bg-background p-2" aria-label={th ? "สถานะทะเบียน" : "Catalog status"} value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}><option value="ACTIVE">{th ? "ใช้งานอยู่" : "Active"}</option><option value="INACTIVE">{th ? "ปิดใช้งานแล้ว" : "Inactive"}</option><option value="ALL">{th ? "ทั้งหมด" : "All"}</option></select></label>}
+    <div className="space-y-3">{items.map(item => <article key={item.id} className="space-y-2 rounded-xl border p-4"><h2 className="font-semibold">{item.code} · {item.name} ({item.unit}){!item.isActive ? (th ? " · ปิดใช้งานแล้ว" : " · Inactive") : ""}</h2><p className="break-words text-sm">{item.aliases.filter(a => a.isActive).map(a => `${a.name}${a.context ? ` (${a.context})` : ""}`).join(", ") || (th ? "ยังไม่มีชื่อเรียกอื่น" : "No aliases")}</p>{canManage && item.isActive && <Button type="button" variant="outline" disabled={busy} onClick={() => { setTarget(item); setAlias(""); setContext(""); setConfirmed(false); }}>{th ? "เพิ่มชื่อเรียก" : "Add alias"}</Button>}{canManage && <><ProductCorrection product={item} onSaved={() => { setRevision(n => n + 1); setTarget(null); }} /><ProductAudit productId={item.id} revision={revision} /></>}</article>)}</div>
     {target && <form className="space-y-3 rounded-xl border border-blue-500 p-4" onSubmit={e => { e.preventDefault(); void save(`/api/products/${target.id}/aliases`, { name: alias, context, confirmed }, () => setTarget(null)); }}>
       <h2>{th ? "เพิ่มชื่อเรียกให้" : "Add alias for"} {target.code} · {target.name} ({target.unit})</h2>
       <Label htmlFor="alias-name">{th ? "ชื่อเรียกอื่น" : "Alias"}</Label><Input id="alias-name" required maxLength={200} value={alias} onChange={e => { setAlias(e.target.value); setConfirmed(false); }} disabled={busy}/>
