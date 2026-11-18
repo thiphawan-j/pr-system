@@ -11,6 +11,18 @@ import {
   uniqueValue,
 } from "./support";
 
+test("PR controls are disabled in server HTML until hydration can retain input", async ({ page }) => {
+  await signIn(page);
+  const response = await page.request.get("/purchase-requests/new");
+  expect(response.ok()).toBe(true);
+  const html = await response.text();
+  expect(html).toMatch(/<fieldset(?=[^>]*data-testid="purchase-request-form")(?=[^>]*\sdisabled="")[^>]*>/);
+  await page.goto("/purchase-requests/new");
+  await expect(page.getByTestId("purchase-request-form")).toBeEnabled();
+  await page.locator("#reason").fill("Hydrated controls retain the first entered text");
+  await expect(page.locator("#reason")).toHaveValue("Hydrated controls retain the first entered text");
+});
+
 test("purchase request form shows required-field validation", async ({ page }) => {
   await signIn(page);
   await page.goto("/purchase-requests/new");
@@ -57,11 +69,14 @@ test("employee can create, upload, edit, and submit a draft", async ({ page }) =
   expect(downloadResponse.headers()["content-disposition"]).toContain(attachmentName);
 
   await page.locator('a[href$="/edit"]').first().click();
+  await expect(page.locator("#reason")).toBeEnabled();
   await page.locator("#reason").fill(`Updated purchase request for ${marker}`);
   await page.locator('input[name="items.0.itemName"]').fill(`Updated ${marker}`);
   await page.getByRole("button", {
     name: /บันทึกและส่งอนุมัติ|save and submit/i,
   }).click();
+  await expect(page.getByRole("dialog")).toContainText(`Updated purchase request for ${marker}`);
+  await expect(page.getByRole("dialog")).toContainText(`Updated ${marker}`);
   await page.getByTestId("confirm-pr-submit").click();
 
   await expect(page.locator("main")).toContainText(`Updated ${marker}`);

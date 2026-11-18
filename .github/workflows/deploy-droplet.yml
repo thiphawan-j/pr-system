@@ -339,28 +339,34 @@ jobs:
           echo "Backup production database"
           echo "========================================"
 
+          # Restrict newly created backup files; never expose their contents in logs.
+          umask 077
           mkdir -p /root/pr-system-backups
+          BACKUP_FILE="/root/pr-system-backups/pr-system-before-deploy-$(date +%Y%m%d-%H%M%S)-$DEPLOY_SHA.dump"
+          BACKUP_PARTIAL="$(mktemp /root/pr-system-backups/.partial-XXXXXX)"
 
-          # เก็บ backup ไว้ 14 วัน เพื่อป้องกันพื้นที่เต็ม
-          find /root/pr-system-backups \
-            -type f \
-            -name 'pr-system-before-deploy-*.dump' \
-            -mtime +14 \
-            -delete || true
-
-          BACKUP_FILE="/root/pr-system-backups/pr-system-before-deploy-$(date +%Y%m%d-%H%M%S).dump"
-
-          compose exec -T --interactive=false postgres \
+          # Publish the final name only after pg_dump and archive validation succeed.
+          if ! compose exec -T --interactive=false postgres \
             sh -lc 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" -Fc' \
-            < /dev/null \
-            > "$BACKUP_FILE"
-
-          test -s "$BACKUP_FILE" || {
-            echo "ERROR: Database backup is empty."
+            < /dev/null > "$BACKUP_PARTIAL"; then
+            rm -f "$BACKUP_PARTIAL"
+            echo "ERROR: Database backup failed. Deployment stopped."
             exit 1
-          }
+          fi
+          if [ ! -s "$BACKUP_PARTIAL" ] || ! compose exec -T postgres \
+            pg_restore --list < "$BACKUP_PARTIAL" > /dev/null; then
+            rm -f "$BACKUP_PARTIAL"
+            echo "ERROR: Database backup archive validation failed."
+            exit 1
+          fi
+          mv "$BACKUP_PARTIAL" "$BACKUP_FILE"
+          (cd /root/pr-system-backups && sha256sum "$(basename "$BACKUP_FILE")" > "$(basename "$BACKUP_FILE").sha256")
 
-          echo "Database backup created:"
+          # Prune only after a new verified archive has been published.
+          find /root/pr-system-backups -type f \
+            \( -name 'pr-system-before-deploy-*.dump' -o -name 'pr-system-before-deploy-*.dump.sha256' \) \
+            -mtime +14 -delete
+          echo "Database backup archive and checksum created (full restore drill is separate):"
           ls -lh "$BACKUP_FILE"
 
           echo "========================================"

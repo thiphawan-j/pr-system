@@ -43,3 +43,25 @@ test("personal work queue stays inside the mobile viewport", async ({ page }) =>
   await expect(page.locator("[data-personal-work-queue]")).toBeVisible();
   expect(await page.locator("body").evaluate(body => body.scrollWidth)).toBeLessThanOrEqual(390);
 });
+
+
+test("own drafts paginate independently and preserve browser back navigation", async ({ page }) => {
+  await signIn(page, credentials.employee);
+  // Create only through the existing authenticated API against E2E fixtures.
+  for (let i = 0; i < 6; i++) await createRequestViaApi(page);
+  await page.goto("/dashboard?wq_receipts=2");
+  const drafts = page.locator('[data-work-group="drafts"]');
+  await expect(drafts.locator("li")).toHaveCount(5);
+  const firstPageIds = await drafts.locator("li a").evaluateAll(links => links.map(link => link.getAttribute("href")));
+  await drafts.locator('a[rel="next"]').click();
+  await expect(page).toHaveURL(/wq_drafts=2/);
+  await expect(drafts.locator('a[rel="prev"]')).toBeVisible();
+  const nextPageIds = await drafts.locator("li a").evaluateAll(links => links.map(link => link.getAttribute("href")));
+  expect(nextPageIds.length).toBeGreaterThan(0);
+  expect(nextPageIds.some(id => firstPageIds.includes(id))).toBe(false);
+  await page.goBack();
+  await expect(drafts.locator("li a").first()).toHaveAttribute("href", firstPageIds[0]!);
+  await page.goto("/dashboard?wq_drafts=-1&wq_approval=999");
+  await expect(drafts.locator("li a").first()).toHaveAttribute("href", firstPageIds[0]!);
+  await expect(page.locator('[data-work-group="approval"]')).toHaveCount(0);
+});

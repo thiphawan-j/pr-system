@@ -141,25 +141,57 @@ test("saving a new PR restores the form after a failed request without creating 
   await expect(activity(page)).toHaveCount(0);
 });
 
-test("the selected PR save button remains busy until its destination loads", async ({ page }) => {
+test("PR save stays locked during the request and at the document-navigation handoff", async ({ page }) => {
   await authenticate(page, credentials.admin);
   const id = await firstRequest(page);
   await page.goto("/purchase-requests/new");
-  const pending = await holdNavigation(page, (url) => url.pathname === `/purchase-requests/${id}`);
-  await page.route("**/api/purchase-requests", (route) => route.request().method() === "POST"
-    ? route.fulfill({ json: { id } }) : route.continue());
+  await expect(page.locator("#reason")).toBeEnabled();
+  const pending = gate();
+  let saves = 0;
+  await page.route("**/api/purchase-requests", async (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    saves++;
+    pending.arrive();
+    await pending.held;
+    return route.fulfill({ json: { id } });
+  });
   await page.locator("#reason").fill("Mocked PR save navigates without changing local data");
   await page.locator('input[name="items.0.itemName"]').fill("Mocked save hand-off");
+  const saveButton = page.getByRole("button", { name: /บันทึกร่าง|save draft/i });
+  // Record synchronously from the source document, without suspending navigation
+  // or issuing browser evaluations while a document response is held.
+  await saveButton.evaluate(element => {
+    const button = element as HTMLButtonElement;
+    window.addEventListener("beforeunload", () => {
+      const status = document.querySelector('[data-app-activity="status"]');
+      const style = status ? getComputedStyle(status) : null;
+      const rect = status?.getBoundingClientRect();
+      console.info("pr-save-handoff:" + JSON.stringify({
+        busy: button.getAttribute("aria-busy"),
+        disabled: button.matches(":disabled"),
+        saving: /กำลังบันทึก|saving/i.test(button.textContent ?? ""),
+        activityVisible: Boolean(rect && rect.width > 0 && rect.height > 0 && style?.visibility !== "hidden" && style?.display !== "none" && Number(style?.opacity) > 0),
+      }));
+    }, { once: true });
+  });
+  const handoff = page.waitForEvent("console", { predicate: message => message.text().startsWith("pr-save-handoff:") });
   try {
-    await page.getByRole("button", { name: /บันทึกร่าง|save draft/i }).click();
+    await saveButton.click({ noWaitAfter: true });
     await pending.arrived;
-    const save = page.getByRole("button", { name: /กำลังบันทึก|saving/i });
-    await expect(save).toHaveAttribute("aria-busy", "true");
-    await expect(save).toBeDisabled();
+    const saving = page.getByRole("button", { name: /กำลังบันทึก|saving/i });
+    await expect(saving).toHaveAttribute("aria-busy", "true");
+    await expect(saving).toBeDisabled();
     await expect(activity(page)).toBeVisible();
+    // toBeVisible ignores opacity; allow the intentional 120ms feedback delay.
+    await expect(activity(page)).toHaveCSS("opacity", "1");
+    await saving.evaluate(button => (button as HTMLButtonElement).click());
+    expect(saves).toBe(1);
   } finally { pending.release(); }
+  const snapshot = JSON.parse((await handoff).text().slice("pr-save-handoff:".length));
+  expect(snapshot).toEqual({ busy: "true", disabled: true, saving: true, activityVisible: true });
   await expect(page).toHaveURL(new RegExp(`/purchase-requests/${id}$`));
   await expect(activity(page)).toHaveCount(0);
+  expect(saves).toBe(1);
 });
 
 test("mutation feedback remains active while the same page refreshes", async ({ page }) => {

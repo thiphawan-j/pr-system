@@ -1,5 +1,5 @@
 import { resolveConfirmedProductLinks } from "@/server/products/product.service";
-import { workQueueFilters } from "./work-queue";
+import { workQueueFilters, workQueuePage, WORK_QUEUE_PAGE_SIZE, type WorkQueueSearchParams } from "./work-queue";
 import { assertLegacyProcurementWriter } from "@/server/purchase-orders/procurement-ownership";
 import "server-only";
 
@@ -2564,15 +2564,16 @@ export async function getShellContext(session: SessionUser) {
 }
 
 /** Read-only dashboard work, intersected with the same visibility as the PR list. */
-export async function getPersonalWorkQueue(session: SessionUser) {
+export async function getPersonalWorkQueue(session: SessionUser, searchParams: WorkQueueSearchParams = {}) {
   const db = getDb();
   return Promise.all(workQueueFilters(session).map(async ({ key, where }) => {
     const scopedWhere = { AND: [buildVisibleWhere(session), where] };
-    const [total, requests] = await Promise.all([
-      db.purchaseRequest.count({ where: scopedWhere }),
-      db.purchaseRequest.findMany({ where: scopedWhere, select: purchaseRequestListSelect,
-        orderBy: [{ updatedAt: "asc" }, { id: "asc" }], take: 5 }),
-    ]);
-    return { key, total, items: requests.map(toListItem) };
+    const total = await db.purchaseRequest.count({ where: scopedWhere });
+    const { page, pageCount, skip } = workQueuePage(searchParams[`wq_${key}`], total);
+    const requests = await db.purchaseRequest.findMany({
+      where: scopedWhere, select: purchaseRequestListSelect,
+      orderBy: [{ updatedAt: "asc" }, { id: "asc" }], take: WORK_QUEUE_PAGE_SIZE, skip,
+    });
+    return { key, total, page, pageCount, items: requests.map(toListItem) };
   }));
 }

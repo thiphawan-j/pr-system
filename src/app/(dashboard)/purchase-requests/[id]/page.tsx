@@ -1,3 +1,4 @@
+import { RequestTrackingSummary } from "@/components/purchase-requests/request-tracking-summary";
 import Link from "@/components/loading/navigation-link";
 import { DownloadButton } from "@/components/shared/download-button";
 import {
@@ -198,10 +199,10 @@ export default async function PurchaseRequestDetailPage({
             ) : null}
             {canEdit ? (
               <Button asChild variant="outline" className="rounded-xl">
-                <Link href={`/purchase-requests/${request.id}/edit`}>
+                <a href={`/purchase-requests/${request.id}/edit`}>
                   <FilePenLine />
                   {isPurchasingReturnStatus ? dictionary.purchaseRequests.editReturnedRequest : dictionary.purchaseRequests.editDraft}
-                </Link>
+                </a>
               </Button>
             ) : null}
             {request.status === "DRAFT" && isOwner ? (
@@ -314,9 +315,9 @@ export default async function PurchaseRequestDetailPage({
           {canEdit ? (
             <AlertAction>
               <Button asChild size="sm" variant="outline" className="bg-background/70">
-                <Link href={`/purchase-requests/${request.id}/edit`}>
+                <a href={`/purchase-requests/${request.id}/edit`}>
                   {dictionary.purchaseRequests.editReturnedRequest}
-                </Link>
+                </a>
               </Button>
             </AlertAction>
           ) : null}
@@ -345,9 +346,11 @@ export default async function PurchaseRequestDetailPage({
         </Alert>
       ) : null}
 
+      <RequestTrackingSummary request={request} locale={locale} />
+
       <section className="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_20rem] xl:grid-cols-[minmax(0,1fr)_22rem] lg:gap-6">
         <div className="min-w-0 space-y-5 lg:space-y-6">
-          <Card className="border-border/70">
+          <Card id="pr-details" className="scroll-mt-24 border-border/70">
             <CardHeader className="flex flex-row items-center gap-2.5 border-b">
               <FileText className="size-4 shrink-0 text-primary" />
               <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.detailTitle}</CardTitle>
@@ -546,14 +549,16 @@ export default async function PurchaseRequestDetailPage({
               receiptReferenceNote={request.receiptReferenceNote}
             />
           ) : null}
+          <div id="pr-receipt-history" className="scroll-mt-24">
           <ReceiptHistoryPanel
             requestId={request.id}
             expectedVersion={request.receiptVersion}
             receipts={request.receipts}
             canEditReferences={isPurchasing}
           />
+          </div>
 
-          <Card className="border-border/70">
+          <Card id="pr-approval-history" className="scroll-mt-24 border-border/70">
             <CardHeader className="flex flex-row items-center gap-2.5 border-b">
               <GitBranch className="size-4 shrink-0 text-primary" />
               <CardTitle role="heading" aria-level={2}>{dictionary.purchaseRequests.timelineTitle}</CardTitle>

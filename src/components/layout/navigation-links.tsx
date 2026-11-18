@@ -46,15 +46,16 @@ export function NavigationLinks({ sessionRole, onNavigate }: NavigationLinksProp
               {items.map((item) => {
                 const Icon = icons[item.labelKey];
                 const isActive = activeHref === item.href;
+                const ItemLink = item.href === "/purchase-requests/new" ? "a" : Link;
                 return (
-                  <Link key={item.href} href={item.href} onClick={onNavigate}
+                  <ItemLink key={item.href} href={item.href} onClick={onNavigate}
                     aria-current={isActive ? "page" : undefined}
                     className={cn("flex min-h-11 items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                       isActive ? "bg-sidebar-accent text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-muted hover:text-foreground")}
                   >
                     <Icon className="size-4 shrink-0" aria-hidden="true" />
                     <span>{dictionary.navigation[item.labelKey]}</span>
-                  </Link>
+                  </ItemLink>
                 );
               })}
             </div>

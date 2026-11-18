@@ -3,10 +3,10 @@
 This change builds on the existing navy design. It does not replace menus, routes, fields, permissions, approval transitions, or database schemas.
 
 ## Changes
-- Dashboard: personal drafts and returned requests; role-appropriate approval/purchasing groups; receiving follow-up. Every count and row is intersected with the existing visibility predicate. Up to five oldest-updated requests per group; use the existing PR list for the rest.
+- Dashboard: personal drafts and returned requests; role-appropriate approval/purchasing groups; receiving follow-up. Every count and row is intersected with the existing visibility predicate. Five oldest-updated requests per group page; subsequent tracking/navigation work adds independent pagination (see pr-tracking-navigation.md).
 - Form: three numbered, focusable sections remain visible. Draft and send actions are distinct; send requires reviewing and confirming. Draft validation remains unchanged, not an incomplete-draft feature.
 - Validation summary, explicit missing-price labels, partial-price subtotals, and unsaved-change indicator.
-- Warn before ordinary link navigation and tab close/reload. Client-side Back/Forward and programmatic logout are not intercepted; this is not autosave.
+- Warn before ordinary link navigation and tab close/reload. Subsequent tracking/navigation work adds document boundaries for Back/Forward warnings; programmatic logout remains outside this guarantee. This is not autosave. See pr-tracking-navigation.md.
 - Existing attachment upload/removal and revision-comment behavior are retained.
 
 ## Safety and verification
