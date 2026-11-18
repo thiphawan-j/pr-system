@@ -435,10 +435,10 @@ test("Purchasing converts supplier groups in the browser and opens a printable P
   await expect(page).toHaveURL(new RegExp(`/purchase-requests/${request.id}$`));
   await expect(page.locator("#convert-pr-to-po")).toHaveCount(0);
   for (const order of summaries) {
-    await expect(page.locator(`a[href="/purchase-orders/${order.id}"]`)).toContainText(order.poNumber);
+    await expect(page.getByTestId("request-tracking-summary").locator(`a[href="/purchase-orders/${order.id}"]`)).toContainText(order.poNumber);
   }
   const first = summaries.find((order) => order.supplierName === "Alpha Supplies")!;
-  await page.locator(`a[href="/purchase-orders/${first.id}"]`).click();
+  await page.getByTestId("request-tracking-summary").locator(`a[href="/purchase-orders/${first.id}"]`).click();
   await expect(page).toHaveURL(new RegExp(`/purchase-orders/${first.id}$`));
   await expect(page.locator("main")).toContainText(first.poNumber);
   await expect(page.locator("main")).toContainText("123 Alpha Supplier Road");

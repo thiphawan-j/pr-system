@@ -382,9 +382,13 @@ export function PurchaseRequestForm({
         } catch {
           toast.error(dictionary.purchaseRequests.saveError);
         } finally {
-          pendingRef.current = false;
-          setIsPending(false);
-          if (!saved) setPendingIntent(null);
+          // A successful document navigation is asynchronous. Keep controls locked
+          // until unload so a slow destination cannot permit a duplicate save.
+          if (!saved) {
+            pendingRef.current = false;
+            setIsPending(false);
+            setPendingIntent(null);
+          }
         }
       });
     }, () => { pendingRef.current = false; setValidationFailed(true); requestAnimationFrame(() => jumpTo("pr-form-errors")); })().catch(() => {

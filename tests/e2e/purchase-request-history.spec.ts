@@ -1,5 +1,16 @@
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import { createRequestViaApi, signIn } from "./support";
+
+async function cancelTraversal(page: Page, direction: "back" | "forward") {
+  // Waiting for a load after cancellation is incorrect: the current document stays.
+  // Explicitly await the native dialog instead, then assert its resulting state.
+  const dismissed = page.waitForEvent("dialog").then(async dialog => {
+    expect(dialog.type()).toBe("beforeunload");
+    await dialog.dismiss();
+  });
+  await page.evaluate(direction => { setTimeout(() => window.history[direction](), 0); }, direction);
+  await dismissed;
+}
 
 test("every known create/edit entry opens a new document", async ({ page }) => {
   await signIn(page);
@@ -25,11 +36,11 @@ test(`Back and Forward cancellations retain edits and attachments at ${width}px`
   await page.setViewportSize({ width, height: 844 });
   await signIn(page);
   await page.locator('main a[href="/purchase-requests/new"]').click();
+  await page.locator("#reason").click(); // Sticky activation belongs to this new document.
   await page.locator("#reason").fill("Keep my unsaved text");
   await page.locator("#attachments").setInputFiles({ name: "quote.txt", mimeType: "text/plain", buffer: Buffer.from("example quote") });
   for (let attempt = 0; attempt < 2; attempt++) {
-    page.once("dialog", async dialog => { expect(dialog.type()).toBe("beforeunload"); await dialog.dismiss(); });
-    await page.goBack().catch(() => null); // A rejected navigation is expected after cancellation.
+    await cancelTraversal(page, "back");
     await expect(page).toHaveURL(/\/purchase-requests\/new$/);
     await expect(page.locator("#reason")).toHaveValue("Keep my unsaved text");
     await expect(page.getByText("quote.txt", { exact: true })).toBeVisible();
@@ -39,11 +50,11 @@ test(`Back and Forward cancellations retain edits and attachments at ${width}px`
   await expect(page).toHaveURL(/\/dashboard$/);
   await page.goBack();
   await expect(page.locator("#reason")).toBeVisible();
+  await page.locator("#reason").click();
   await page.locator("#reason").fill("Forward must also protect me");
   await page.locator("#attachments").setInputFiles({ name: "forward.txt", mimeType: "text/plain", buffer: Buffer.from("example quote") });
   for (let attempt = 0; attempt < 2; attempt++) {
-    page.once("dialog", async dialog => { expect(dialog.type()).toBe("beforeunload"); await dialog.dismiss(); });
-    await page.goForward().catch(() => null);
+    await cancelTraversal(page, "forward");
     await expect(page).toHaveURL(/\/purchase-requests\/new$/);
     await expect(page.locator("#reason")).toHaveValue("Forward must also protect me");
     await expect(page.getByText("forward.txt", { exact: true })).toBeVisible();

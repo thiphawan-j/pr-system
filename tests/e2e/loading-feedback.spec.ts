@@ -16,10 +16,11 @@ function gate() {
 
 const activity = (page: Page) => page.locator('[data-app-activity="status"]');
 
-async function holdNavigation(page: Page, accepts: (url: URL) => boolean) {
+async function holdNavigation(page: Page, accepts: (url: URL) => boolean, documentNavigation = false) {
   const pending = gate();
   await page.route("**/*", async (route) => {
-    if (route.request().headers().rsc !== "1" || !accepts(new URL(route.request().url()))) return route.continue();
+    const matchesType = documentNavigation ? route.request().isNavigationRequest() : route.request().headers().rsc === "1";
+    if (!matchesType || !accepts(new URL(route.request().url()))) return route.continue();
     pending.arrive();
     await pending.held;
     await route.continue();
@@ -145,17 +146,23 @@ test("the selected PR save button remains busy until its destination loads", asy
   await authenticate(page, credentials.admin);
   const id = await firstRequest(page);
   await page.goto("/purchase-requests/new");
-  const pending = await holdNavigation(page, (url) => url.pathname === `/purchase-requests/${id}`);
-  await page.route("**/api/purchase-requests", (route) => route.request().method() === "POST"
-    ? route.fulfill({ json: { id } }) : route.continue());
+  const pending = await holdNavigation(page, (url) => url.pathname === `/purchase-requests/${id}`, true);
+  let saves = 0;
+  await page.route("**/api/purchase-requests", (route) => {
+    if (route.request().method() !== "POST") return route.continue();
+    saves++;
+    return route.fulfill({ json: { id } });
+  });
   await page.locator("#reason").fill("Mocked PR save navigates without changing local data");
   await page.locator('input[name="items.0.itemName"]').fill("Mocked save hand-off");
   try {
-    await page.getByRole("button", { name: /บันทึกร่าง|save draft/i }).click();
+    await page.getByRole("button", { name: /บันทึกร่าง|save draft/i }).click({ noWaitAfter: true });
     await pending.arrived;
     const save = page.getByRole("button", { name: /กำลังบันทึก|saving/i });
     await expect(save).toHaveAttribute("aria-busy", "true");
     await expect(save).toBeDisabled();
+    await save.evaluate(button => (button as HTMLButtonElement).click());
+    expect(saves).toBe(1);
     await expect(activity(page)).toBeVisible();
   } finally { pending.release(); }
   await expect(page).toHaveURL(new RegExp(`/purchase-requests/${id}$`));
