@@ -110,6 +110,13 @@ export type AdminUserListPage = {
 };
 
 export type PurchaseRequestItemInput = {
+  id?: string;
+  productId?: string | null;
+  productConfirmed?: boolean;
+  productVersion?: number;
+  productIsActive?: boolean;
+  productCodeSnapshot?: string | null;
+  productNameSnapshot?: string | null;
   itemName: string;
   description?: string;
   supplierName?: string;

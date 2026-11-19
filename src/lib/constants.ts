@@ -103,6 +103,7 @@ export const navigationItems = [
   { href: "/purchase-requests", labelKey: "purchaseRequests" },
   { href: "/purchase-requests/new", labelKey: "createPurchaseRequest" },
   { href: "/reports", labelKey: "reports" },
+  { href: "/products", labelKey: "productCatalog" },
   { href: "/purchase-orders/new", labelKey: "createPurchaseOrders", roles: ["PURCHASING", "ADMIN"] },
   { href: "/suppliers", labelKey: "suppliers", roles: ["PURCHASING", "ADMIN"] },
   { href: "/admin/users", labelKey: "adminUsers", roles: ["ADMIN"] },

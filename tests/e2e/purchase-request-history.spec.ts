@@ -12,24 +12,28 @@ async function cancelTraversal(page: Page, direction: "back" | "forward") {
   await dismissed;
 }
 
-test("every known create/edit entry opens a new document", async ({ page }) => {
-  await signIn(page);
-  const draft = await createRequestViaApi(page);
-  const paths = [
-    ["/dashboard", 'main a[href="/purchase-requests/new"]'],
-    ["/dashboard", 'nav a[href="/purchase-requests/new"]'],
-    ["/dashboard", '[data-work-group="drafts"] a[href$="/edit"]'],
-    ["/purchase-requests", `a[href="${draft.url}/edit"]`],
-    [draft.url, `a[href="${draft.url}/edit"]`],
-  ];
-  for (const [source, selector] of paths) {
+// Each entry has its own fixture and timeout budget; five full-document
+// navigations must not share a single 30-second test budget.
+for (const entry of ["dashboard", "navigation", "draft queue", "request list", "request detail"] as const) {
+  test(`${entry} create/edit entry opens a new document`, async ({ page }) => {
+    await signIn(page);
+    const draft = await createRequestViaApi(page);
+    const paths = {
+      dashboard: ["/dashboard", 'main a[href="/purchase-requests/new"]'],
+      navigation: ["/dashboard", 'nav a[href="/purchase-requests/new"]'],
+      // Queue is oldest-first: the newly created draft may be on a later page.
+      "draft queue": ["/dashboard", '[data-work-group="drafts"] a[href$="/edit"]'],
+      "request list": ["/purchase-requests", `a[href="${draft.url}/edit"]`],
+      "request detail": [draft.url, `a[href="${draft.url}/edit"]`],
+    };
+    const [source, selector] = paths[entry];
     await page.goto(source);
     await page.evaluate(() => { document.documentElement.dataset.documentMarker = "old"; });
     await page.locator(selector).filter({ visible: true }).first().click();
     await expect(page.locator("#reason")).toBeVisible();
     await expect(page.locator("html")).not.toHaveAttribute("data-document-marker", "old");
-  }
-});
+  });
+}
 
 for (const width of [1280, 390]) {
 test(`Back and Forward cancellations retain edits and attachments at ${width}px`, async ({ page }) => {

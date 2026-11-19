@@ -1,7 +1,7 @@
 import { expect, test } from "@playwright/test";
 import { credentials, signIn } from "./support";
 
-const paths = ["/dashboard", "/purchase-requests", "/purchase-requests/new", "/reports", "/purchase-orders/new", "/suppliers", "/admin/users", "/admin/company"];
+const paths = ["/dashboard", "/purchase-requests", "/purchase-requests/new", "/reports", "/products", "/purchase-orders/new", "/suppliers", "/admin/users", "/admin/company"];
 
 test("desktop sidebar preserves all admin menus and exactly one active link", async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -44,8 +44,9 @@ test("mobile drawer closes on selection or Escape and keeps menus reachable", as
 test("employee navigation does not reveal purchasing or administration groups", async ({ page }) => {
   await signIn(page, credentials.employee);
   const sidebar = page.locator("[data-desktop-navigation]");
-  await expect(sidebar.locator("nav a")).toHaveCount(4);
-  for (const path of paths.slice(4)) {
+  await expect(sidebar.locator("nav a")).toHaveCount(5);
+  await expect(sidebar.locator('nav a[href="/products"]')).toBeVisible();
+  for (const path of paths.slice(5)) {
     await expect(sidebar.locator(`nav a[href="${path}"]`)).toHaveCount(0);
   }
 });

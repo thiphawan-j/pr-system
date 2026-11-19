@@ -1,3 +1,4 @@
+import { resolveConfirmedProductLinks } from "@/server/products/product.service";
 import { workQueueFilters, workQueuePage, WORK_QUEUE_PAGE_SIZE, type WorkQueueSearchParams } from "./work-queue";
 import { assertLegacyProcurementWriter } from "@/server/purchase-orders/procurement-ownership";
 import "server-only";
@@ -81,6 +82,7 @@ const purchaseRequestInclude = {
   currentApprover: true,
   cancelledBy: true,
   items: {
+    include: { product: { select: { isActive: true } } },
     orderBy: [{ createdAt: "asc" }, { id: "asc" }],
   },
   receipts: {
@@ -587,6 +589,10 @@ function toDetail(
     orderPreparationVersion: request.updatedAt.toISOString(),
     items: request.items.map((item) => ({
       id: item.id,
+      productId: item.productId,
+      productIsActive: item.product?.isActive,
+      productCodeSnapshot: item.productCodeSnapshot,
+      productNameSnapshot: item.productNameSnapshot,
       canOrder: canOrderItem(item),
       itemName: item.itemName,
       description: item.description ?? undefined,
@@ -1094,7 +1100,9 @@ export async function createPurchaseRequest(
     invariant(currentApprover, "ไม่พบผู้อนุมัติสำหรับแผนกนี้", 400);
   }
 
-  const request = await db.purchaseRequest.create({
+  const request = await db.$transaction(async (transaction) => {
+    const links = await resolveConfirmedProductLinks(transaction, input.items, session.id);
+    return transaction.purchaseRequest.create({
     data: {
       prNumber,
       requestDate,
@@ -1109,7 +1117,7 @@ export async function createPurchaseRequest(
       submittedAt: input.submit ? new Date() : null,
       totalAmount,
       items: {
-        create: normalizedItems,
+        create: normalizedItems.map((item, index) => ({ ...item, ...links[index] })),
       },
       attachments: input.attachments?.length
         ? {
@@ -1129,6 +1137,7 @@ export async function createPurchaseRequest(
         },
       },
     },
+    });
   });
 
   if (currentApprover) {
@@ -1155,6 +1164,7 @@ export async function updatePurchaseRequest(
   const db = getDb();
   const existing = await db.purchaseRequest.findUnique({
     where: { id },
+    include: { items: true },
   });
 
   if (!existing) {
@@ -1163,6 +1173,16 @@ export async function updatePurchaseRequest(
 
   assertEditableDraft(session, existing);
 
+  // Existing snapshots belong to the document, never refresh them from the catalog.
+  const preserved = input.items.map((item) => {
+    const old = existing.items.find((row) => row.id === item.id);
+    if (old && (item.productId === undefined || item.productId === old.productId) && item.itemName === old.itemName && !item.productConfirmed) {
+      return { productId: old.productId, productCodeSnapshot: old.productCodeSnapshot,
+        productNameSnapshot: old.productNameSnapshot, productConfirmedById: old.productConfirmedById,
+        productConfirmedAt: old.productConfirmedAt };
+    }
+    return null;
+  });
   const normalizedItems = toPersistedItems(input.items);
   const totalAmount = calculateTotal(normalizedItems);
   const isReturningToPurchasing = isPurchasingReturnStatus(existing.status);
@@ -1208,6 +1228,7 @@ export async function updatePurchaseRequest(
   ];
 
   await db.$transaction(async (transaction) => {
+    const links = await resolveConfirmedProductLinks(transaction, input.items.map((item, index) => preserved[index] ? {} : item), session.id);
     const claimed = await transaction.purchaseRequest.updateMany({
       where: {
         id,
@@ -1254,7 +1275,7 @@ export async function updatePurchaseRequest(
         submittedAt: input.submit ? existing.submittedAt ?? new Date() : existing.submittedAt,
         status: nextStatus,
         items: {
-          create: normalizedItems,
+          create: normalizedItems.map((item, index) => ({ ...item, ...(preserved[index] ?? links[index]) })),
         },
         approvals: {
           create: approvalHistory,
