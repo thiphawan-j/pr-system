@@ -61,6 +61,7 @@ test("GET filters keep query values and show pending feedback before results arr
   const query = uniqueValue("Loading filter");
   const pending = await holdNavigation(page, (url) => url.pathname === "/purchase-requests" && url.searchParams.get("query") === query);
   await page.locator("#query").fill(query);
+  await page.getByTestId("pr-advanced-filters").locator("summary").click();
   await page.locator("#department").selectOption("Operations");
   try {
     await page.getByRole("button", { name: /^ค้นหา$|^search$/i }).click();
