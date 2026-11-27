@@ -107,8 +107,8 @@ test("list applies status, urgency, sort, and clear filters", async ({ page }) =
   await page.locator("#status").click();
   await page.getByRole("menuitemcheckbox", { name: /^(ร่าง|Draft)$/i }).click();
   await page.keyboard.press("Escape");
-  await page.locator("#urgency").selectOption("HIGH");
   await page.getByTestId("pr-advanced-filters").locator("summary").click();
+  await page.locator("#urgency").selectOption("HIGH");
   await page.locator("#sort").selectOption("pr_asc");
   await page.getByRole("button", { name: /ค้นหา|search/i }).click();
 

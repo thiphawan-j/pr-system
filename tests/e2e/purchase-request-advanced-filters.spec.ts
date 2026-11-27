@@ -25,7 +25,7 @@ test("advanced PR filters stay out of the way and survive search on a phone", as
   expect(Object.fromEntries(["from", "to", "urgency", "sort"].map(key => [key, applied.get(key)]))).toEqual({
     from: "2026-11-01", to: "2026-11-30", urgency: "HIGH", sort: "pr_asc",
   });
-  await expect(toggle).toHaveText(/(?:ตัวกรองเพิ่มเติม|More filters)4/);
+  await expect(toggle).toHaveText(/(?:ตัวกรองเพิ่มเติม|More filters)\s*4/);
   await expect(page.locator("#department")).toBeHidden();
   await toggle.click();
   await expect(page.locator("#department")).toHaveValue("Operations");
