@@ -58,3 +58,27 @@ test("mobile PR sections retain every field and distinguish a missing price from
   const width = await page.evaluate(() => ({ content: document.documentElement.scrollWidth, viewport: window.innerWidth }));
   expect(width.content).toBeLessThanOrEqual(width.viewport);
 });
+
+
+test("adding and removing PR rows keeps the remaining item details on mobile", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await signIn(page);
+  await page.goto("/purchase-requests/new");
+  await page.locator("#reason").fill("Synthetic item row regression");
+  await page.getByRole("button", { name: /2\. รายการและไฟล์แนบ|2\. Items and attachments/i }).click();
+  const items = page.getByTestId("pr-item-row");
+  await expect(items).toHaveCount(1);
+  await items.first().locator('input[name$=".itemName"]').fill("Spare item");
+  await page.getByRole("button", { name: /^(เพิ่มรายการ|Add item)$/i }).click();
+  await expect(items).toHaveCount(2);
+  const retained = items.nth(1);
+  for (const [field, value] of Object.entries({ itemName: "Packing tape", quantity: "3", unit: "roll", unitPrice: "12.50", description: "50 mm tape", supplierName: "Synthetic supplier" })) {
+    await retained.locator(`input[name$=".${field}"]`).fill(value);
+  }
+  await items.first().getByRole("button", { name: /^(ลบรายการ|Remove item)$/i }).click();
+  await expect(items).toHaveCount(1);
+  for (const [field, value] of Object.entries({ itemName: "Packing tape", quantity: "3", unit: "roll", unitPrice: "12.50", description: "50 mm tape", supplierName: "Synthetic supplier" })) {
+    await expect(items.first().locator(`input[name$=".${field}"]`)).toHaveValue(value);
+  }
+  await expect(items.first().locator('input[id$="-total"]')).toHaveValue(/37\.50/);
+});
