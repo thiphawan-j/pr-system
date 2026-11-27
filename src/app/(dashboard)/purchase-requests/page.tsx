@@ -150,7 +150,7 @@ export default async function PurchaseRequestsPage({
                 />
               </div>
 
-              <NavigationSubmitButton className="min-h-11 w-full self-end gap-2 rounded-xl px-4">
+              <NavigationSubmitButton data-testid="pr-search-submit" className="min-h-11 w-full self-end gap-2 rounded-xl px-4">
                 <Search aria-hidden="true" className="size-4" />
                 {dictionary.common.search}
               </NavigationSubmitButton>
@@ -228,7 +228,7 @@ export default async function PurchaseRequestsPage({
                 </div>
 
                 <div className="flex justify-end sm:col-span-2 lg:col-span-5">
-                  <NavigationSubmitButton className="min-h-11 w-full rounded-xl sm:w-auto">
+                  <NavigationSubmitButton data-testid="pr-advanced-submit" className="min-h-11 w-full rounded-xl sm:w-auto">
                     {thai ? "ใช้ตัวกรอง" : "Apply filters"}
                   </NavigationSubmitButton>
                 </div>

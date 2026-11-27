@@ -63,17 +63,26 @@ test("GET filters keep query values and show pending feedback before results arr
   await page.locator("#query").fill(query);
   await page.getByTestId("pr-advanced-filters").locator("summary").click();
   await page.locator("#department").selectOption("Operations");
+  const searchButton = page.getByTestId("pr-search-submit");
+  const applyButton = page.getByTestId("pr-advanced-submit");
+  await expect(searchButton).toHaveAccessibleName(/^(ค้นหา|Search)$/i);
+  await expect(applyButton).toHaveAccessibleName(/^(ใช้ตัวกรอง|Apply filters)$/i);
   try {
-    await page.getByRole("button", { name: /^ค้นหา$|^search$/i }).click();
+    await searchButton.click();
     await pending.arrived;
-    const busyButton = page.getByRole("button", { name: /กำลังโหลด|loading/i });
-    await expect(busyButton).toBeDisabled();
-    await expect(busyButton).toHaveAttribute("aria-busy", "true");
+    // Both submit controls use the same form and must prevent a duplicate request.
+    for (const button of [searchButton, applyButton]) {
+      await expect(button).toBeDisabled();
+      await expect(button).toHaveAttribute("aria-busy", "true");
+      await expect(button).toHaveAccessibleName(/กำลังโหลด|loading/i);
+    }
     await expect(activity(page)).toBeVisible();
   } finally { pending.release(); }
   await expect(page).toHaveURL((url) => url.searchParams.get("query") === query && url.searchParams.get("department") === "Operations");
   await expect(activity(page)).toHaveCount(0);
-  await expect(page.getByRole("button", { name: /^ค้นหา$|^search$/i })).toBeEnabled();
+  await expect(searchButton).toBeEnabled();
+  await page.getByTestId("pr-advanced-filters").locator("summary").click();
+  await expect(applyButton).toBeEnabled();
 });
 
 test("saving a comment prevents duplicate requests, preserves text on failure, and recovers after a network error", async ({ page }) => {
