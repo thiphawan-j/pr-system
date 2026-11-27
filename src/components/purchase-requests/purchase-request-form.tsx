@@ -11,6 +11,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -83,6 +84,7 @@ export function PurchaseRequestForm({
   initialData,
 }: PurchaseRequestFormProps) {
   const router = useRouter();
+  const rowIdPrefix = useId();
   const hydrated = useSyncExternalStore(subscribeHydration, clientHydrated, serverHydrated);
   const [isPending, setIsPending] = useState(false);
   const pendingRef = useRef(false);
@@ -521,21 +523,41 @@ export function PurchaseRequestForm({
             {dictionary.purchaseRequests.addItem}
           </Button>
         </CardHeader>
-        <CardContent className="space-y-4">
+        <CardContent className="space-y-3">
+          <div aria-hidden="true" className="hidden items-end gap-3 px-3 pb-1 text-xs font-semibold text-muted-foreground xl:grid xl:grid-cols-[2.5rem_minmax(0,2.5fr)_minmax(0,.8fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1.25fr)_2.75rem]">
+            <span>#</span>
+            <span>{dictionary.purchaseRequests.itemName}</span>
+            <span>{dictionary.purchaseRequests.quantity}</span>
+            <span>{dictionary.purchaseRequests.unitOptional}</span>
+            <span>{dictionary.purchaseRequests.unitPriceOptional}</span>
+            <span>{dictionary.purchaseRequests.lineTotal}</span>
+            <span />
+          </div>
           {itemsArray.fields.map((field, index) => {
             const quantity = Number(watchedItems[index]?.quantity ?? 0);
             const unitPrice = Number(watchedItems[index]?.unitPrice ?? 0);
             const amount = quantity * unitPrice;
+            const inputId = `${rowIdPrefix}-item-${index}`;
+            const rowTitle = `${locale === "th" ? "รายการ" : "Item"} ${index + 1}`;
 
             return (
               <div
                 key={field.id}
-                className="rounded-2xl border border-border/70 bg-muted/30 p-4"
+                role="group"
+                aria-label={rowTitle}
+                data-testid="pr-item-row"
+                className="min-w-0 rounded-xl border border-border/70 bg-card"
               >
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-                  <div className="space-y-2 xl:col-span-2">
-                    <Label>{dictionary.purchaseRequests.itemName}</Label>
-                    <Input {...form.register(`items.${index}.itemName`, { onChange: () => {
+                <div className="grid min-w-0 grid-cols-2 items-start gap-3 p-3 xl:grid-cols-[2.5rem_minmax(0,2.5fr)_minmax(0,.8fr)_minmax(0,1fr)_minmax(0,1.15fr)_minmax(0,1.25fr)_2.75rem]">
+                  <div className="col-start-1 row-start-1 flex min-h-11 items-center xl:min-h-10">
+                    <span className="rounded-md bg-primary/10 px-2 py-1 text-xs font-semibold tabular-nums text-primary">
+                      <span className="xl:hidden">{rowTitle}</span>
+                      <span aria-hidden="true" className="hidden xl:inline">{index + 1}</span>
+                    </span>
+                  </div>
+                  <div className="col-span-2 min-w-0 space-y-2 xl:col-span-1">
+                    <Label htmlFor={`${inputId}-name`} className="xl:sr-only">{dictionary.purchaseRequests.itemName}</Label>
+                    <Input id={`${inputId}-name`} className="min-w-0" {...form.register(`items.${index}.itemName`, { onChange: () => {
                       form.setValue(`items.${index}.productId`, null, { shouldDirty: true });
                       form.setValue(`items.${index}.productConfirmed`, false);
                     } })} />
@@ -556,9 +578,10 @@ export function PurchaseRequestForm({
                     ) : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{dictionary.purchaseRequests.quantity}</Label>
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-quantity`} className="xl:sr-only">{dictionary.purchaseRequests.quantity}</Label>
                     <Input
+                      id={`${inputId}-quantity`}
                       type="number"
                       min={1}
                       step={1}
@@ -569,13 +592,14 @@ export function PurchaseRequestForm({
                     {form.formState.errors.items?.[index]?.quantity ? <p className="text-xs text-destructive">{translateMessage(form.formState.errors.items[index]?.quantity?.message, locale)}</p> : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{dictionary.purchaseRequests.unitOptional}</Label>
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-unit`} className="xl:sr-only">{dictionary.purchaseRequests.unitOptional}</Label>
                     <Input
-                      list={`unit-options-${field.id}`}
+                      id={`${inputId}-unit`}
+                      list={`${inputId}-unit-options`}
                       {...form.register(`items.${index}.unit`)}
                     />
-                    <datalist id={`unit-options-${field.id}`}>
+                    <datalist id={`${inputId}-unit-options`}>
                       {units.map((unit) => (
                         <option key={unit} value={unit}>
                           {dictionary.units[unit]}
@@ -584,9 +608,10 @@ export function PurchaseRequestForm({
                     </datalist>
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{dictionary.purchaseRequests.unitPriceOptional}</Label>
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-price`} className="xl:sr-only">{dictionary.purchaseRequests.unitPriceOptional}</Label>
                     <Input
+                      id={`${inputId}-price`}
                       type="number"
                       min={0}
                       step={0.01}
@@ -595,39 +620,43 @@ export function PurchaseRequestForm({
                     {form.formState.errors.items?.[index]?.unitPrice ? <p className="text-xs text-destructive">{translateMessage(form.formState.errors.items[index]?.unitPrice?.message, locale)}</p> : null}
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>{dictionary.purchaseRequests.lineTotal}</Label>
-                    <Input value={watchedItems[index]?.unitPrice === undefined || watchedItems[index]?.unitPrice === "" ? ux.unknown : formatCurrency(amount, locale)} readOnly />
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-total`} className="xl:sr-only">{dictionary.purchaseRequests.lineTotal}</Label>
+                    <Input id={`${inputId}-total`} className="min-w-0 bg-muted/40 tabular-nums" value={watchedItems[index]?.unitPrice === undefined || watchedItems[index]?.unitPrice === "" ? ux.unknown : formatCurrency(amount, locale)} readOnly />
                   </div>
 
-                  <div className="space-y-2 xl:col-span-3">
-                    <Label>{dictionary.purchaseRequests.description}</Label>
-                    <Input {...form.register(`items.${index}.description`)} />
+                  <div className="col-start-2 row-start-1 flex items-start justify-end xl:col-start-7">
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="min-h-11 gap-1.5 text-destructive hover:text-destructive xl:min-h-10 xl:w-10 xl:px-0"
+                      title={dictionary.purchaseRequests.removeItem}
+                      onClick={() =>
+                        itemsArray.fields.length > 1
+                          ? itemsArray.remove(index)
+                          : form.setValue("items", [{ ...itemDefaults }], { shouldDirty: true })
+                      }
+                    >
+                      <Trash2 aria-hidden="true" className="size-4" />
+                      <span className="xl:sr-only">{dictionary.purchaseRequests.removeItem}</span>
+                    </Button>
+                  </div>
+                </div>
+                <div className="grid gap-3 rounded-b-xl border-t border-border/60 bg-muted/25 p-3 sm:grid-cols-2 xl:pl-[4.1rem]">
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-description`}>{dictionary.purchaseRequests.description}</Label>
+                    <Input id={`${inputId}-description`} {...form.register(`items.${index}.description`)} />
                   </div>
 
-                  <div className="space-y-2 xl:col-span-3">
-                    <Label>{dictionary.purchaseRequests.supplierName}</Label>
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor={`${inputId}-supplier`}>{dictionary.purchaseRequests.supplierName}</Label>
                     <Input
+                      id={`${inputId}-supplier`}
                       placeholder={dictionary.purchaseRequests.supplierNamePlaceholder}
                       {...form.register(`items.${index}.supplierName`)}
                     />
                   </div>
-                </div>
-                <div className="mt-3 flex justify-end">
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="text-destructive"
-                    onClick={() =>
-                      itemsArray.fields.length > 1
-                        ? itemsArray.remove(index)
-                        : form.setValue("items", [{ ...itemDefaults }], { shouldDirty: true })
-                    }
-                  >
-                    <Trash2 />
-                    {dictionary.purchaseRequests.removeItem}
-                  </Button>
                 </div>
               </div>
             );
