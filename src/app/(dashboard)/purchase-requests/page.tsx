@@ -1,5 +1,5 @@
 import Link from "@/components/loading/navigation-link";
-import { Search } from "lucide-react";
+import { ChevronDown, Search, SlidersHorizontal } from "lucide-react";
 
 import { NavigationForm, NavigationSubmitButton } from "@/components/loading/navigation-form";
 import { PurchaseRequestList } from "@/components/purchase-requests/purchase-request-list";
@@ -79,6 +79,14 @@ export default async function PurchaseRequestsPage({
     limit: purchaseRequestListPageSize,
   });
   const filterQueryString = toFilterQueryString(filters);
+  const thai = locale === "th";
+  const activeAdvanced = [
+    filters.department !== "ALL" ? getDepartmentLabel(filters.department, locale) : null,
+    filters.from || filters.to ? `${dictionary.common.documentDateFrom}: ${filters.from || "…"} / ${dictionary.common.documentDateTo}: ${filters.to || "…"}` : null,
+    filters.urgency !== "ALL" ? `${dictionary.common.priority}: ${dictionary.priorities[filters.urgency]}` : null,
+    filters.sort !== "updated_desc" ? dictionary.sortOptions[filters.sort] : null,
+  ].filter((value): value is string => value !== null);
+  const hasFilters = Boolean(filters.query || filters.status.length || filters.preset || activeAdvanced.length);
 
   return (
     <div className="space-y-6">
@@ -92,17 +100,17 @@ export default async function PurchaseRequestsPage({
       </div>
 
       <Card className="border-border/70">
-        <CardHeader>
-          <CardTitle>{dictionary.purchaseRequests.filtersTitle}</CardTitle>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">{dictionary.purchaseRequests.filtersTitle}</CardTitle>
         </CardHeader>
         <CardContent>
-          <NavigationForm className="grid gap-4 lg:grid-cols-6">
+          <NavigationForm key={filterQueryString} action="/purchase-requests" className="space-y-3">
             {filters.preset ? (
               <input type="hidden" name="preset" value={filters.preset} />
             ) : null}
 
             {quickFilterTitle ? (
-              <div className="lg:col-span-6">
+              <div className="min-w-0">
                 <div className="flex flex-col gap-3 rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <p className="text-xs font-medium text-primary">
@@ -119,103 +127,123 @@ export default async function PurchaseRequestsPage({
               </div>
             ) : null}
 
-            <div className="space-y-2 lg:col-span-2">
-              <Label htmlFor="query">{dictionary.purchaseRequests.searchLabel}</Label>
-              <div className="relative">
-                <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="query"
-                  name="query"
-                  defaultValue={filters.query}
-                  className="pl-9"
-                  placeholder={dictionary.purchaseRequests.searchPlaceholder}
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(11rem,15rem)_auto] lg:items-end">
+              <div className="min-w-0 space-y-2 col-span-2 lg:col-span-1">
+                <Label htmlFor="query">{dictionary.purchaseRequests.searchLabel}</Label>
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="query"
+                    name="query"
+                    defaultValue={filters.query}
+                    className="min-h-11 pl-9"
+                    placeholder={dictionary.purchaseRequests.searchPlaceholder}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="status">{dictionary.common.status}</Label>
+                <PurchaseRequestStatusFilter
+                  key={filterQueryString}
+                  defaultValue={filters.status}
                 />
               </div>
-            </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="status">{dictionary.common.status}</Label>
-              <PurchaseRequestStatusFilter
-                key={`${filterQueryString}:${page}`}
-                defaultValue={filters.status}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="department">{dictionary.common.department}</Label>
-              <select
-                id="department"
-                name="department"
-                defaultValue={filters.department}
-                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-              >
-                <option value="ALL">{dictionary.common.all}</option>
-                {departments.map((department) => (
-                  <option key={department} value={department}>
-                    {getDepartmentLabel(department, locale)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 gap-4 lg:col-span-2">
-              <div className="space-y-2">
-                <Label htmlFor="from">{dictionary.common.documentDateFrom}</Label>
-                <Input id="from" name="from" type="date" defaultValue={filters.from} />
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="to">{dictionary.common.documentDateTo}</Label>
-                <Input id="to" name="to" type="date" defaultValue={filters.to} />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="urgency">{dictionary.common.priority}</Label>
-              <select
-                id="urgency"
-                name="urgency"
-                defaultValue={filters.urgency}
-                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-              >
-                <option value="ALL">{dictionary.common.all}</option>
-                {priorities.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {dictionary.priorities[priority]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="sort">{dictionary.common.sort}</Label>
-              <select
-                id="sort"
-                name="sort"
-                defaultValue={filters.sort}
-                className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
-              >
-                <option value="pr_desc">{dictionary.sortOptions.pr_desc}</option>
-                <option value="pr_asc">{dictionary.sortOptions.pr_asc}</option>
-                <option value="updated_desc">{dictionary.sortOptions.updated_desc}</option>
-                <option value="status_asc">{dictionary.sortOptions.status_asc}</option>
-              </select>
-            </div>
-
-            <div className="grid grid-cols-2 items-end gap-2 lg:col-span-2">
-              <NavigationSubmitButton className="h-10 w-full rounded-xl">
+              <NavigationSubmitButton className="min-h-11 w-full self-end gap-2 rounded-xl px-4">
+                <Search aria-hidden="true" className="size-4" />
                 {dictionary.common.search}
               </NavigationSubmitButton>
-              <Button
-                asChild
-                variant="outline"
-                className="h-10 w-full rounded-xl"
-              >
-                <Link href="/purchase-requests">
+            </div>
+
+            <details data-testid="pr-advanced-filters" className="group overflow-hidden rounded-xl border border-border/70">
+              <summary className="flex min-h-11 cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium outline-offset-[-3px] hover:bg-muted/40 [&::-webkit-details-marker]:hidden">
+                <SlidersHorizontal aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                {thai ? "ตัวกรองเพิ่มเติม" : "More filters"}
+                {activeAdvanced.length > 0 && (
+                  <span className="rounded-full bg-primary/15 px-2 py-0.5 text-xs text-foreground">{activeAdvanced.length}</span>
+                )}
+                <ChevronDown aria-hidden="true" className="ml-auto size-4 shrink-0 text-muted-foreground group-open:rotate-180" />
+              </summary>
+              <div className="grid gap-3 border-t border-border/70 bg-muted/20 p-3 sm:grid-cols-2 lg:grid-cols-5">
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor="department">{dictionary.common.department}</Label>
+                  <select
+                    id="department"
+                    name="department"
+                    defaultValue={filters.department}
+                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="ALL">{dictionary.common.all}</option>
+                    {departments.map((department) => (
+                      <option key={department} value={department}>
+                        {getDepartmentLabel(department, locale)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:col-span-2">
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor="from">{dictionary.common.documentDateFrom}</Label>
+                    <Input id="from" name="from" type="date" className="min-w-0 w-full" defaultValue={filters.from} />
+                  </div>
+
+                  <div className="min-w-0 space-y-2">
+                    <Label htmlFor="to">{dictionary.common.documentDateTo}</Label>
+                    <Input id="to" name="to" type="date" className="min-w-0 w-full" defaultValue={filters.to} />
+                  </div>
+                </div>
+
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor="urgency">{dictionary.common.priority}</Label>
+                  <select
+                    id="urgency"
+                    name="urgency"
+                    defaultValue={filters.urgency}
+                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="ALL">{dictionary.common.all}</option>
+                    {priorities.map((priority) => (
+                      <option key={priority} value={priority}>
+                        {dictionary.priorities[priority]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="min-w-0 space-y-2">
+                  <Label htmlFor="sort">{dictionary.common.sort}</Label>
+                  <select
+                    id="sort"
+                    name="sort"
+                    defaultValue={filters.sort}
+                    className="h-10 w-full rounded-xl border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="pr_desc">{dictionary.sortOptions.pr_desc}</option>
+                    <option value="pr_asc">{dictionary.sortOptions.pr_asc}</option>
+                    <option value="updated_desc">{dictionary.sortOptions.updated_desc}</option>
+                    <option value="status_asc">{dictionary.sortOptions.status_asc}</option>
+                  </select>
+                </div>
+
+                <div className="flex justify-end sm:col-span-2 lg:col-span-5">
+                  <NavigationSubmitButton className="min-h-11 w-full rounded-xl sm:w-auto">
+                    {thai ? "ใช้ตัวกรอง" : "Apply filters"}
+                  </NavigationSubmitButton>
+                </div>
+              </div>
+            </details>
+            {hasFilters && (
+              <div className="flex flex-wrap items-center gap-2" aria-label={thai ? "ตัวกรองที่ใช้" : "Applied filters"}>
+                {activeAdvanced.map((value, index) => (
+                  <span key={index} className="max-w-full break-words rounded-lg bg-muted px-2 py-1 text-xs text-foreground">{value}</span>
+                ))}
+                <Link href="/purchase-requests" className="inline-flex min-h-9 items-center px-2 text-sm font-medium text-primary underline underline-offset-4">
                   {dictionary.purchaseRequests.clearFilters}
                 </Link>
-              </Button>
-            </div>
+              </div>
+            )}
           </NavigationForm>
         </CardContent>
       </Card>
